@@ -1,6 +1,6 @@
 from apu import APU
 from serial_cable import Serial
-from mbc import MBC0, MBC1, MBC3, MBC5
+from mbc import MBC0, MBC1, MBC2, MBC3, MBC5
 from joypad import Joypad
 import numpy as np
 from clock import SystemClock
@@ -74,6 +74,14 @@ class Memory:
             if 0xA000 <= address <= 0xBFFF:
                 return self.mbc.read_ram(address)
 
+        # Echo RAM
+        if 0xE000 <= address <= 0xFDFF:
+            return self.memory[address - 0x2000]
+        
+        # Unusable memory
+        if 0xFEA0 <= address <= 0xFEFF:
+            return 0x00
+
         return self.memory[address]
 
     def write_byte(self, address, value):
@@ -103,6 +111,15 @@ class Memory:
             if 0xA000 <= address <= 0xBFFF:
                 self.mbc.write_ram(address, value)
                 return
+        
+        # Echo RAM
+        if 0xE000 <= address <= 0xFDFF:
+            self.memory[address - 0x2000] = value
+            return
+
+        # Unusable memory
+        if 0xFEA0 <= address <= 0xFEFF:
+            return
         if address == 0xFF04:
             self.memory[address] = 0
             return
