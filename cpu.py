@@ -282,7 +282,7 @@ class CPU:
     H = 6
     L = 7
 
-    def __init__(self, clock=None, ram=None, video=None, verbose=False):
+    def __init__(self, clock=None, ram=None, video=None, apu=None, verbose=False):
         if ram is None:
             ram = clock
             clock = None
@@ -290,6 +290,7 @@ class CPU:
         self.clock = clock if clock is not None else SystemClock(clock_speed_hz=4194304)
         self.ram = ram
         self.video = video
+        self.apu = apu
         if self.ram is not None and self.ram.clock is None:
             self.ram.clock = self.clock
         self.memory = ram.memory if ram is not None else None
@@ -10967,6 +10968,8 @@ class CPU:
                 self.clock.update(c)
                 if self.video:
                     self.video.step(c)
+                if self.apu:
+                    self.apu.step(c)
                 self._update_timers(c)
                 self._update_interrupt_enable_delay()
 
