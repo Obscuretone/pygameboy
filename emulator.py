@@ -1,3 +1,4 @@
+import os
 import argparse
 from clock import SystemClock
 from cpu import CPU  # Import the CPU class
@@ -14,120 +15,84 @@ parser.add_argument("--slow-step", action="store_true")
 parser.add_argument("--no-realtime", action="store_true")
 parser.add_argument("--max-instructions", type=int)
 parser.add_argument("--max-cycles", type=int)
-args = parser.parse_args()
 
+def main():
+    args = parser.parse_args()
 
-with open("DMG_ROM.bin", "rb") as bootloader:
-    bootloader = bytearray(bootloader.read())
-    bootloader_size = len(bootloader)
+    if not os.path.exists(args.rom):
+        print(f"Error: ROM file '{args.rom}' not found.")
+        return
 
+    bootloader = bytearray(256)
+    if os.path.exists("DMG_ROM.bin"):
+        with open("DMG_ROM.bin", "rb") as f:
+            bootloader = bytearray(f.read())
+    else:
+        print("Warning: DMG_ROM.bin not found, bootloader will be empty.")
 
-# TODO: This should be a module of some kind
-with open(args.rom, "rb") as romdump:
-    rom = bytearray(romdump.read())
+    with open(args.rom, "rb") as f:
+        rom = bytearray(f.read())
 
-    rom_size = len(rom)
+    print_rom_info(rom)
 
+    clock = SystemClock(clock_speed_hz=4194304)
+    clock.reset()
 
-# 4.194304 MHz for Game Boy
-# clock = SystemClock(clock_speed_hz=4194304)
+    # Initialize memory map
+    # 0x0000-0x7FFF: ROM (handled by MBC)
+    # 0x8000-0x9FFF: VRAM
+    # 0xA000-0xBFFF: External RAM (handled by MBC)
+    # 0xC000-0xDFFF: WRAM
+    # 0xE000-0xFDFF: Echo RAM (handled by Memory)
+    # 0xFE00-0xFE9F: OAM
+    # 0xFF00-0xFFFF: IO, HRAM, IE
+    
+    mem_data = bytearray(0x10000)
+    # We copy the first bank of ROM for when boot ROM is disabled
+    mem_data[:0x8000] = rom[:0x8000]
+    
+    # Overlay bootloader
+    mem_data[:len(bootloader)] = bootloader
 
+    ram = Memory(clock, mem_data, backend="bytearray")
+    ram.cartridge_boot_area = rom[:len(bootloader)]
 
-clock = SystemClock(clock_speed_hz=4194304)
+    # Detect MBC Type
+    mbc_type = rom[0x0147]
+    if mbc_type == 0:
+        ram.mbc = MBC0(rom)
+    elif mbc_type in [0x01, 0x02, 0x03]:
+        ram.mbc = MBC1(rom)
+    elif mbc_type in [0x05, 0x06]:
+        ram.mbc = MBC2(rom)
+    elif mbc_type in [0x0F, 0x10, 0x11, 0x12, 0x13]:
+        ram.mbc = MBC3(rom)
+    elif mbc_type in [0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E]:
+        ram.mbc = MBC5(rom)
+    else:
+        print(f"Warning: Unsupported MBC type {hex(mbc_type)}, using MBC0")
+        ram.mbc = MBC0(rom)
 
+    video = VideoChip(clock, ram)
+    ram.video = video
+    apu = ram.apu
 
-clock.reset()
+    cpu = CPU(clock, ram, video, apu, args.verbose)
 
-mem = bytearray(0x10000)
-mem[:rom_size] = rom
+    run_args = {
+        "max_instructions": args.max_instructions,
+        "max_cycles": args.max_cycles,
+        "realtime": not args.no_realtime,
+        "profile_opcodes": args.profile,
+        "fast": not args.slow_step,
+    }
 
-# this needs a way to swap it out properly.
-mem[:bootloader_size] = bootloader
+    if args.profile:
+        cProfile.runctx(
+            "cpu.run(**run_args)", globals(), locals(), filename="profile_data.prof"
+        )
+    else:
+        cpu.run(**run_args)
 
-ram = Memory(clock, mem, backend="bytearray")
-ram.cartridge_boot_area = rom[:bootloader_size]
-
-# Detect MBC Type
-mbc_type = rom[0x0147]
-if mbc_type == 0:
-    ram.mbc = MBC0(rom)
-elif mbc_type in [0x01, 0x02, 0x03]:
-    ram.mbc = MBC1(rom)
-elif mbc_type in [0x05, 0x06]:
-    ram.mbc = MBC2(rom)
-elif mbc_type in [0x0F, 0x10, 0x11, 0x12, 0x13]:
-    ram.mbc = MBC3(rom)
-elif mbc_type in [0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E]:
-    ram.mbc = MBC5(rom)
-else:
-    print(f"Warning: Unsupported MBC type {hex(mbc_type)}, using MBC0")
-    ram.mbc = MBC0(rom)
-
-video = VideoChip(clock, ram)
-ram.video = video
-apu = ram.apu
-
-
-cpu = CPU(clock, ram, video, apu, args.verbose)
-
-
-run_args = {
-    "max_instructions": args.max_instructions,
-    "max_cycles": args.max_cycles,
-    "realtime": not args.no_realtime,
-    "profile_opcodes": args.profile,
-    "fast": not args.slow_step,
-}
-
-if args.profile:
-    cProfile.runctx(
-        "cpu.run(**run_args)", globals(), locals(), filename="profile_data.prof"
-    )
-else:
-    cpu.run(**run_args)
-
-"""
-
-def read_rom_header(rom_file):
-    rom_header = {}
-
-    # Open the ROM file in binary mode
-    with open(rom_file, "rb") as file:
-        # Read the ROM title (max 16 bytes)
-        rom_header['title'] = file.read(16).decode('ascii').rstrip('\0')
-
-        # Read the manufacturer code (2 bytes)
-        rom_header['manufacturer_code'] = file.read(2).hex().upper()
-
-        # Read the Game Boy type code (1 byte)
-        rom_header['gameboy_type_code'] = file.read(1).hex().upper()
-
-        # Read the ROM size code (1 byte)
-        rom_header['rom_size_code'] = file.read(1).hex().upper()
-
-        # Read the RAM size code (1 byte)
-        rom_header['ram_size_code'] = file.read(1).hex().upper()
-
-        # Read the destination code (1 byte)
-        rom_header['destination_code'] = file.read(1).hex().upper()
-
-        # Read the old licensee code (1 byte)
-        rom_header['old_licensee_code'] = file.read(1).hex().upper()
-
-        # Read the mask ROM version number (1 byte)
-        rom_header['mask_rom_version'] = file.read(1).hex().upper()
-
-        # Read the header checksum (1 byte)
-        rom_header['header_checksum'] = file.read(1).hex().upper()
-
-        # Read the global checksum (2 bytes)
-        rom_header['global_checksum'] = file.read(2).hex().upper()
-
-    return rom_header
-
-# Replace 'tetris.gb' with the path to your ROM file
-rom_header = read_rom_header('tetris.gb')
-
-
-
-"""
+if __name__ == "__main__":
+    main()
