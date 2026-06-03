@@ -4,7 +4,25 @@ import sys
 import argparse
 import cProfile
 import numpy as np
+
+# Fix pygame on macOS before importing
+if sys.platform == 'darwin':
+    os.environ['SDL_VIDEODRIVER'] = 'cocoa'
+    os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
+
+import pygame
+try:
+    import sounddevice as sd
+except ImportError:
+    sd = None
+
 from protocols import InputDevice
+from clock import SystemClock
+from cpu import CPU
+from memory import Memory
+from video import VideoChip
+from mbc import MBC0, MBC1, MBC2, MBC3, MBC5
+from joypad import KeyboardMapper
 
 # Standard GB color palette (original green shades)
 GB_PALETTE: Final[np.ndarray] = np.array([
