@@ -1,6 +1,14 @@
+from typing import Union, Tuple, Dict
 import numpy
 
 class RegisterFile:
+    """
+    Manages the GameBoy's internal registers.
+    
+    Includes 8-bit registers (A, F, B, C, D, E, H, L) and provides
+    convenient access to 16-bit pairs (AF, BC, DE, HL), as well
+    as the special registers PC (Program Counter) and SP (Stack Pointer).
+    """
     A = 0
     F = 1
     B = 2
@@ -10,7 +18,7 @@ class RegisterFile:
     H = 6
     L = 7
 
-    _single = {
+    _single: Dict[str, int] = {
         "A": A,
         "F": F,
         "B": B,
@@ -20,7 +28,7 @@ class RegisterFile:
         "H": H,
         "L": L,
     }
-    _pairs = {
+    _pairs: Dict[str, Tuple[int, int]] = {
         "AF": (A, F),
         "BC": (B, C),
         "DE": (D, E),
@@ -28,15 +36,26 @@ class RegisterFile:
     }
 
     def __init__(self):
-        self.data = numpy.zeros(8, dtype=numpy.uint8)
-        self.PC = 0
-        self.SP = 0
+        """Initialize registers with zeros."""
+        self.data: numpy.ndarray = numpy.zeros(8, dtype=numpy.uint8)
+        self.PC: int = 0
+        self.SP: int = 0
 
     @property
-    def shape(self):
+    def shape(self) -> Tuple[int, ...]:
+        """Return the shape of the internal data array."""
         return self.data.shape
 
-    def __getitem__(self, reg):
+    def __getitem__(self, reg: Union[str, int]) -> int:
+        """
+        Read a value from a register or register pair.
+
+        Args:
+            reg: Register name (e.g., 'A', 'BC') or index.
+
+        Returns:
+            The current value of the register.
+        """
         if isinstance(reg, str):
             if reg in self._single:
                 return int(self.data[self._single[reg]])
@@ -50,7 +69,14 @@ class RegisterFile:
             raise KeyError(reg)
         return int(self.data[reg])
 
-    def __setitem__(self, reg, value):
+    def __setitem__(self, reg: Union[str, int], value: int) -> None:
+        """
+        Write a value to a register or register pair.
+
+        Args:
+            reg: Register name (e.g., 'A', 'BC') or index.
+            value: The value to write.
+        """
         value = int(value)
         if isinstance(reg, str):
             if reg in self._single:

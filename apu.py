@@ -1,6 +1,12 @@
+from typing import List, Deque, Tuple, Optional
 import numpy as np
 from collections import deque
+
 class PulseChannel:
+    """
+    Implements a GameBoy Pulse (Square Wave) audio channel.
+    Used for Channel 1 and Channel 2.
+    """
     DUTY_CYCLES = [
         [0, 0, 0, 0, 0, 0, 0, 1], # 12.5%
         [1, 0, 0, 0, 0, 0, 0, 1], # 25%
@@ -9,24 +15,25 @@ class PulseChannel:
     ]
 
     def __init__(self):
-        self.enabled = False
-        self.timer = 0
-        self.frequency = 0
-        self.duty = 0
-        self.duty_step = 0
-        self.volume = 0
-        self.output = 0
+        self.enabled: bool = False
+        self.timer: int = 0
+        self.frequency: int = 0
+        self.duty: int = 0
+        self.duty_step: int = 0
+        self.volume: int = 0
+        self.output: int = 0
         
-        self.length_counter = 0
-        self.length_enabled = False
+        self.length_counter: int = 0
+        self.length_enabled: bool = False
         
-        self.envelope_enabled = False
-        self.envelope_timer = 0
-        self.envelope_period = 0
-        self.envelope_direction = 0 # 1: up, 0: down
-        self.initial_volume = 0
+        self.envelope_enabled: bool = False
+        self.envelope_timer: int = 0
+        self.envelope_period: int = 0
+        self.envelope_direction: int = 0 # 1: up, 0: down
+        self.initial_volume: int = 0
 
-    def step(self, cycles):
+    def step(self, cycles: int) -> None:
+        """Advance the channel timer and update output."""
         if not self.enabled:
             self.output = 0
             return
@@ -37,13 +44,15 @@ class PulseChannel:
             self.duty_step = (self.duty_step + 1) % 8
             self.output = self.volume if self.DUTY_CYCLES[self.duty][self.duty_step] else 0
 
-    def step_length(self):
+    def step_length(self) -> None:
+        """Advance the length counter."""
         if self.length_enabled and self.length_counter > 0:
             self.length_counter -= 1
             if self.length_counter == 0:
                 self.enabled = False
 
-    def step_envelope(self):
+    def step_envelope(self) -> None:
+        """Advance the volume envelope."""
         if not self.envelope_enabled or self.envelope_period == 0:
             return
             
@@ -57,8 +66,8 @@ class PulseChannel:
                 if self.volume > 0: self.volume -= 1
                 else: self.envelope_enabled = False
 
-    def trigger(self, freq_lo, freq_hi, nr_x1, nr_x2, nr_x4):
-        # print(f"Triggering Pulse Ch: vol={nr_x2>>4}, duty={(nr_x1&0xC0)>>6}")
+    def trigger(self, freq_lo: int, freq_hi: int, nr_x1: int, nr_x2: int, nr_x4: int) -> None:
+        """Trigger (restart) the channel with new register values."""
         self.frequency = ((freq_hi & 0x07) << 8) | freq_lo
         self.duty = (nr_x1 & 0xC0) >> 6
         self.enabled = True
@@ -81,18 +90,23 @@ class PulseChannel:
         self.length_enabled = bool(nr_x4 & 0x40)
 
 class WaveChannel:
+    """
+    Implements a GameBoy Wave audio channel (Channel 3).
+    Uses custom 4-bit samples from Wave RAM.
+    """
     def __init__(self):
-        self.enabled = False
-        self.timer = 0
-        self.frequency = 0
-        self.sample_index = 0
-        self.output = 0
-        self.wave_ram = bytearray(16)
-        self.length_counter = 0
-        self.length_enabled = False
-        self.volume_shift = 0 # 0: 0%, 1: 100%, 2: 50%, 3: 25%
+        self.enabled: bool = False
+        self.timer: int = 0
+        self.frequency: int = 0
+        self.sample_index: int = 0
+        self.output: int = 0
+        self.wave_ram: bytearray = bytearray(16)
+        self.length_counter: int = 0
+        self.length_enabled: bool = False
+        self.volume_shift: int = 0 # 0: 0%, 1: 100%, 2: 50%, 3: 25%
 
-    def step(self, cycles):
+    def step(self, cycles: int) -> None:
+        """Advance the wave timer and update output."""
         if not self.enabled:
             return
 
@@ -113,13 +127,15 @@ class WaveChannel:
             else:
                 self.output = 0
 
-    def step_length(self):
+    def step_length(self) -> None:
+        """Advance the length counter."""
         if self.length_enabled and self.length_counter > 0:
             self.length_counter -= 1
             if self.length_counter == 0:
                 self.enabled = False
 
-    def trigger(self, freq_lo, freq_hi, nr32, nr34):
+    def trigger(self, freq_lo: int, freq_hi: int, nr32: int, nr34: int) -> None:
+        """Trigger (restart) the wave channel."""
         self.frequency = ((freq_hi & 0x07) << 8) | freq_lo
         self.volume_shift = (nr32 & 0x60) >> 5
         self.enabled = True
@@ -139,20 +155,25 @@ class WaveChannel:
             self.output = 0
 
 class NoiseChannel:
+    """
+    Implements a GameBoy Noise audio channel (Channel 4).
+    Uses a Linear Feedback Shift Register (LFSR) to generate pseudo-random noise.
+    """
     def __init__(self):
-        self.enabled = False
-        self.timer = 0
-        self.lfsr = 0x7FFF
-        self.output = 0
-        self.volume = 0
-        self.length_counter = 0
-        self.length_enabled = False
-        self.envelope_enabled = False
-        self.envelope_timer = 0
-        self.envelope_period = 0
-        self.envelope_direction = 0
+        self.enabled: bool = False
+        self.timer: int = 0
+        self.lfsr: int = 0x7FFF
+        self.output: int = 0
+        self.volume: int = 0
+        self.length_counter: int = 0
+        self.length_enabled: bool = False
+        self.envelope_enabled: bool = False
+        self.envelope_timer: int = 0
+        self.envelope_period: int = 0
+        self.envelope_direction: int = 0
 
-    def step(self, cycles):
+    def step(self, cycles: int) -> None:
+        """Advance the noise timer and update output."""
         if not self.enabled:
             self.output = 0
             return
@@ -166,13 +187,15 @@ class NoiseChannel:
             self.lfsr = (self.lfsr >> 1) | (res << 14)
             self.output = self.volume if (self.lfsr & 0x01) == 0 else 0
 
-    def step_length(self):
+    def step_length(self) -> None:
+        """Advance the length counter."""
         if self.length_enabled and self.length_counter > 0:
             self.length_counter -= 1
             if self.length_counter == 0:
                 self.enabled = False
 
-    def step_envelope(self):
+    def step_envelope(self) -> None:
+        """Advance the volume envelope."""
         if not self.envelope_enabled or self.envelope_period == 0:
             return
             
@@ -186,7 +209,8 @@ class NoiseChannel:
                 if self.volume > 0: self.volume -= 1
                 else: self.envelope_enabled = False
 
-    def trigger(self, nr42, nr44):
+    def trigger(self, nr42: int, nr44: int) -> None:
+        """Trigger (restart) the noise channel."""
         self.enabled = True
         self.volume = (nr42 & 0xF0) >> 4
         self.envelope_direction = (nr42 >> 3) & 0x01
@@ -199,27 +223,33 @@ class NoiseChannel:
         self.length_enabled = bool(nr44 & 0x40)
 
 class APU:
+    """
+    Implements the GameBoy's Audio Processing Unit (APU).
+    
+    Orchestrates 4 audio channels and generates stereo samples at 44.1kHz.
+    """
     SAMPLE_RATE = 44100
     CPU_CLOCK_HZ = 4194304
     SAMPLE_PERIOD = CPU_CLOCK_HZ / SAMPLE_RATE
 
     def __init__(self):
-        self.registers = bytearray(0x30)
-        self.sound_enabled = False
-        self.ch1 = PulseChannel()
-        self.ch2 = PulseChannel()
-        self.ch3 = WaveChannel()
-        self.ch4 = NoiseChannel()
+        self.registers: bytearray = bytearray(0x30)
+        self.sound_enabled: bool = False
+        self.ch1: PulseChannel = PulseChannel()
+        self.ch2: PulseChannel = PulseChannel()
+        self.ch3: WaveChannel = WaveChannel()
+        self.ch4: NoiseChannel = NoiseChannel()
         
-        self.cycles = 0.0
-        self.frame_sequencer_clock = 0
-        self.frame_sequencer_step = 0
+        self.cycles: float = 0.0
+        self.frame_sequencer_clock: int = 0
+        self.frame_sequencer_step: int = 0
         
-        self.left_output = 0
-        self.right_output = 0
-        self.buffer = deque(maxlen=44100) # 1 second of audio buffer
+        self.left_output: float = 0.0
+        self.right_output: float = 0.0
+        self.buffer: Deque[Tuple[float, float]] = deque(maxlen=44100) # 1 second of audio buffer
 
-    def read_byte(self, address):
+    def read_byte(self, address: int) -> int:
+        """Read an APU register or Wave RAM byte."""
         if not self.sound_enabled and address != 0xFF26:
             return 0xFF
         
@@ -230,7 +260,8 @@ class APU:
             return self.registers[offset]
         return 0xFF
 
-    def write_byte(self, address, value):
+    def write_byte(self, address: int, value: int) -> None:
+        """Write to an APU register or Wave RAM byte."""
         offset = address - 0xFF10
         if not self.sound_enabled and address != 0xFF26:
             # Length registers can still be written to set length counter
@@ -279,7 +310,8 @@ class APU:
             elif address == 0xFF23 and (value & 0x80):
                 self.ch4.trigger(self.registers[0x12], value)
 
-    def step(self, cycles):
+    def step(self, cycles: int) -> None:
+        """Advance the APU state by the specified number of cycles."""
         if not self.sound_enabled:
             return
             
@@ -298,7 +330,8 @@ class APU:
             self.cycles -= self.SAMPLE_PERIOD
             self.sample()
 
-    def step_frame_sequencer(self):
+    def step_frame_sequencer(self) -> None:
+        """Advance the APU frame sequencer (512Hz)."""
         # Frame Sequencer steps every 512Hz
         # Step 0: Length
         # Step 1: 
@@ -324,7 +357,8 @@ class APU:
             
         self.frame_sequencer_step = (self.frame_sequencer_step + 1) % 8
 
-    def sample(self):
+    def sample(self) -> None:
+        """Generate a stereo sample and add it to the buffer."""
         nr50 = self.registers[0x14]
         nr51 = self.registers[0x15]
         

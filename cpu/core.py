@@ -1,3 +1,4 @@
+from typing import Any, Dict, List, Optional, Tuple, Union
 import time
 import numpy
 from collections import defaultdict
@@ -8,6 +9,13 @@ from .registers import RegisterFile
 from .opcodes import CPUOpcodes
 
 class CPU(CPUOpcodes):
+    """
+    Implements the GameBoy LR35902 CPU.
+    
+    The LR35902 is a Z80-like processor running at 4.194304 MHz.
+    This class handles instruction fetching, decoding, and execution,
+    as well as interrupts, timers, and register management.
+    """
     EMPTY_OPERANDS = ()
     FLAG_MASKS = {"z": 0x80, "n": 0x40, "h": 0x20, "c": 0x10}
     INTERRUPT_VECTORS = (0x40, 0x48, 0x50, 0x58, 0x60)
@@ -209,7 +217,17 @@ class CPU(CPUOpcodes):
     H = 6
     L = 7
 
-    def __init__(self, clock=None, ram=None, video=None, apu=None, verbose=False):
+    def __init__(self, clock: Optional[SystemClock] = None, ram: Any = None, video: Any = None, apu: Any = None, verbose: bool = False):
+        """
+        Initialize the CPU.
+
+        Args:
+            clock: The system clock for timing.
+            ram: The memory bus.
+            video: The PPU.
+            apu: The APU.
+            verbose: Enable verbose logging of executed instructions.
+        """
         if ram is None:
             ram = clock
             clock = None
@@ -283,14 +301,14 @@ class CPU(CPUOpcodes):
 
         self.registers = RegisterFile()
 
-        self.flags = {"z": False, "n": False, "h": False, "c": False}
-        self.interrupt_master_enable = False
-        self.enable_interrupts_pending = False
-        self.enable_interrupts_delay = 0
-        self.halted = False
-        self.stopped = False
-        self.divider_cycles = 0
-        self.timer_cycles = 0
+        self.flags: Dict[str, bool] = {"z": False, "n": False, "h": False, "c": False}
+        self.interrupt_master_enable: bool = False
+        self.enable_interrupts_pending: bool = False
+        self.enable_interrupts_delay: int = 0
+        self.halted: bool = False
+        self.stopped: bool = False
+        self.divider_cycles: int = 0
+        self.timer_cycles: int = 0
 
     def _build_instruction_table(self):
         table = [None] * 256

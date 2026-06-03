@@ -1,1 +1,6 @@
 *.gb
+venv/
+__pycache__/
+*.prof
+.DS_Store
+.vscode/
