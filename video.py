@@ -232,62 +232,69 @@ class VideoChip:
         # Render Sprites (OBJ)
         if self.LCDC & 0x02:
             sprite_height = 16 if (self.LCDC & 0x04) else 8
-            sprites_to_render = []
-            for i in range(40):
-                sprite_y = self.oam[i * 4] - 16
-                sprite_x = self.oam[i * 4 + 1] - 8
-                tile_index = self.oam[i * 4 + 2]
-                attributes = self.oam[i * 4 + 3]
+            
+            # 1. Extract all sprite data from OAM at once using NumPy
+            # OAM is 40 entries, 4 bytes each: Y, X, Tile, Attr
+            oam_array = np.frombuffer(self.oam, dtype=np.uint8).reshape(40, 4)
+            sprite_ys = oam_array[:, 0].astype(np.int16) - 16
+            
+            # 2. Find sprites on current scanline (LY)
+            # Conditions: sprite_y <= LY < sprite_y + sprite_height
+            on_scanline = (sprite_ys <= self.LY) & (self.LY < sprite_ys + sprite_height)
+            indices = np.where(on_scanline)[0]
+            
+            if len(indices) > 0:
+                # GameBoy hardware limit: max 10 sprites per scanline
+                if len(indices) > 10:
+                    indices = indices[:10]
+                
+                # 3. Collect active sprite data
+                active_sprites = oam_array[indices]
+                sprite_xs = active_sprites[:, 1].astype(np.int16) - 8
+                
+                # 4. Sort sprites by X-coordinate (and then by OAM index for DMG)
+                # reversing for painter's algorithm (last drawn is on top)
+                # But wait, GameBoy DMG uses OAM index for priority if Xs are same.
+                # Actually, earlier OAM index = higher priority.
+                # So we reverse the sort order to draw higher priority last.
+                sort_indices = np.lexsort((indices, sprite_xs))
+                
+                for idx in reversed(sort_indices):
+                    x_pos = sprite_xs[idx]
+                    y_pos = sprite_ys[indices[idx]]
+                    tile_index = active_sprites[idx, 2]
+                    attr = active_sprites[idx, 3]
 
-                if sprite_y <= self.LY < (sprite_y + sprite_height):
-                    sprites_to_render.append({
-                        'x': sprite_x,
-                        'y': sprite_y,
-                        'tile': tile_index,
-                        'attr': attributes,
-                        'id': i
-                    })
-                    if len(sprites_to_render) == 10:
-                        break
+                    y_flip = bool(attr & 0x40)
+                    x_flip = bool(attr & 0x20)
+                    palette = self.OBP1 if (attr & 0x10) else self.OBP0
+                    priority = bool(attr & 0x80)
 
-            sprites_to_render.sort(key=lambda s: (s['x'], s['id']))
+                    if sprite_height == 16:
+                        tile_index &= 0xFE
 
-            for sprite in reversed(sprites_to_render):
-                x_pos = sprite['x']
-                y_pos = sprite['y']
-                tile_index = sprite['tile']
-                attr = sprite['attr']
+                    line = self.LY - y_pos
+                    if y_flip:
+                        line = sprite_height - 1 - line
 
-                y_flip = bool(attr & 0x40)
-                x_flip = bool(attr & 0x20)
-                palette = self.OBP1 if (attr & 0x10) else self.OBP0
-                priority = bool(attr & 0x80)
+                    tile_data_address = 0x8000 + (int(tile_index) * 16) + (int(line) * 2)
+                    byte1 = self.vram[tile_data_address - 0x8000]
+                    byte2 = self.vram[tile_data_address - 0x8000 + 1]
 
-                if sprite_height == 16:
-                    tile_index &= 0xFE
+                    for bit_x in range(8):
+                        pixel_x = x_pos + bit_x
+                        if 0 <= pixel_x < 160:
+                            if priority and self.frame_buffer[self.LY * 160 + pixel_x] != 0:
+                                continue
 
-                line = self.LY - y_pos
-                if y_flip:
-                    line = sprite_height - 1 - line
+                            bit = bit_x if x_flip else (7 - bit_x)
+                            color_bit0 = (byte1 >> bit) & 0x01
+                            color_bit1 = (byte2 >> bit) & 0x01
+                            color_index = (color_bit1 << 1) | color_bit0
 
-                tile_data_address = 0x8000 + (tile_index * 16) + (line * 2)
-                byte1 = self.vram[tile_data_address - 0x8000]
-                byte2 = self.vram[tile_data_address - 0x8000 + 1]
-
-                for bit_x in range(8):
-                    pixel_x = x_pos + bit_x
-                    if 0 <= pixel_x < 160:
-                        if priority and self.frame_buffer[self.LY * 160 + pixel_x] != 0:
-                            continue
-
-                        bit = bit_x if x_flip else (7 - bit_x)
-                        color_bit0 = (byte1 >> bit) & 0x01
-                        color_bit1 = (byte2 >> bit) & 0x01
-                        color_index = (color_bit1 << 1) | color_bit0
-
-                        if color_index != 0:
-                            final_color = (palette >> (color_index * 2)) & 0x03
-                            self.frame_buffer[self.LY * 160 + pixel_x] = final_color
+                            if color_index != 0:
+                                final_color = (palette >> (color_index * 2)) & 0x03
+                                self.frame_buffer[self.LY * 160 + pixel_x] = final_color
 
     def perform_dma(self, value: int) -> None:
         """Perform OAM DMA transfer from source address to OAM."""
