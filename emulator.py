@@ -4,6 +4,7 @@ from cpu import CPU  # Import the CPU class
 from memory import Memory  # Import the CPU class
 from video import VideoChip
 import cProfile
+from mbc import MBC0, MBC1
 
 parser = argparse.ArgumentParser()
 parser.add_argument("rom", nargs="?", default="Tetris.gb")
@@ -45,6 +46,16 @@ mem[:bootloader_size] = bootloader
 
 ram = Memory(clock, mem, backend="bytearray")
 ram.cartridge_boot_area = rom[:bootloader_size]
+
+# Detect MBC Type
+mbc_type = rom[0x0147]
+if mbc_type == 0:
+    ram.mbc = MBC0(rom)
+elif mbc_type in [1, 2, 3]:
+    ram.mbc = MBC1(rom)
+else:
+    print(f"Warning: Unsupported MBC type {hex(mbc_type)}, using MBC0")
+    ram.mbc = MBC0(rom)
 
 video = VideoChip(clock, ram)
 ram.video = video

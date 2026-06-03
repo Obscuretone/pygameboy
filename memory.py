@@ -1,3 +1,4 @@
+from mbc import MBC0, MBC1
 from joypad import Joypad
 import numpy as np
 from clock import SystemClock
@@ -47,6 +48,7 @@ class Memory:
         self.boot_rom_disabled = False
         self.video = None
         self.joypad = Joypad()
+        self.mbc = None
 
     def read_byte(self, address):
         address &= 0xFFFF
@@ -57,6 +59,13 @@ class Memory:
                 return self.video.read_byte(address)
             if 0xFF40 <= address <= 0xFF4B:
                 return self.video.read_byte(address)
+        
+        if self.mbc:
+            if address <= 0x7FFF:
+                return self.mbc.read_rom(address)
+            if 0xA000 <= address <= 0xBFFF:
+                return self.mbc.read_ram(address)
+
         return self.memory[address]
 
     def write_byte(self, address, value):
@@ -71,6 +80,14 @@ class Memory:
                 return
             if 0xFF40 <= address <= 0xFF4B:
                 self.video.write_byte(address, value)
+                return
+        
+        if self.mbc:
+            if address <= 0x7FFF:
+                self.mbc.write_rom(address, value)
+                return
+            if 0xA000 <= address <= 0xBFFF:
+                self.mbc.write_ram(address, value)
                 return
         if address == 0xFF04:
             self.memory[address] = 0
