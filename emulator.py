@@ -12,6 +12,14 @@ from video import VideoChip
 from mbc import MBC0, MBC1, MBC2, MBC3, MBC5
 from joypad import KeyboardMapper
 
+# Standard GB color palette (original green shades)
+GB_PALETTE = np.array([
+    (155, 188, 15), # 0: Lightest
+    (139, 172, 15), # 1: Light
+    (48, 98, 48),   # 2: Dark
+    (15, 56, 15)    # 3: Darkest
+], dtype=np.uint8)
+
 # Pygame to Joypad mapping
 PYGAME_MAP = {
     pygame.K_UP: "up",
@@ -57,6 +65,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("rom", nargs="?", default="Tetris.gb")
     parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument("-s", "--scale", type=int, default=4, help="Window scale (default 4x)")
     parser.add_argument("--profile", action="store_true")
     parser.add_argument("--slow-step", action="store_true")
     parser.add_argument("--no-realtime", action="store_true")
@@ -83,8 +92,9 @@ def main():
     clock = SystemClock(clock_speed_hz=4194304)
     clock.reset()
 
+    # Initial memory setup
     mem_data = bytearray(0x10000)
-    mem_data[:len(rom)] = rom # Support larger ROMs in initial data too
+    mem_data[:len(rom)] = rom 
     mem_data[:len(bootloader)] = bootloader
 
     ram = Memory(clock, mem_data, backend="bytearray")
@@ -125,10 +135,15 @@ def main():
     stream = sd.OutputStream(channels=2, callback=audio_callback, samplerate=44100)
     stream.start()
 
-    # Initialize Pygame for input
+    # Initialize Pygame for visuals and input
     pygame.init()
-    screen = pygame.display.set_mode((160, 144))
-    pygame.display.set_caption("PyGameBoy")
+    window_width = 160 * args.scale
+    window_height = 144 * args.scale
+    screen = pygame.display.set_mode((window_width, window_height))
+    pygame.display.set_caption(f"PyGameBoy - {rom[0x0134:0x0143].decode('ascii').rstrip('\\0')}")
+    
+    # Internal surface for 160x144 rendering
+    internal_surface = pygame.Surface((160, 144))
 
     try:
         running = True
@@ -136,12 +151,24 @@ def main():
             running = handle_input(ram.joypad)
             
             # Run CPU for one frame worth of cycles (~70224 cycles)
-            # This will also step PPU and APU
             cpu.run(max_cycles=70224, realtime=not args.no_realtime, fast=not args.slow_step, announce=False)
             
-            # Basic screen update (blank for now)
-            # screen.fill((255, 255, 255))
-            # pygame.display.flip()
+            # 1. Get raw indices (0-3) from PPU
+            raw_indices = ram.video.frame_buffer.reshape((144, 160))
+            
+            # 2. Map to RGB using NumPy broadcasting
+            rgb_data = GB_PALETTE[raw_indices]
+            
+            # 3. Blit to internal surface
+            # Pygame surfarray uses (width, height, channels) order
+            pygame.surfarray.blit_array(internal_surface, rgb_data.transpose(1, 0, 2))
+            
+            # 4. Scale to window with linear interpolation (bilinear)
+            scaled_screen = pygame.transform.smoothscale(internal_surface, (window_width, window_height))
+            
+            # 5. Display to screen
+            screen.blit(scaled_screen, (0, 0))
+            pygame.display.flip()
             
     except KeyboardInterrupt:
         pass
