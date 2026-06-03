@@ -67,6 +67,8 @@ class Memory:
                 return self.video.read_byte(address)
             if 0xFF40 <= address <= 0xFF4B:
                 return self.video.read_byte(address)
+        elif address == 0xFF44 and self.clock is not None:
+            return (self.clock.get_cycles_elapsed() // 456) % 154
         
         if self.mbc:
             if address <= 0x7FFF:

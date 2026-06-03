@@ -289,6 +289,7 @@ class CPU:
 
         self.clock = clock if clock is not None else SystemClock(clock_speed_hz=4194304)
         self.ram = ram
+        self.video = video
         if self.ram is not None and self.ram.clock is None:
             self.ram.clock = self.clock
         self.memory = ram.memory if ram is not None else None
