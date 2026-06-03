@@ -1,4 +1,4 @@
-#!/Users/evandentremont/Code/gameboy-emulator/venv/bin/python3.12
+#!/Users/evandentremont/Code/gameboy/venv/bin/python3.12
 # -*- coding: utf-8 -*-
 import re
 import sys
