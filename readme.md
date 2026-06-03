@@ -77,10 +77,25 @@ python emulator.py path/to/your/rom.gb
 
 ## References
 
-- [GB Opcodes Table](https://izik1.github.io/gbops/index.html)
+### CPU & Opcodes
+- [GB Opcodes Table (Interactive)](https://izik1.github.io/gbops/index.html)
+- [GameBoy Opcode Summary](https://pastraiser.com/cpu/gameboy/gameboy_opcodes.html)
+- [Opcodes JSON](https://gbdev.io/gb-opcodes/Opcodes.json)
+- [RGBDS Instruction Reference](https://rgbds.gbdev.io/docs/v0.7.0/gbz80.7#JP_n16)
+- [GameBoy CPU Manual (Gekkio)](https://gekkio.fi/files/gb-docs/gbctr.pdf)
+
+### Hardware & Documentation
 - [PanDocs](https://gbdev.io/pandocs/)
-- [GameBoy CPU Manual](https://gekkio.fi/files/gb-docs/gbctr.pdf)
-- [Boot Sequence](https://knight.sc/reverse%20engineering/2018/11/19/game-boy-boot-sequence.html)
+- [GameBoy Memory Map](https://gbdev.io/pandocs/Memory_Map.html)
+- [GameBoy Hardware Lesson 1](http://gameboy.mongenel.com/dmg/lesson1.html)
+
+### Boot Sequence
+- [GameBoy Boot Sequence (Detailed)](https://knight.sc/reverse%20engineering/2018/11/19/game-boy-boot-sequence.html)
+- [Gameboy Bootstrap ROM (Wiki)](https://gbdev.gg8.se/wiki/articles/Gameboy_Bootstrap_ROM)
+- [DMG Boot ROM Source](https://www.neviksti.com/DMG/DMG_ROM.asm)
+
+### Tools
+- [Opcode Description Generator](https://meganesu.github.io/generate-gb-oE2)
 
 ## TODO
 
