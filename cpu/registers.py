@@ -34,7 +34,7 @@ class RegisterFile:
 
     def __init__(self) -> None:
         """Initialize registers with zeros."""
-        self.data: np.ndarray = np.zeros(8, dtype=np.uint8)
+        self.data: bytearray = bytearray(8)
         self.PC: Word = 0
         self.SP: Word = 0
 

@@ -18,7 +18,7 @@ class Memory:
     Handles the GameBoy's 64KB address space and memory-mapped I/O.
     """
 
-    def __init__(self, clock: Optional[ClockDevice] = None, data: Optional[MemoryData] = None, backend: str = "numpy"):
+    def __init__(self, clock: Optional[ClockDevice] = None, data: Optional[MemoryData] = None, backend: str = "bytearray"):
         """
         Initialize the memory system.
 
