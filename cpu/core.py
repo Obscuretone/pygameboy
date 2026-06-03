@@ -13,6 +13,7 @@ class CPU(CPUOpcodes):
     INTERRUPT_VECTORS = (0x40, 0x48, 0x50, 0x58, 0x60)
     INTERRUPT_TIMER = 0x04
     TIMER_PERIODS = (1024, 16, 64, 256)
+    APU_STEP_BATCH_CYCLES = 64
     FAST_INC_OPS = {
         0x04: RegisterFile.B,
         0x0C: RegisterFile.C,
@@ -1298,7 +1299,7 @@ class CPU(CPUOpcodes):
                 hl = (int(self.registers.data[RegisterFile.H]) << 8) | int(
                     self.registers.data[RegisterFile.L]
                 )
-                value = int(self.memory[hl])
+                value = self._read_memory_byte(hl)
             else:
                 value = int(self.registers.data[target])
 
@@ -1329,7 +1330,7 @@ class CPU(CPUOpcodes):
                     result = value >> 1
 
                 if target is None:
-                    self.memory[hl] = result
+                    self._write_memory_byte(hl, result)
                     cycles = 16
                 else:
                     self.registers.data[target] = result
@@ -1350,7 +1351,7 @@ class CPU(CPUOpcodes):
                 result = value | (1 << bit)
 
             if target is None:
-                self.memory[hl] = result
+                self._write_memory_byte(hl, result)
                 cycles = 16
             else:
                 self.registers.data[target] = result
@@ -1428,9 +1429,9 @@ class CPU(CPUOpcodes):
                     high = int(self.memory[(pc + 2) & 0xFFFF])
                     return_address = (pc + 3) & 0xFFFF
                     sp = (self.registers["SP"] - 1) & 0xFFFF
-                    self.memory[sp] = (return_address >> 8) & 0xFF
+                    self._write_memory_byte(sp, (return_address >> 8) & 0xFF)
                     sp = (sp - 1) & 0xFFFF
-                    self.memory[sp] = return_address & 0xFF
+                    self._write_memory_byte(sp, return_address & 0xFF)
                     self.registers["SP"] = sp
                     self.registers["PC"] = (high << 8) | low
                     return opcode, 24
@@ -1452,9 +1453,9 @@ class CPU(CPUOpcodes):
 
                 if should_return:
                     sp = self.registers["SP"]
-                    low = int(self.memory[sp])
+                    low = self._read_memory_byte(sp)
                     sp = (sp + 1) & 0xFFFF
-                    high = int(self.memory[sp])
+                    high = self._read_memory_byte(sp)
                     sp = (sp + 1) & 0xFFFF
                     self.registers["SP"] = sp
                     self.registers["PC"] = (high << 8) | low
@@ -1479,9 +1480,9 @@ class CPU(CPUOpcodes):
             registers = self.fast_push_ops[opcode]
             if registers is not None:
                 sp = (self.registers["SP"] - 1) & 0xFFFF
-                self.memory[sp] = int(self.registers.data[registers[0]])
+                self._write_memory_byte(sp, int(self.registers.data[registers[0]]))
                 sp = (sp - 1) & 0xFFFF
-                self.memory[sp] = int(self.registers.data[registers[1]])
+                self._write_memory_byte(sp, int(self.registers.data[registers[1]]))
                 self.registers["SP"] = sp
                 self.registers["PC"] = pc + 1
                 return opcode, 16
@@ -1489,9 +1490,9 @@ class CPU(CPUOpcodes):
             registers = self.fast_pop_ops[opcode]
             if registers is not None:
                 sp = self.registers["SP"]
-                low = int(self.memory[sp])
+                low = self._read_memory_byte(sp)
                 sp = (sp + 1) & 0xFFFF
-                high = int(self.memory[sp])
+                high = self._read_memory_byte(sp)
                 sp = (sp + 1) & 0xFFFF
                 self.registers.data[registers[0]] = high
                 self.registers.data[registers[1]] = low
@@ -1506,9 +1507,9 @@ class CPU(CPUOpcodes):
             if rst_target != -1:
                 return_address = (pc + 1) & 0xFFFF
                 sp = (self.registers["SP"] - 1) & 0xFFFF
-                self.memory[sp] = (return_address >> 8) & 0xFF
+                self._write_memory_byte(sp, (return_address >> 8) & 0xFF)
                 sp = (sp - 1) & 0xFFFF
-                self.memory[sp] = return_address & 0xFF
+                self._write_memory_byte(sp, return_address & 0xFF)
                 self.registers["SP"] = sp
                 self.registers["PC"] = rst_target
                 return opcode, 16
@@ -1668,8 +1669,8 @@ class CPU(CPUOpcodes):
             high = int(self.memory[(pc + 2) & 0xFFFF])
             address = (high << 8) | low
             sp = self.registers["SP"]
-            self.memory[address] = sp & 0xFF
-            self.memory[(address + 1) & 0xFFFF] = (sp >> 8) & 0xFF
+            self._write_memory_byte(address, sp & 0xFF)
+            self._write_memory_byte((address + 1) & 0xFFFF, (sp >> 8) & 0xFF)
             self.registers["PC"] = pc + 3
             return opcode, 20
 
@@ -1683,7 +1684,7 @@ class CPU(CPUOpcodes):
             hl = (int(self.registers.data[RegisterFile.H]) << 8) | int(
                 self.registers.data[RegisterFile.L]
             )
-            self.memory[hl] = int(self.memory[(pc + 1) & 0xFFFF])
+            self._write_memory_byte(hl, int(self.memory[(pc + 1) & 0xFFFF]))
             self.registers["PC"] = pc + 2
             return opcode, 12
 
@@ -1722,9 +1723,9 @@ class CPU(CPUOpcodes):
             hl = (int(self.registers.data[RegisterFile.H]) << 8) | int(
                 self.registers.data[RegisterFile.L]
             )
-            value = int(self.memory[hl])
+            value = self._read_memory_byte(hl)
             result = (value + 1) & 0xFF
-            self.memory[hl] = result
+            self._write_memory_byte(hl, result)
             self._set_inc_flags(value, result)
             self.registers["PC"] = pc + 1
             return opcode, 12
@@ -1742,9 +1743,9 @@ class CPU(CPUOpcodes):
             hl = (int(self.registers.data[RegisterFile.H]) << 8) | int(
                 self.registers.data[RegisterFile.L]
             )
-            value = int(self.memory[hl])
+            value = self._read_memory_byte(hl)
             result = (value - 1) & 0xFF
-            self.memory[hl] = result
+            self._write_memory_byte(hl, result)
             self._set_dec_flags(value, result)
             self.registers["PC"] = pc + 1
             return opcode, 12
@@ -1759,9 +1760,9 @@ class CPU(CPUOpcodes):
                     self.registers.data[RegisterFile.E]
                 )
             if opcode in (0x02, 0x12):
-                self.memory[address] = int(self.registers.data[RegisterFile.A])
+                self._write_memory_byte(address, int(self.registers.data[RegisterFile.A]))
             else:
-                self.registers.data[RegisterFile.A] = int(self.memory[address])
+                self.registers.data[RegisterFile.A] = self._read_memory_byte(address)
             self.registers["PC"] = pc + 1
             return opcode, 8
 
@@ -1770,9 +1771,9 @@ class CPU(CPUOpcodes):
                 self.registers.data[RegisterFile.L]
             )
             if opcode in (0x22, 0x32):
-                self.memory[hl] = int(self.registers.data[RegisterFile.A])
+                self._write_memory_byte(hl, int(self.registers.data[RegisterFile.A]))
             else:
-                self.registers.data[RegisterFile.A] = int(self.memory[hl])
+                self.registers.data[RegisterFile.A] = self._read_memory_byte(hl)
 
             if opcode in (0x22, 0x2A):
                 hl = (hl + 1) & 0xFFFF
@@ -1792,7 +1793,7 @@ class CPU(CPUOpcodes):
                 hl = (int(self.registers.data[RegisterFile.H]) << 8) | int(
                     self.registers.data[RegisterFile.L]
                 )
-                value = int(self.memory[hl])
+                value = self._read_memory_byte(hl)
                 cycles = 8
             else:
                 value = int(self.registers.data[source])
@@ -1802,7 +1803,7 @@ class CPU(CPUOpcodes):
                 hl = (int(self.registers.data[RegisterFile.H]) << 8) | int(
                     self.registers.data[RegisterFile.L]
                 )
-                self.memory[hl] = value
+                self._write_memory_byte(hl, value)
                 cycles = 8
             else:
                 self.registers.data[destination] = value
@@ -1824,7 +1825,7 @@ class CPU(CPUOpcodes):
                 self.registers.data[RegisterFile.L]
             )
             left = int(self.registers.data[RegisterFile.A])
-            right = int(self.memory[hl])
+            right = self._read_memory_byte(hl)
             result = left + right
             self.registers.data[RegisterFile.A] = result & 0xFF
             self._set_add_flags(left, right, result)
@@ -1846,7 +1847,7 @@ class CPU(CPUOpcodes):
                 self.registers.data[RegisterFile.L]
             )
             left = int(self.registers.data[RegisterFile.A])
-            right = int(self.memory[hl])
+            right = self._read_memory_byte(hl)
             carry = 1 if self.flags["c"] else 0
             result = left + right + carry
             self.registers.data[RegisterFile.A] = result & 0xFF
@@ -1868,7 +1869,7 @@ class CPU(CPUOpcodes):
                 self.registers.data[RegisterFile.L]
             )
             left = int(self.registers.data[RegisterFile.A])
-            right = int(self.memory[hl])
+            right = self._read_memory_byte(hl)
             result = left - right
             self.registers.data[RegisterFile.A] = result & 0xFF
             self._set_sub_flags(left, right, result)
@@ -1890,7 +1891,7 @@ class CPU(CPUOpcodes):
                 self.registers.data[RegisterFile.L]
             )
             left = int(self.registers.data[RegisterFile.A])
-            right = int(self.memory[hl])
+            right = self._read_memory_byte(hl)
             carry = 1 if self.flags["c"] else 0
             result = left - right - carry
             self.registers.data[RegisterFile.A] = result & 0xFF
@@ -1911,7 +1912,7 @@ class CPU(CPUOpcodes):
             hl = (int(self.registers.data[RegisterFile.H]) << 8) | int(
                 self.registers.data[RegisterFile.L]
             )
-            result = int(self.registers.data[RegisterFile.A]) ^ int(self.memory[hl])
+            result = int(self.registers.data[RegisterFile.A]) ^ self._read_memory_byte(hl)
             self.registers.data[RegisterFile.A] = result
             self._set_xor_flags(result)
             self.registers["PC"] = pc + 1
@@ -1930,7 +1931,7 @@ class CPU(CPUOpcodes):
             hl = (int(self.registers.data[RegisterFile.H]) << 8) | int(
                 self.registers.data[RegisterFile.L]
             )
-            result = int(self.registers.data[RegisterFile.A]) & int(self.memory[hl])
+            result = int(self.registers.data[RegisterFile.A]) & self._read_memory_byte(hl)
             self.registers.data[RegisterFile.A] = result
             self._set_and_flags(result)
             self.registers["PC"] = pc + 1
@@ -1949,7 +1950,7 @@ class CPU(CPUOpcodes):
             hl = (int(self.registers.data[RegisterFile.H]) << 8) | int(
                 self.registers.data[RegisterFile.L]
             )
-            result = int(self.registers.data[RegisterFile.A]) | int(self.memory[hl])
+            result = int(self.registers.data[RegisterFile.A]) | self._read_memory_byte(hl)
             self.registers.data[RegisterFile.A] = result
             self._set_or_flags(result)
             self.registers["PC"] = pc + 1
@@ -1967,7 +1968,7 @@ class CPU(CPUOpcodes):
                 self.registers.data[RegisterFile.L]
             )
             left = int(self.registers.data[RegisterFile.A])
-            right = int(self.memory[hl])
+            right = self._read_memory_byte(hl)
             self._set_sub_flags(left, right, left - right)
             self.registers["PC"] = pc + 1
             return opcode, 8
@@ -2021,7 +2022,7 @@ class CPU(CPUOpcodes):
         max_instructions=None,
         max_cycles=None,
         realtime=True,
-        profile_opcodes=True,
+        profile_opcodes=False,
         fast=False,
         announce=True,
     ):
@@ -2033,6 +2034,15 @@ class CPU(CPUOpcodes):
         try:
             if announce:
                 print("Blastoff!")
+
+            clock = self.clock
+            video = self.video
+            apu = self.apu
+            update_timers = self._update_timers
+            update_interrupt_enable_delay = self._update_interrupt_enable_delay
+            wait_for_next_cycle = clock.wait_for_next_cycle
+            elapsed_cycles = 0
+            apu_cycles = 0
 
             while True:
                 if profile_opcodes:
@@ -2056,31 +2066,37 @@ class CPU(CPUOpcodes):
                     self.update_stats(opcode, time_taken)
 
                 # Update the clock with the cycles used by the instruction
-                self.clock.update(c)
-                if self.video:
-                    self.video.step(c)
-                if self.apu:
-                    self.apu.step(c)
-                self._update_timers(c)
-                self._update_interrupt_enable_delay()
-
-                # Wait for the next cycle to maintain real-time synchronization
-                if realtime:
-                    self.clock.wait_for_next_cycle(c)
+                elapsed_cycles += c
+                clock.update(c)
+                if video:
+                    video.step(c)
+                if apu:
+                    apu_cycles += c
+                    if apu_cycles >= CPU.APU_STEP_BATCH_CYCLES:
+                        apu.step(apu_cycles)
+                        apu_cycles = 0
+                update_timers(c)
+                update_interrupt_enable_delay()
 
                 instructions_executed += 1
                 if self.stopped:
                     break
                 if max_instructions is not None and instructions_executed >= max_instructions:
                     break
-                if max_cycles is not None and self.clock.get_cycles_elapsed() >= max_cycles:
+                if max_cycles is not None and elapsed_cycles >= max_cycles:
                     break
 
                 # Perform any necessary operations based on the cycle count
         except KeyboardInterrupt:
             print("\nExiting...")
-            self.display_stats_on_exit()
+            if profile_opcodes:
+                self.display_stats_on_exit()
 
-        return instructions_executed, self.clock.get_cycles_elapsed()
+        if apu and apu_cycles:
+            apu.step(apu_cycles)
+        if realtime and elapsed_cycles:
+            wait_for_next_cycle(elapsed_cycles)
+
+        return instructions_executed, elapsed_cycles
 
     # self.clock.wait_for_next_cycle()

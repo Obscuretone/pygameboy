@@ -1,6 +1,7 @@
 import unittest
 from ..memory import Memory
 from ..cpu import CPU
+from ..video import VideoChip
 
 
 class TestCPU(unittest.TestCase):
@@ -15,6 +16,32 @@ class TestCPU(unittest.TestCase):
         self.mem = bytearray(0x10000)
         self.ram = Memory(self.mem)
         self.cpu = CPU(ram=self.ram)
+
+    def test_fast_ld_hl_a_writes_through_video_bus(self):
+        """Test fast LD (HL),A updates VRAM through Memory/Video bus."""
+        video = VideoChip(self.cpu.clock, self.ram)
+        self.ram.video = video
+        self.ram.write_byte(0x0000, 0x77)
+        self.cpu.write_register("HL", 0x8000)
+        self.cpu.write_register("A", 0x42)
+
+        opcode, cycles = self.cpu.step_fast()
+
+        self.assertEqual(opcode, 0x77)
+        self.assertEqual(cycles, 8)
+        self.assertEqual(video.vram[0], 0x42)
+
+    def test_boot_overlay_reads_beat_mbc_until_disabled(self):
+        """Test boot ROM mapped reads are not stolen by cartridge MBC reads."""
+        self.ram.cartridge_boot_area = bytearray([0x99])
+        self.ram.memory[0x0000] = 0x42
+
+        self.assertEqual(self.ram.read_byte(0x0000), 0x42)
+
+        self.ram.write_byte(0xFF50, 0x01)
+
+        self.assertTrue(self.ram.boot_rom_disabled)
+        self.assertEqual(self.ram.read_byte(0x0000), 0x99)
 
     def test_read_write_reg_F(self):
         """Test read and write methods for 8-bit registers"""

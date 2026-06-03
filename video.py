@@ -20,6 +20,8 @@ class VideoChip:
         # VRAM and OAM
         self.vram = bytearray(0x2000)  # 8KB Video RAM
         self.oam = bytearray(0xA0)  # Object Attribute Memory (OAM)
+        self.vram_np = np.frombuffer(self.vram, dtype=np.uint8)
+        self.x_indices = np.arange(160)
         self.memory = memory
         self.mode_clock = 0
         # Frame buffer: 160x144 pixels, each pixel is a color index (0-3)
@@ -164,7 +166,7 @@ class VideoChip:
             window_tile_map_base = 0x9C00 if (self.LCDC & 0x40) else 0x9800
 
             # Vectorized pixel positions
-            x_indices = np.arange(160)
+            x_indices = self.x_indices
             
             # Determine which pixels use window vs bg
             using_window = (window_enabled) & (x_indices >= window_x)
@@ -181,7 +183,7 @@ class VideoChip:
 
             # Get tile indices
             tile_map_addresses = tile_map_base + (tile_row * 32) + tile_col
-            vram_np = np.frombuffer(self.vram, dtype=np.uint8)
+            vram_np = self.vram_np
             tile_indices = vram_np[tile_map_addresses - 0x8000]
 
             # Calculate tile data addresses
