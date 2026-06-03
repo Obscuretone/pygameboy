@@ -14,6 +14,7 @@ class VideoChip:
         self.OBP1 = 0xFF  # Object Palette 1 Data
         self.WY = 0x00  # Window Y Position
         self.WX = 0x00  # Window X Position
+        self.DMA = 0x00 # OAM DMA Source Address
 
         # VRAM and OAM
         self.vram = bytearray(0x2000)  # 8KB Video RAM
@@ -40,6 +41,8 @@ class VideoChip:
             return self.LY
         elif address == 0xFF45:
             return self.LYC
+        elif address == 0xFF46:
+            return self.DMA
         elif address == 0xFF47:
             return self.BGP
         elif address == 0xFF48:
@@ -70,6 +73,9 @@ class VideoChip:
             self.LY = value
         elif address == 0xFF45:
             self.LYC = value
+        elif address == 0xFF46:
+            self.DMA = value
+            self.perform_dma(value)
         elif address == 0xFF47:
             self.BGP = value
         elif address == 0xFF48:
@@ -291,3 +297,11 @@ class VideoChip:
     def render_frame(self):
         # Render the entire frame
         pass
+
+    def perform_dma(self, value):
+        source_base = value << 8
+        for i in range(160):
+            # Read from memory and write directly to oam
+            # We use self.memory.read_byte which might route back here if source is VRAM
+            byte = self.memory.read_byte(source_base + i)
+            self.oam[i] = byte
