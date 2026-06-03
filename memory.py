@@ -49,7 +49,7 @@ class Memory:
         self.cartridge_boot_area = None
         self.boot_rom_disabled = False
         self.video = None
-        self.joypad = Joypad()
+        self.joypad = Joypad(self)
         self.mbc = None
         self.serial = Serial(self)
         self.apu = APU()
