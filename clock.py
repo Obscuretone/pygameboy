@@ -31,19 +31,17 @@ class SystemClock:
     def wait_for_next_cycle(self, cycles: int) -> None:
         """
         Pause execution to match the real-time clock speed.
-
-        Args:
-            cycles: The number of cycles that have passed since the last wait.
+        Uses an accumulated ideal time to prevent drift.
         """
-        elapsed_time = cycles / self.clock_speed_hz
-        next_cycle_time = self.last_time + elapsed_time
+        ideal_elapsed = cycles / self.clock_speed_hz
+        self.last_time += ideal_elapsed
         current_time = time.time()
 
-        if next_cycle_time > current_time:
-            time_to_wait = next_cycle_time - current_time
-            time.sleep(time_to_wait)
-
-        self.last_time = time.time()
+        if self.last_time > current_time:
+            time.sleep(self.last_time - current_time)
+        elif current_time - self.last_time > 0.1:
+            # If we're lagging by more than 100ms, reset ideal time to current to avoid "speed-up" catch-up
+            self.last_time = current_time
 
     def get_cycles_elapsed(self) -> int:
         """Get the total number of cycles elapsed since reset."""

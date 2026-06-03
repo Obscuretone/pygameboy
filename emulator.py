@@ -81,6 +81,20 @@ def handle_input(joypad: InputDevice) -> bool:
                 joypad.set_key(PYGAME_MAP[event.key], event.type == pygame.KEYDOWN)
     return True
 
+def print_banner() -> None:
+    """Print a professional ASCII banner for PyGameBoy."""
+    banner = r"""
+    ______      _____                      ____             
+   / ____/___ _/ ___/___  ____ ___  ____  / __ )____  __  __
+  / / __/ __ `/\__ \/ _ \/ __ `__ \/ __ \/ __  / __ \/ / / /
+ / /_/ / /_/ /___/ /  __/ / / / / / /_/ / /_/ / /_/ / /_/ / 
+ \____/\__,_//____/\___/_/ /_/ /_/\____/____/\____/\__, /  
+                                                  /____/   
+    """
+    print(banner)
+    print(" [ DMG-01 Emulator | Python + Pygame + NumPy ]")
+    print("=" * 60)
+
 def main() -> None:
     """Main execution loop of the emulator."""
     parser = argparse.ArgumentParser()
@@ -110,8 +124,11 @@ def main() -> None:
     with open(args.rom, "rb") as f:
         rom = bytearray(f.read())
 
+    print_banner()
     rom_title = get_rom_title(rom)
     print_rom_info(rom)
+    print("=" * 60)
+    sys.stdout.flush()
 
     clock = SystemClock(clock_speed_hz=4194304)
     clock.reset()
