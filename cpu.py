@@ -282,7 +282,7 @@ class CPU:
     H = 6
     L = 7
 
-    def __init__(self, clock=None, ram=None, verbose=False):
+    def __init__(self, clock=None, ram=None, video=None, verbose=False):
         if ram is None:
             ram = clock
             clock = None
@@ -10964,6 +10964,8 @@ class CPU:
 
                 # Update the clock with the cycles used by the instruction
                 self.clock.update(c)
+                if self.video:
+                    self.video.step(c)
                 self._update_timers(c)
                 self._update_interrupt_enable_delay()
 

@@ -49,7 +49,7 @@ ram.cartridge_boot_area = rom[:bootloader_size]
 video = VideoChip(clock, ram)
 
 
-cpu = CPU(clock, ram, args.verbose)
+cpu = CPU(clock, ram, video, args.verbose)
 
 
 run_args = {

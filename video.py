@@ -18,6 +18,8 @@ class VideoChip:
         # VRAM and OAM
         self.vram = bytearray(0x2000)  # 8KB Video RAM
         self.oam = bytearray(0xA0)  # Object Attribute Memory (OAM)
+        self.memory = memory
+        self.mode_clock = 0
 
     def read_byte(self, address):
         if 0x8000 <= address <= 0x9FFF:
@@ -79,10 +81,63 @@ class VideoChip:
         else:
             raise ValueError(f"Unknown video register address: {hex(address)}")
 
+
     def step(self, cycles):
-        # Step the PPU for the given number of cycles
-        # This method will handle the rendering and state transitions
-        pass
+        # GameBoy PPU has 4 modes:
+        # Mode 2 (OAM Search): 80 cycles
+        # Mode 3 (Transferring Data): 172-289 cycles
+        # Mode 0 (H-Blank): 87-204 cycles
+        # Mode 1 (V-Blank): 4560 cycles (10 scanlines)
+
+        self.mode_clock += cycles
+        
+        # Current Mode
+        mode = self.STAT & 0x03
+        
+        if mode == 2: # OAM Search
+            if self.mode_clock >= 80:
+                self.mode_clock -= 80
+                self.set_mode(3)
+        elif mode == 3: # Pixel Transfer
+            if self.mode_clock >= 172: # Simplified fixed timing
+                self.mode_clock -= 172
+                self.set_mode(0)
+                self.render_scanline()
+        elif mode == 0: # H-Blank
+            if self.mode_clock >= 204:
+                self.mode_clock -= 204
+                self.LY += 1
+                
+                if self.LY == 144:
+                    self.set_mode(1)
+                    # Request V-Blank interrupt (bit 0)
+                    self.memory.request_interrupt(0x01)
+                else:
+                    self.set_mode(2)
+                
+                self.check_lyc()
+        elif mode == 1: # V-Blank
+            if self.mode_clock >= 456:
+                self.mode_clock -= 456
+                self.LY += 1
+                
+                if self.LY > 153:
+                    self.LY = 0
+                    self.set_mode(2)
+                
+                self.check_lyc()
+
+    def set_mode(self, mode):
+        self.STAT = (self.STAT & 0xFC) | (mode & 0x03)
+        # TODO: Trigger STAT interrupt if enabled
+
+    def check_lyc(self):
+        if self.LY == self.LYC:
+            self.STAT |= 0x04 # Set LYC=LY flag
+            # TODO: Trigger STAT interrupt if bit 6 is set
+        else:
+            self.STAT &= ~0x04
+
 
     def render_scanline(self):
         # Render a single scanline
