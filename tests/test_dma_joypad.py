@@ -48,7 +48,7 @@ class TestDMAJoypad(unittest.TestCase):
         self.memory.write_byte(0xFF00, 0x10) # bit 5=0, bit 4=1
         
         # Press "A"
-        self.memory.joypad.set_key("a", True)
+        self.memory.joypad.set_key("a_button", True)
         
         # Read back. Bit 0 (A) should be 0.
         res = self.memory.read_byte(0xFF00)

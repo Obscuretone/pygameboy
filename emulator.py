@@ -1,4 +1,30 @@
+import os
+import sys
+import argparse
+import cProfile
+import numpy as np
+import pygame
 import sounddevice as sd
+from clock import SystemClock
+from cpu import CPU
+from memory import Memory
+from video import VideoChip
+from mbc import MBC0, MBC1, MBC2, MBC3, MBC5
+from joypad import KeyboardMapper
+
+# Pygame to Joypad mapping
+PYGAME_MAP = {
+    pygame.K_UP: "up",
+    pygame.K_DOWN: "down",
+    pygame.K_LEFT: "left",
+    pygame.K_RIGHT: "right",
+    pygame.K_z: "a_button",
+    pygame.K_x: "b_button",
+    pygame.K_RETURN: "start",
+    pygame.K_RSHIFT: "select",
+    pygame.K_SPACE: "select"
+}
+
 def print_rom_info(rom):
     try:
         title = rom[0x0134:0x0143].decode('ascii').rstrip('\0')
@@ -18,26 +44,24 @@ def print_rom_info(rom):
     print(f"ROM Size:    {rom_size // 1024} KB")
     print(f"RAM Size:    {ram_size // 1024} KB")
 
-import numpy as np
-import os
-import argparse
-from clock import SystemClock
-from cpu import CPU  # Import the CPU class
-from memory import Memory  # Import the CPU class
-from video import VideoChip
-import cProfile
-from mbc import MBC0, MBC1, MBC2, MBC3, MBC5
-
-parser = argparse.ArgumentParser()
-parser.add_argument("rom", nargs="?", default="Tetris.gb")
-parser.add_argument("-v", "--verbose", action="store_true")
-parser.add_argument("--profile", action="store_true")
-parser.add_argument("--slow-step", action="store_true")
-parser.add_argument("--no-realtime", action="store_true")
-parser.add_argument("--max-instructions", type=int)
-parser.add_argument("--max-cycles", type=int)
+def handle_input(joypad):
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            return False
+        if event.type in [pygame.KEYDOWN, pygame.KEYUP]:
+            if event.key in PYGAME_MAP:
+                joypad.set_key(PYGAME_MAP[event.key], event.type == pygame.KEYDOWN)
+    return True
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("rom", nargs="?", default="Tetris.gb")
+    parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument("--profile", action="store_true")
+    parser.add_argument("--slow-step", action="store_true")
+    parser.add_argument("--no-realtime", action="store_true")
+    parser.add_argument("--max-instructions", type=int)
+    parser.add_argument("--max-cycles", type=int)
     args = parser.parse_args()
 
     if not os.path.exists(args.rom):
@@ -59,20 +83,8 @@ def main():
     clock = SystemClock(clock_speed_hz=4194304)
     clock.reset()
 
-    # Initialize memory map
-    # 0x0000-0x7FFF: ROM (handled by MBC)
-    # 0x8000-0x9FFF: VRAM
-    # 0xA000-0xBFFF: External RAM (handled by MBC)
-    # 0xC000-0xDFFF: WRAM
-    # 0xE000-0xFDFF: Echo RAM (handled by Memory)
-    # 0xFE00-0xFE9F: OAM
-    # 0xFF00-0xFFFF: IO, HRAM, IE
-    
     mem_data = bytearray(0x10000)
-    # We copy the first bank of ROM for when boot ROM is disabled
-    mem_data[:0x8000] = rom[:0x8000]
-    
-    # Overlay bootloader
+    mem_data[:len(rom)] = rom # Support larger ROMs in initial data too
     mem_data[:len(bootloader)] = bootloader
 
     ram = Memory(clock, mem_data, backend="bytearray")
@@ -100,15 +112,6 @@ def main():
 
     cpu = CPU(clock, ram, video, apu, args.verbose)
 
-    run_args = {
-        "max_instructions": args.max_instructions,
-        "max_cycles": args.max_cycles,
-        "realtime": not args.no_realtime,
-        "profile_opcodes": args.profile,
-        "fast": not args.slow_step,
-    }
-
-    
     # Audio setup
     def audio_callback(outdata, frames, time, status):
         if status:
@@ -122,17 +125,30 @@ def main():
     stream = sd.OutputStream(channels=2, callback=audio_callback, samplerate=44100)
     stream.start()
 
-    try:
+    # Initialize Pygame for input
+    pygame.init()
+    screen = pygame.display.set_mode((160, 144))
+    pygame.display.set_caption("PyGameBoy")
 
-        if args.profile:
-            cProfile.runctx(
-                "cpu.run(**run_args)", globals(), locals(), filename="profile_data.prof"
-            )
-        else:
-            cpu.run(**run_args)
+    try:
+        running = True
+        while running:
+            running = handle_input(ram.joypad)
+            
+            # Run CPU for one frame worth of cycles (~70224 cycles)
+            # This will also step PPU and APU
+            cpu.run(max_cycles=70224, realtime=not args.no_realtime, fast=not args.slow_step, announce=False)
+            
+            # Basic screen update (blank for now)
+            # screen.fill((255, 255, 255))
+            # pygame.display.flip()
+            
+    except KeyboardInterrupt:
+        pass
     finally:
         stream.stop()
         stream.close()
+        pygame.quit()
 
 if __name__ == "__main__":
     main()
