@@ -1,3 +1,4 @@
+import numpy as np
 # gameboy_emulator/video.py
 
 
@@ -22,7 +23,7 @@ class VideoChip:
         self.memory = memory
         self.mode_clock = 0
         # Frame buffer: 160x144 pixels, each pixel is a color index (0-3)
-        self.frame_buffer = [0] * (160 * 144)
+        self.frame_buffer = np.zeros(160 * 144, dtype=np.uint8)
 
     def read_byte(self, address):
         if 0x8000 <= address <= 0x9FFF:
@@ -151,76 +152,61 @@ class VideoChip:
     def render_scanline(self):
         # Bit 0 of LCDC: BG Display Enable
         if not (self.LCDC & 0x01):
-            # Fill scanline with color 0 (white) if BG is disabled
-            for x in range(160):
-                self.frame_buffer[self.LY * 160 + x] = 0
-            return
-
-        # Bit 4 of LCDC: 0=8800-97FF, 1=8000-8FFF (Shared by BG and Window)
-        tile_data_base = 0x8000 if (self.LCDC & 0x10) else 0x8800
-        unsigned_tiles = True if (self.LCDC & 0x10) else False
-
-        # Bit 3 of LCDC: 0=9800-9BFF, 1=9C00-9FFF
-        bg_tile_map_base = 0x9C00 if (self.LCDC & 0x08) else 0x9800
-        
-        
-        # Determine if Window is enabled and visible on this scanline
-        # Bit 5 of LCDC: Window Display Enable
-        window_enabled = (self.LCDC & 0x20) and (self.WY <= self.LY)
-        window_x = self.WX - 7
-        
-        # Determine Tile Map Base Address for Window
-        # Bit 6 of LCDC: 0=9800-9BFF, 1=9C00-9FFF
-        window_tile_map_base = 0x9C00 if (self.LCDC & 0x40) else 0x9800
-
-        for x in range(160):
-            using_window = window_enabled and (x >= window_x)
+            self.frame_buffer[self.LY * 160 : (self.LY + 1) * 160] = 0
+        else:
+            # Common properties
+            tile_data_base = 0x8000 if (self.LCDC & 0x10) else 0x8800
+            unsigned_tiles = bool(self.LCDC & 0x10)
+            bg_tile_map_base = 0x9C00 if (self.LCDC & 0x08) else 0x9800
             
-            if using_window:
-                x_pos = x - window_x
-                y_pos = self.LY - self.WY
-                tile_map_base = window_tile_map_base
-            else:
-                # X position in the 256x256 background map
-                x_pos = (x + self.SCX) & 0xFF
-                y_pos = (self.LY + self.SCY) & 0xFF
-                tile_map_base = bg_tile_map_base
+            window_enabled = (self.LCDC & 0x20) and (self.WY <= self.LY)
+            window_x = self.WX - 7
+            window_tile_map_base = 0x9C00 if (self.LCDC & 0x40) else 0x9800
+
+            # Vectorized pixel positions
+            x_indices = np.arange(160)
+            
+            # Determine which pixels use window vs bg
+            using_window = (window_enabled) & (x_indices >= window_x)
+            
+            # Calculate x_pos and y_pos for all pixels
+            x_pos = np.where(using_window, x_indices - window_x, (x_indices + self.SCX) & 0xFF)
+            y_pos = np.where(using_window, self.LY - self.WY, (self.LY + self.SCY) & 0xFF)
+            tile_map_base = np.where(using_window, window_tile_map_base, bg_tile_map_base)
 
             tile_row = y_pos // 8
             tile_col = x_pos // 8
             tile_y = y_pos % 8
             tile_x = x_pos % 8
 
-            # Get tile index from tile map
-            tile_map_address = tile_map_base + (tile_row * 32) + tile_col
+            # Get tile indices
+            tile_map_addresses = tile_map_base + (tile_row * 32) + tile_col
+            vram_np = np.frombuffer(self.vram, dtype=np.uint8)
+            tile_indices = vram_np[tile_map_addresses - 0x8000]
 
-            tile_index = self.vram[tile_map_address - 0x8000]
-
-            # Get tile data address
+            # Calculate tile data addresses
             if unsigned_tiles:
-                # 0x8000 method: tile_index is 0-255
-                tile_data_address = tile_data_base + (tile_index * 16)
+                tile_data_addresses = tile_data_base + (tile_indices.astype(np.uint32) * 16)
             else:
-                # 0x8800 method: tile_index is signed -128 to 127
-                if tile_index > 127:
-                    tile_index -= 256
-                tile_data_address = 0x9000 + (tile_index * 16)
+                # Handle signed indexing (-128 to 127)
+                signed_indices = tile_indices.astype(np.int8).astype(np.int32)
+                tile_data_addresses = 0x9000 + (signed_indices * 16)
 
-            # Each tile line is 2 bytes
-            byte1 = self.vram[tile_data_address - 0x8000 + (tile_y * 2)]
-            byte2 = self.vram[tile_data_address - 0x8000 + (tile_y * 2) + 1]
+            # Fetch byte1 and byte2 for all pixels
+            data_offsets = tile_data_addresses.astype(np.uint32) - 0x8000 + (tile_y * 2)
+            byte1 = vram_np[data_offsets]
+            byte2 = vram_np[data_offsets + 1]
 
-            # Get pixel color index (2 bits)
-            bit = 7 - tile_x
-            color_bit0 = (byte1 >> bit) & 0x01
-            color_bit1 = (byte2 >> bit) & 0x01
-            color_index = (color_bit1 << 1) | color_bit0
+            # Calculate color indices
+            bits = 7 - tile_x
+            color_bit0 = (byte1 >> bits) & 0x01
+            color_bit1 = (byte2 >> bits) & 0x01
+            color_indices = (color_bit1 << 1) | color_bit0
 
             # Map through palette
-            final_color = (self.BGP >> (color_index * 2)) & 0x03
+            final_colors = (self.BGP >> (color_indices.astype(np.uint8) * 2)) & 0x03
             
-            self.frame_buffer[self.LY * 160 + x] = final_color
-        
+            self.frame_buffer[self.LY * 160 : (self.LY + 1) * 160] = final_colors
 
         # Render Sprites (OBJ)
         # Bit 1 of LCDC: OBJ Display Enable
@@ -249,7 +235,6 @@ class VideoChip:
                         break
 
             # Sort sprites by X-coordinate (and then by OAM index for DMG)
-            # DMG priority: Smaller X has priority. If X is same, smaller OAM index has priority.
             sprites_to_render.sort(key=lambda s: (s['x'], s['id']))
 
             for sprite in reversed(sprites_to_render):
@@ -258,20 +243,18 @@ class VideoChip:
                 tile_index = sprite['tile']
                 attr = sprite['attr']
 
-                # Attributes
                 y_flip = bool(attr & 0x40)
                 x_flip = bool(attr & 0x20)
                 palette = self.OBP1 if (attr & 0x10) else self.OBP0
                 priority = bool(attr & 0x80)
 
                 if sprite_height == 16:
-                    tile_index &= 0xFE # In 8x16 mode, bit 0 is ignored
+                    tile_index &= 0xFE
 
                 line = self.LY - y_pos
                 if y_flip:
                     line = sprite_height - 1 - line
 
-                # Fetch tile data
                 tile_data_address = 0x8000 + (tile_index * 16) + (line * 2)
                 byte1 = self.vram[tile_data_address - 0x8000]
                 byte2 = self.vram[tile_data_address - 0x8000 + 1]
@@ -279,7 +262,6 @@ class VideoChip:
                 for bit_x in range(8):
                     pixel_x = x_pos + bit_x
                     if 0 <= pixel_x < 160:
-                        # Skip if BG priority is set and BG is not color 0
                         if priority and self.frame_buffer[self.LY * 160 + pixel_x] != 0:
                             continue
 
@@ -288,10 +270,9 @@ class VideoChip:
                         color_bit1 = (byte2 >> bit) & 0x01
                         color_index = (color_bit1 << 1) | color_bit0
 
-                        if color_index != 0: # 0 is transparent for sprites
+                        if color_index != 0:
                             final_color = (palette >> (color_index * 2)) & 0x03
                             self.frame_buffer[self.LY * 160 + pixel_x] = final_color
-
 
 
     def render_frame(self):
