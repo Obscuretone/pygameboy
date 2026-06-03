@@ -1,27 +1,25 @@
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union, Final
 import time
-import numpy
+import numpy as np
 from collections import defaultdict
 import sys
 import cProfile
 from clock import SystemClock
 from .registers import RegisterFile
 from .opcodes import CPUOpcodes
+from protocols import VideoDevice, AudioDevice, ClockDevice
+from gb_types import Address, Byte, Word, Cycles
 
 class CPU(CPUOpcodes):
     """
     Implements the GameBoy LR35902 CPU.
-    
-    The LR35902 is a Z80-like processor running at 4.194304 MHz.
-    This class handles instruction fetching, decoding, and execution,
-    as well as interrupts, timers, and register management.
     """
-    EMPTY_OPERANDS = ()
-    FLAG_MASKS = {"z": 0x80, "n": 0x40, "h": 0x20, "c": 0x10}
-    INTERRUPT_VECTORS = (0x40, 0x48, 0x50, 0x58, 0x60)
-    INTERRUPT_TIMER = 0x04
-    TIMER_PERIODS = (1024, 16, 64, 256)
-    APU_STEP_BATCH_CYCLES = 64
+    EMPTY_OPERANDS: Final[Tuple] = ()
+    FLAG_MASKS: Final[Dict[str, int]] = {"z": 0x80, "n": 0x40, "h": 0x20, "c": 0x10}
+    INTERRUPT_VECTORS: Final[Tuple[int, ...]] = (0x40, 0x48, 0x50, 0x58, 0x60)
+    INTERRUPT_TIMER: Final[int] = 0x04
+    TIMER_PERIODS: Final[Tuple[int, ...]] = (1024, 16, 64, 256)
+    APU_STEP_BATCH_CYCLES: Final[int] = 64
     FAST_INC_OPS = {
         0x04: RegisterFile.B,
         0x0C: RegisterFile.C,
@@ -217,7 +215,7 @@ class CPU(CPUOpcodes):
     H = 6
     L = 7
 
-    def __init__(self, clock: Optional[SystemClock] = None, ram: Any = None, video: Any = None, apu: Any = None, verbose: bool = False):
+    def __init__(self, clock: Optional[ClockDevice] = None, ram: Any = None, video: Optional[VideoDevice] = None, apu: Optional[AudioDevice] = None, verbose: bool = False):
         """
         Initialize the CPU.
 
@@ -228,19 +226,26 @@ class CPU(CPUOpcodes):
             apu: The APU.
             verbose: Enable verbose logging of executed instructions.
         """
-        if ram is None:
+        # Maintain flexible initialization for backward compatibility
+        if ram is None and clock is not None and not hasattr(clock, "update"):
             ram = clock
             clock = None
 
-        self.clock = clock if clock is not None else SystemClock(clock_speed_hz=4194304)
-        self.ram = ram
-        self.video = video
-        self.apu = apu
-        if self.ram is not None and self.ram.clock is None:
-            self.ram.clock = self.clock
-        self.memory = ram.memory if ram is not None else None
-        self.verbose = verbose
-        self.instruction_table = self._build_instruction_table()
+        self.clock: ClockDevice = clock if clock is not None else SystemClock(clock_speed_hz=4194304)
+        self.ram: Any = ram
+        self.video: Optional[VideoDevice] = video
+        self.apu: Optional[AudioDevice] = apu
+        
+        # Ensure RAM has access to the clock if not already set
+        if self.ram is not None and getattr(self.ram, 'clock', None) is None:
+            try:
+                self.ram.clock = self.clock
+            except AttributeError:
+                pass
+            
+        self.memory: Optional[np.ndarray] = getattr(ram, 'memory', None) if ram is not None else None
+        self.verbose: bool = verbose
+        self.instruction_table: List[Optional[Tuple]] = self._build_instruction_table()
         self.fast_inc_ops, self.fast_dec_ops, self.fast_ld_n8_ops = (
             self._build_fast_register_tables()
         )
@@ -899,10 +904,10 @@ class CPU(CPUOpcodes):
     # these are the underlying implementation of common operations. IE __inc is the basis of _inc_a, _inc_b, etc.
     # these get unit tests to ensure they work as expected.
 
-    def _is_8bit_register(self, register):
+    def _is_8bit_register(self, register: Union[str, int]) -> bool:
         return isinstance(register, int) or register in ("A", "F", "B", "C", "D", "E", "H", "L")
 
-    def _inc(self, register):
+    def _inc(self, register: Union[str, int]) -> None:
         value = self.read_register(register)
         result = (value + 1) & (0xFF if self._is_8bit_register(register) else 0xFFFF)
         self.write_register(register, result)
@@ -912,8 +917,7 @@ class CPU(CPUOpcodes):
             self.set_flag("n", False)
             self.set_flag("h", (value & 0x0F) == 0x0F)
 
-    def _dec(self, register):
-        # Update the L register with the result (wrapped to 8 bits)
+    def _dec(self, register: Union[str, int]) -> None:
         value = self.read_register(register)
         result = (value - 1) & (0xFF if self._is_8bit_register(register) else 0xFFFF)
         self.write_register(register, result)
@@ -923,8 +927,7 @@ class CPU(CPUOpcodes):
             self.set_flag("n", True)
             self.set_flag("h", (value & 0x0F) == 0x00)
 
-    def _add(self, registerA, registerB):
-
+    def _add(self, registerA: Union[str, int], registerB: Union[str, int]) -> None:
         a = self.read_register(registerA)
         b = self.read_register(registerB)
 

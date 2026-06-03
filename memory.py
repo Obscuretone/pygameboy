@@ -1,32 +1,24 @@
 from typing import Optional, Union, Any
+import numpy as np
+from protocols import (
+    MemoryBankController,
+    VideoDevice,
+    AudioDevice,
+    InputDevice,
+    SerialDevice,
+    ClockDevice
+)
 from apu import APU
 from serial_cable import Serial
-from mbc import MBC0, MBC1, MBC2, MBC3, MBC5
 from joypad import Joypad
-import numpy as np
-from clock import SystemClock
-
+from gb_types import MemoryData
 
 class Memory:
     """
     Handles the GameBoy's 64KB address space and memory-mapped I/O.
-    
-    Memory Map:
-    $0000-$3FFF    16KB ROM Bank 00 (in cartridge, fixed at bank 00)
-    $4000-$7FFF    16KB ROM Bank 01..NN (in cartridge, switchable bank number)
-    $8000-$9FFF    8KB Video RAM (VRAM) (switchable bank 0-1 in CGB Mode)
-    $A000-$BFFF    8KB External RAM (in cartridge, switchable bank, if any)
-    $C000-$CFFF    4KB Work RAM (WRAM) bank 0
-    $D000-$DFFF    4KB Work RAM (WRAM) bank 1 (switchable bank 1-7 in CGB Mode)
-    $E000-$FDFF    Same as $C000-$DDFF (ECHO RAM) (typically not used)
-    $FE00-$FE9F    Sprite attribute table (OAM)
-    $FEA0-$FEFF    Not Usable
-    $FF00-$FF7F    I/O Registers
-    $FF80-$FFFE    High RAM (HRAM)
-    $FFFF          Interrupt Enable register (IE)
     """
 
-    def __init__(self, clock: Optional[SystemClock] = None, data: Optional[Union[bytes, bytearray, np.ndarray]] = None, backend: str = "numpy"):
+    def __init__(self, clock: Optional[ClockDevice] = None, data: Optional[MemoryData] = None, backend: str = "numpy"):
         """
         Initialize the memory system.
 
@@ -35,32 +27,33 @@ class Memory:
             data: Initial memory data (e.g., ROM + Bootloader).
             backend: The storage backend to use ('numpy' or 'bytearray').
         """
+        # Handle cases where data is passed as the first argument (legacy/tests)
         if data is None and clock is not None and not hasattr(clock, "update"):
             data = clock
             clock = None
 
-        self.clock = clock
-        self.backend = backend
+        self.clock: Optional[ClockDevice] = clock
+        self.backend: str = backend
         
         # Initialize memory with zeroes if data is not provided
         if backend == "numpy":
-            self.memory = (
+            self.memory: np.ndarray = (
                 np.zeros(0x10000, dtype=np.uint8)
                 if data is None
                 else np.array(data, dtype=np.uint8)
             )
         elif backend == "bytearray":
-            self.memory = bytearray(0x10000) if data is None else bytearray(data)
+            self.memory: Union[bytearray, np.ndarray] = bytearray(0x10000) if data is None else bytearray(data)
         else:
             raise ValueError(f"Unknown memory backend: {backend}")
             
         self.cartridge_boot_area: Optional[bytearray] = None
         self.boot_rom_disabled: bool = False
-        self.video: Any = None
-        self.joypad: Joypad = Joypad(self)
-        self.mbc: Any = None
-        self.serial: Serial = Serial(self)
-        self.apu: APU = APU()
+        self.video: Optional[VideoDevice] = None
+        self.joypad: InputDevice = Joypad(self)
+        self.mbc: Optional[MemoryBankController] = None
+        self.serial: SerialDevice = Serial(self)
+        self.apu: AudioDevice = APU()
 
     def read_byte(self, address: int) -> int:
         """

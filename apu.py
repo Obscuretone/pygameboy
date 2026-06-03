@@ -1,20 +1,20 @@
-from typing import List, Deque, Tuple, Optional
+from typing import List, Deque, Tuple, Optional, Final
 import numpy as np
 from collections import deque
+from gb_types import Sample, Cycles
 
 class PulseChannel:
     """
     Implements a GameBoy Pulse (Square Wave) audio channel.
-    Used for Channel 1 and Channel 2.
     """
-    DUTY_CYCLES = [
+    DUTY_CYCLES: Final[List[List[int]]] = [
         [0, 0, 0, 0, 0, 0, 0, 1], # 12.5%
         [1, 0, 0, 0, 0, 0, 0, 1], # 25%
         [1, 0, 0, 0, 0, 1, 1, 1], # 50%
         [0, 1, 1, 1, 1, 1, 1, 0]  # 75%
     ]
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.enabled: bool = False
         self.timer: int = 0
         self.frequency: int = 0
@@ -225,14 +225,12 @@ class NoiseChannel:
 class APU:
     """
     Implements the GameBoy's Audio Processing Unit (APU).
-    
-    Orchestrates 4 audio channels and generates stereo samples at 44.1kHz.
     """
-    SAMPLE_RATE = 44100
-    CPU_CLOCK_HZ = 4194304
-    SAMPLE_PERIOD = CPU_CLOCK_HZ / SAMPLE_RATE
+    SAMPLE_RATE: Final[int] = 44100
+    CPU_CLOCK_HZ: Final[int] = 4194304
+    SAMPLE_PERIOD: Final[float] = CPU_CLOCK_HZ / SAMPLE_RATE
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.registers: bytearray = bytearray(0x30)
         self.sound_enabled: bool = False
         self.ch1: PulseChannel = PulseChannel()
@@ -246,7 +244,7 @@ class APU:
         
         self.left_output: float = 0.0
         self.right_output: float = 0.0
-        self.buffer: Deque[Tuple[float, float]] = deque(maxlen=44100) # 1 second of audio buffer
+        self.buffer: Deque[Sample] = deque(maxlen=self.SAMPLE_RATE) # 1 second of audio buffer
 
     def read_byte(self, address: int) -> int:
         """Read an APU register or Wave RAM byte."""
