@@ -47,13 +47,23 @@ class Memory:
 
     def read_byte(self, address):
         address &= 0xFFFF
-        if address == 0xFF44 and self.clock is not None:
-            return (self.clock.get_cycles_elapsed() // 456) % 154
+        if self.video:
+            if 0x8000 <= address <= 0x9FFF or 0xFE00 <= address <= 0xFE9F:
+                return self.video.read_byte(address)
+            if 0xFF40 <= address <= 0xFF4B:
+                return self.video.read_byte(address)
         return self.memory[address]
 
     def write_byte(self, address, value):
         address &= 0xFFFF
         value &= 0xFF
+        if self.video:
+            if 0x8000 <= address <= 0x9FFF or 0xFE00 <= address <= 0xFE9F:
+                self.video.write_byte(address, value)
+                return
+            if 0xFF40 <= address <= 0xFF4B:
+                self.video.write_byte(address, value)
+                return
         if address == 0xFF04:
             self.memory[address] = 0
             return

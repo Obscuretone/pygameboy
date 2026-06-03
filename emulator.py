@@ -47,6 +47,7 @@ ram = Memory(clock, mem, backend="bytearray")
 ram.cartridge_boot_area = rom[:bootloader_size]
 
 video = VideoChip(clock, ram)
+ram.video = video
 
 
 cpu = CPU(clock, ram, video, args.verbose)
