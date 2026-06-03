@@ -121,52 +121,50 @@ class VideoChip:
     def step(self, cycles: int) -> None:
         """
         Advance the PPU by the specified number of cycles.
-        
-        Handles mode transitions and triggers scanline rendering.
         """
-        # GameBoy PPU has 4 modes:
-        # Mode 2 (OAM Search): 80 cycles
-        # Mode 3 (Transferring Data): 172-289 cycles
-        # Mode 0 (H-Blank): 87-204 cycles
-        # Mode 1 (V-Blank): 4560 cycles (10 scanlines)
-
         self.mode_clock += cycles
         
-        # Current Mode
-        mode = self.STAT & 0x03
-        
-        if mode == 2: # OAM Search
-            if self.mode_clock >= 80:
-                self.mode_clock -= 80
-                self.set_mode(3)
-        elif mode == 3: # Pixel Transfer
-            if self.mode_clock >= 172: # Simplified fixed timing
-                self.mode_clock -= 172
-                self.set_mode(0)
-                self.render_scanline()
-        elif mode == 0: # H-Blank
-            if self.mode_clock >= 204:
-                self.mode_clock -= 204
-                self.LY += 1
-                
-                if self.LY == 144:
-                    self.set_mode(1)
-                    # Request V-Blank interrupt (bit 0)
-                    self.memory.request_interrupt(0x01)
-                else:
-                    self.set_mode(2)
-                
-                self.check_lyc()
-        elif mode == 1: # V-Blank
-            if self.mode_clock >= 456:
-                self.mode_clock -= 456
-                self.LY += 1
-                
-                if self.LY > 153:
-                    self.LY = 0
-                    self.set_mode(2)
-                
-                self.check_lyc()
+        while True:
+            # Current Mode
+            mode = self.STAT & 0x03
+            
+            if mode == 2: # OAM Search (80 cycles)
+                if self.mode_clock >= 80:
+                    self.mode_clock -= 80
+                    self.set_mode(3)
+                else: break
+            elif mode == 3: # Pixel Transfer (172 cycles)
+                if self.mode_clock >= 172:
+                    self.mode_clock -= 172
+                    self.set_mode(0)
+                    self.render_scanline()
+                else: break
+            elif mode == 0: # H-Blank (204 cycles)
+                if self.mode_clock >= 204:
+                    self.mode_clock -= 204
+                    self.LY += 1
+                    
+                    if self.LY == 144:
+                        self.set_mode(1)
+                        # Request V-Blank interrupt (bit 0)
+                        self.memory.request_interrupt(0x01)
+                    else:
+                        self.set_mode(2)
+                    
+                    self.check_lyc()
+                else: break
+            elif mode == 1: # V-Blank (456 cycles)
+                if self.mode_clock >= 456:
+                    self.mode_clock -= 456
+                    self.LY += 1
+                    
+                    if self.LY > 153:
+                        self.LY = 0
+                        self.set_mode(2)
+                    
+                    self.check_lyc()
+                else: break
+            else: break
 
     def set_mode(self, mode: int) -> None:
         """Set the current PPU mode in the STAT register."""
