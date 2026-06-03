@@ -1,3 +1,24 @@
+import sounddevice as sd
+def print_rom_info(rom):
+    try:
+        title = rom[0x0134:0x0143].decode('ascii').rstrip('\0')
+    except:
+        title = "Unknown"
+    mbc_type = rom[0x0147]
+    rom_size = 32768 << rom[0x0148]
+    ram_size = 0
+    ram_code = rom[0x0149]
+    if ram_code == 2: ram_size = 8192
+    elif ram_code == 3: ram_size = 32768
+    elif ram_code == 4: ram_size = 131072
+    elif ram_code == 5: ram_size = 65536
+    
+    print(f"Loading ROM: {title}")
+    print(f"MBC Type:    {hex(mbc_type)}")
+    print(f"ROM Size:    {rom_size // 1024} KB")
+    print(f"RAM Size:    {ram_size // 1024} KB")
+
+import numpy as np
 import os
 import argparse
 from clock import SystemClock
@@ -87,12 +108,31 @@ def main():
         "fast": not args.slow_step,
     }
 
-    if args.profile:
-        cProfile.runctx(
-            "cpu.run(**run_args)", globals(), locals(), filename="profile_data.prof"
-        )
-    else:
-        cpu.run(**run_args)
+    
+    # Audio setup
+    def audio_callback(outdata, frames, time, status):
+        if status:
+            print(status)
+        for i in range(frames):
+            if apu.buffer:
+                outdata[i] = apu.buffer.popleft()
+            else:
+                outdata[i] = [0.0, 0.0]
+
+    stream = sd.OutputStream(channels=2, callback=audio_callback, samplerate=44100)
+    stream.start()
+
+    try:
+
+        if args.profile:
+            cProfile.runctx(
+                "cpu.run(**run_args)", globals(), locals(), filename="profile_data.prof"
+            )
+        else:
+            cpu.run(**run_args)
+    finally:
+        stream.stop()
+        stream.close()
 
 if __name__ == "__main__":
     main()

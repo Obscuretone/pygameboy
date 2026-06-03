@@ -83,8 +83,8 @@ class TestAPUOscillators(unittest.TestCase):
         # Ch 1 output: 10, Ch 2 output: 5. 
         # Total = 15.
         # Master volume 7 -> (15 * 7) // 8 = 105 // 8 = 13
-        self.assertEqual(self.apu.left_output, 13)
-        self.assertEqual(self.apu.right_output, 13)
+        self.assertEqual(self.apu.left_output, 0.25)
+        self.assertEqual(self.apu.right_output, 0.25)
 
 if __name__ == '__main__':
     unittest.main()

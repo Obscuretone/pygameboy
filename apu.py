@@ -1,3 +1,5 @@
+import numpy as np
+from collections import deque
 class PulseChannel:
     DUTY_CYCLES = [
         [0, 0, 0, 0, 0, 0, 0, 1], # 12.5%
@@ -211,6 +213,7 @@ class APU:
         
         self.left_output = 0
         self.right_output = 0
+        self.buffer = deque(maxlen=44100) # 1 second of audio buffer
 
     def read_byte(self, address):
         if not self.sound_enabled and address != 0xFF26:
@@ -342,5 +345,11 @@ class APU:
         if nr51 & 0x02: right += c2
         if nr51 & 0x01: right += c1
         
-        self.left_output = (left * l_vol) // 8
-        self.right_output = (right * r_vol) // 8
+        # Output is max 15 * 4 = 60
+        # Scale to -1.0 to 1.0
+        # Master volume 0-7 -> l_vol / 7.0
+        self.left_output = (left * l_vol) / (60.0 * 7.0)
+        self.right_output = (right * r_vol) / (60.0 * 7.0)
+        
+        self.buffer.append((self.left_output, self.right_output))
+
