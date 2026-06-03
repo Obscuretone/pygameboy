@@ -1,7 +1,7 @@
 import time
 
 from clock import SystemClock
-from cpu import CPU
+from cpu.core import CPU
 from memory import Memory
 
 

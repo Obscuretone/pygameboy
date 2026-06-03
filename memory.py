@@ -56,39 +56,88 @@ class Memory:
 
     def read_byte(self, address):
         address &= 0xFFFF
+        
+        # 1. ROM (Highest frequency)
+        if address <= 0x7FFF:
+            return self.mbc.read_rom(address) if self.mbc else self.memory[address]
+            
+        # 2. WRAM & HRAM (High frequency)
+        if (0xC000 <= address <= 0xDFFF) or (0xFF80 <= address <= 0xFFFE) or address == 0xFFFF:
+            return self.memory[address]
+            
+        # 3. External RAM
+        if 0xA000 <= address <= 0xBFFF:
+            return self.mbc.read_ram(address) if self.mbc else self.memory[address]
+            
+        # 4. VRAM & OAM & Video Registers
+        if self.video:
+            if 0x8000 <= address <= 0x9FFF or 0xFE00 <= address <= 0xFE9F:
+                return self.video.read_byte(address)
+            if 0xFF40 <= address <= 0xFF4B:
+                return self.video.read_byte(address)
+        elif 0x8000 <= address <= 0x9FFF or 0xFE00 <= address <= 0xFE9F:
+            return self.memory[address]
+            
+        # LY clock fallback if video disabled
+        if address == 0xFF44 and self.clock is not None and not self.video:
+            return (self.clock.get_cycles_elapsed() // 456) % 154
+            
+        # 5. IO Registers
         if address == 0xFF00:
             return self.joypad.read()
         if address in [0xFF01, 0xFF02]:
             return self.serial.read_byte(address)
         if 0xFF10 <= address <= 0xFF3F:
             return self.apu.read_byte(address)
-        if self.video:
-            if 0x8000 <= address <= 0x9FFF or 0xFE00 <= address <= 0xFE9F:
-                return self.video.read_byte(address)
-            if 0xFF40 <= address <= 0xFF4B:
-                return self.video.read_byte(address)
-        elif address == 0xFF44 and self.clock is not None:
-            return (self.clock.get_cycles_elapsed() // 456) % 154
-        
-        if self.mbc:
-            if address <= 0x7FFF:
-                return self.mbc.read_rom(address)
-            if 0xA000 <= address <= 0xBFFF:
-                return self.mbc.read_ram(address)
-
-        # Echo RAM
+            
+        # 6. Echo RAM & Unusable
         if 0xE000 <= address <= 0xFDFF:
             return self.memory[address - 0x2000]
-        
-        # Unusable memory
         if 0xFEA0 <= address <= 0xFEFF:
             return 0x00
-
+            
         return self.memory[address]
 
     def write_byte(self, address, value):
         address &= 0xFFFF
         value &= 0xFF
+        
+        # 1. WRAM & HRAM
+        if (0xC000 <= address <= 0xDFFF) or (0xFF80 <= address <= 0xFFFE):
+            self.memory[address] = value
+            return
+            
+        # 2. ROM (MBC Banking)
+        if address <= 0x7FFF:
+            if self.mbc: 
+                self.mbc.write_rom(address, value)
+                return
+            else:
+                self.memory[address] = value
+                return
+            
+        # 3. External RAM
+        if 0xA000 <= address <= 0xBFFF:
+            if self.mbc: 
+                self.mbc.write_ram(address, value)
+                return
+            else:
+                self.memory[address] = value
+                return
+            
+        # 4. VRAM & OAM & Video Registers
+        if self.video:
+            if 0x8000 <= address <= 0x9FFF or 0xFE00 <= address <= 0xFE9F:
+                self.video.write_byte(address, value)
+                return
+            if 0xFF40 <= address <= 0xFF4B:
+                self.video.write_byte(address, value)
+                return
+        elif 0x8000 <= address <= 0x9FFF or 0xFE00 <= address <= 0xFE9F:
+            self.memory[address] = value
+            return
+            
+        # 5. IO Registers
         if address == 0xFF00:
             self.joypad.write(value)
             return
@@ -98,42 +147,31 @@ class Memory:
         if 0xFF10 <= address <= 0xFF3F:
             self.apu.write_byte(address, value)
             return
-        if self.video:
-            if 0x8000 <= address <= 0x9FFF or 0xFE00 <= address <= 0xFE9F:
-                self.video.write_byte(address, value)
-                return
-            if 0xFF40 <= address <= 0xFF4B:
-                self.video.write_byte(address, value)
-                return
+            
+        # Timer / Interrupt Registers
+        if address == 0xFF04: # DIV
+            self.memory[address] = 0
+            return
+        if address == 0xFF07: # TAC
+            self.memory[address] = value & 0x07
+            return
+        if address == 0xFF0F or address == 0xFFFF: # IF / IE
+            self.memory[address] = value
+            return
         
-        if self.mbc:
-            if address <= 0x7FFF:
-                self.mbc.write_rom(address, value)
-                return
-            if 0xA000 <= address <= 0xBFFF:
-                self.mbc.write_ram(address, value)
-                return
-        
-        # Echo RAM
+        # 6. Echo RAM & Unusable
         if 0xE000 <= address <= 0xFDFF:
             self.memory[address - 0x2000] = value
             return
-
-        # Unusable memory
         if 0xFEA0 <= address <= 0xFEFF:
             return
-        if address == 0xFF04:
-            self.memory[address] = 0
-            return
-        if address == 0xFF07:
-            self.memory[address] = value & 0x07
-            return
-        if address == 0xFF44:
-            self.memory[address] = 0
-            return
+            
+        # Boot ROM Disable
         if address == 0xFF50 and value and self.cartridge_boot_area is not None:
             self.memory[: len(self.cartridge_boot_area)] = self.cartridge_boot_area
+            self.cartridge_boot_area = None
             self.boot_rom_disabled = True
+            
         self.memory[address] = value
 
     def request_interrupt(self, mask):
