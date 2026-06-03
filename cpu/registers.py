@@ -1,24 +1,21 @@
-from typing import Union, Tuple, Dict
-import numpy
+from typing import Union, Tuple, Dict, Final
+import numpy as np
+from gb_types import Byte, Word
 
 class RegisterFile:
     """
     Manages the GameBoy's internal registers.
-    
-    Includes 8-bit registers (A, F, B, C, D, E, H, L) and provides
-    convenient access to 16-bit pairs (AF, BC, DE, HL), as well
-    as the special registers PC (Program Counter) and SP (Stack Pointer).
     """
-    A = 0
-    F = 1
-    B = 2
-    C = 3
-    D = 4
-    E = 5
-    H = 6
-    L = 7
+    A: Final[int] = 0
+    F: Final[int] = 1
+    B: Final[int] = 2
+    C: Final[int] = 3
+    D: Final[int] = 4
+    E: Final[int] = 5
+    H: Final[int] = 6
+    L: Final[int] = 7
 
-    _single: Dict[str, int] = {
+    _single: Final[Dict[str, int]] = {
         "A": A,
         "F": F,
         "B": B,
@@ -28,18 +25,18 @@ class RegisterFile:
         "H": H,
         "L": L,
     }
-    _pairs: Dict[str, Tuple[int, int]] = {
+    _pairs: Final[Dict[str, Tuple[int, int]]] = {
         "AF": (A, F),
         "BC": (B, C),
         "DE": (D, E),
         "HL": (H, L),
     }
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize registers with zeros."""
-        self.data: numpy.ndarray = numpy.zeros(8, dtype=numpy.uint8)
-        self.PC: int = 0
-        self.SP: int = 0
+        self.data: np.ndarray = np.zeros(8, dtype=np.uint8)
+        self.PC: Word = 0
+        self.SP: Word = 0
 
     @property
     def shape(self) -> Tuple[int, ...]:
@@ -49,12 +46,6 @@ class RegisterFile:
     def __getitem__(self, reg: Union[str, int]) -> int:
         """
         Read a value from a register or register pair.
-
-        Args:
-            reg: Register name (e.g., 'A', 'BC') or index.
-
-        Returns:
-            The current value of the register.
         """
         if isinstance(reg, str):
             if reg in self._single:
@@ -72,10 +63,6 @@ class RegisterFile:
     def __setitem__(self, reg: Union[str, int], value: int) -> None:
         """
         Write a value to a register or register pair.
-
-        Args:
-            reg: Register name (e.g., 'A', 'BC') or index.
-            value: The value to write.
         """
         value = int(value)
         if isinstance(reg, str):

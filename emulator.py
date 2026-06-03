@@ -1,29 +1,13 @@
-from typing import Optional, Dict, List, Tuple, Union, Any
+from typing import Optional, Dict, List, Tuple, Union, Any, Final
 import os
 import sys
 import argparse
 import cProfile
 import numpy as np
-
-# Fix pygame on macOS before importing
-if sys.platform == 'darwin':
-    os.environ['SDL_VIDEODRIVER'] = 'cocoa'
-    os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-
-import pygame
-try:
-    import sounddevice as sd
-except ImportError:
-    sd = None
-from clock import SystemClock
-from cpu import CPU
-from memory import Memory
-from video import VideoChip
-from mbc import MBC0, MBC1, MBC2, MBC3, MBC5
-from joypad import KeyboardMapper
+from protocols import InputDevice
 
 # Standard GB color palette (original green shades)
-GB_PALETTE: np.ndarray = np.array([
+GB_PALETTE: Final[np.ndarray] = np.array([
     (155, 188, 15), # 0: Lightest
     (139, 172, 15), # 1: Light
     (48, 98, 48),   # 2: Dark
@@ -31,7 +15,7 @@ GB_PALETTE: np.ndarray = np.array([
 ], dtype=np.uint8)
 
 # Pygame to Joypad mapping
-PYGAME_MAP: Dict[int, str] = {
+PYGAME_MAP: Final[Dict[int, str]] = {
     pygame.K_UP: "up",
     pygame.K_DOWN: "down",
     pygame.K_LEFT: "left",
@@ -69,7 +53,7 @@ def print_rom_info(rom: Union[bytes, bytearray]) -> None:
     print(f"ROM Size:    {rom_size // 1024} KB")
     print(f"RAM Size:    {ram_size // 1024} KB")
 
-def handle_input(joypad: Any) -> bool:
+def handle_input(joypad: InputDevice) -> bool:
     """Process pygame events and update joypad state."""
     for event in pygame.event.get():
         if event.type == pygame.QUIT:

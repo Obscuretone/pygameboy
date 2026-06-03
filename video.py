@@ -1,15 +1,24 @@
-from typing import Any, List, Dict, Optional
+from typing import Any, List, Dict, Optional, TypedDict, Final
 import numpy as np
+from protocols import ClockDevice
+
+class SpriteInfo(TypedDict):
+    x: int
+    y: int
+    tile: int
+    attr: int
+    id: int
 
 class VideoChip:
     """
     Implements the GameBoy's Picture Processing Unit (PPU).
-    
-    Handles tile-based background/window rendering, sprite (OBJ) rendering,
-    and PPU mode transitions (OAM Search, Pixel Transfer, H-Blank, V-Blank).
     """
+    SCREEN_WIDTH: Final[int] = 160
+    SCREEN_HEIGHT: Final[int] = 144
+    VRAM_SIZE: Final[int] = 0x2000
+    OAM_SIZE: Final[int] = 0xA0
 
-    def __init__(self, clock: Any, memory: Any):
+    def __init__(self, clock: ClockDevice, memory: Any):
         """
         Initialize the VideoChip.
 
@@ -31,15 +40,15 @@ class VideoChip:
         self.DMA: int = 0x00  # OAM DMA Source Address
 
         # VRAM and OAM
-        self.vram: bytearray = bytearray(0x2000)  # 8KB Video RAM
-        self.oam: bytearray = bytearray(0xA0)     # Object Attribute Memory (OAM)
+        self.vram: bytearray = bytearray(self.VRAM_SIZE)
+        self.oam: bytearray = bytearray(self.OAM_SIZE)
         self.vram_np: np.ndarray = np.frombuffer(self.vram, dtype=np.uint8)
-        self.x_indices: np.ndarray = np.arange(160)
+        self.x_indices: np.ndarray = np.arange(self.SCREEN_WIDTH)
         self.memory: Any = memory
         self.mode_clock: int = 0
         
         # Frame buffer: 160x144 pixels, each pixel is a color index (0-3)
-        self.frame_buffer: np.ndarray = np.zeros(160 * 144, dtype=np.uint8)
+        self.frame_buffer: np.ndarray = np.zeros(self.SCREEN_WIDTH * self.SCREEN_HEIGHT, dtype=np.uint8)
 
     def read_byte(self, address: int) -> int:
         """Read a video register or memory byte."""
