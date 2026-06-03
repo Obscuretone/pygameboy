@@ -3,8 +3,17 @@ import sys
 import argparse
 import cProfile
 import numpy as np
+
+# Fix pygame on macOS before importing
+if sys.platform == 'darwin':
+    os.environ['SDL_VIDEODRIVER'] = 'cocoa'
+    os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
+
 import pygame
-import sounddevice as sd
+try:
+    import sounddevice as sd
+except ImportError:
+    sd = None
 from clock import SystemClock
 from cpu import CPU
 from memory import Memory
@@ -33,11 +42,16 @@ PYGAME_MAP = {
     pygame.K_SPACE: "select"
 }
 
-def print_rom_info(rom):
+def get_rom_title(rom):
     try:
-        title = rom[0x0134:0x0143].decode('ascii').rstrip('\0')
-    except:
+        title = bytes(rom[0x0134:0x0143]).split(b"\0", 1)[0].decode("ascii")
+    except UnicodeDecodeError:
         title = "Unknown"
+    return title or "Unknown"
+
+
+def print_rom_info(rom):
+    title = get_rom_title(rom)
     mbc_type = rom[0x0147]
     rom_size = 32768 << rom[0x0148]
     ram_size = 0
@@ -69,6 +83,8 @@ def main():
     parser.add_argument("--profile", action="store_true")
     parser.add_argument("--slow-step", action="store_true")
     parser.add_argument("--no-realtime", action="store_true")
+    parser.add_argument("--no-audio", action="store_true")
+    parser.add_argument("--max-frames", type=int)
     parser.add_argument("--max-instructions", type=int)
     parser.add_argument("--max-cycles", type=int)
     args = parser.parse_args()
@@ -87,6 +103,7 @@ def main():
     with open(args.rom, "rb") as f:
         rom = bytearray(f.read())
 
+    rom_title = get_rom_title(rom)
     print_rom_info(rom)
 
     clock = SystemClock(clock_speed_hz=4194304)
@@ -123,35 +140,79 @@ def main():
     cpu = CPU(clock, ram, video, apu, args.verbose)
 
     # Audio setup
+    last_audio_sample = [0.0, 0.0]
+
     def audio_callback(outdata, frames, time, status):
+        nonlocal last_audio_sample
         if status:
             print(status)
         for i in range(frames):
             if apu.buffer:
-                outdata[i] = apu.buffer.popleft()
+                last_audio_sample = apu.buffer.popleft()
+                outdata[i] = last_audio_sample
             else:
-                outdata[i] = [0.0, 0.0]
+                outdata[i] = last_audio_sample
 
-    stream = sd.OutputStream(channels=2, callback=audio_callback, samplerate=44100)
-    stream.start()
+    stream = None
+    if args.no_audio:
+        print("Audio disabled.")
+    elif sd is None:
+        print("Warning: sounddevice not installed, audio disabled.")
+    else:
+        stream = sd.OutputStream(
+            channels=2,
+            callback=audio_callback,
+            samplerate=apu.SAMPLE_RATE,
+            blocksize=1024,
+        )
+        stream.start()
 
     # Initialize Pygame for visuals and input
-    pygame.init()
+    print("Initializing pygame display...")
+    sys.stdout.flush()
+    pygame.font.init()
+    pygame.display.init()
+    print("Pygame display initialized")
+    sys.stdout.flush()
+    
     window_width = 160 * args.scale
     window_height = 144 * args.scale
+    print(f"Setting mode to {window_width}x{window_height}...")
+    sys.stdout.flush()
     screen = pygame.display.set_mode((window_width, window_height))
-    pygame.display.set_caption(f"PyGameBoy - {rom[0x0134:0x0143].decode('ascii').rstrip('\\0')}")
+    print("Display mode set")
+    sys.stdout.flush()
+    
+    pygame.display.set_caption(f"PyGameBoy - {rom_title}")
+    print("Caption set")
+    sys.stdout.flush()
     
     # Internal surface for 160x144 rendering
     internal_surface = pygame.Surface((160, 144))
+    print("Internal surface created")
+    sys.stdout.flush()
 
     try:
         running = True
+        frame_count = 0
         while running:
+            if args.max_frames is not None and frame_count >= args.max_frames:
+                break
+            if args.verbose and frame_count % 10 == 0:
+                print(f"Frame {frame_count}")
+                sys.stdout.flush()
+            frame_count += 1
+            
             running = handle_input(ram.joypad)
             
             # Run CPU for one frame worth of cycles (~70224 cycles)
-            cpu.run(max_cycles=70224, realtime=not args.no_realtime, fast=not args.slow_step, announce=False)
+            cpu.run(
+                max_cycles=70224,
+                realtime=not args.no_realtime,
+                fast=not args.slow_step,
+                announce=False,
+                profile_opcodes=args.profile,
+            )
             
             # 1. Get raw indices (0-3) from PPU
             raw_indices = ram.video.frame_buffer.reshape((144, 160))
@@ -163,18 +224,20 @@ def main():
             # Pygame surfarray uses (width, height, channels) order
             pygame.surfarray.blit_array(internal_surface, rgb_data.transpose(1, 0, 2))
             
-            # 4. Scale to window with linear interpolation (bilinear)
-            scaled_screen = pygame.transform.smoothscale(internal_surface, (window_width, window_height))
-            
-            # 5. Display to screen
-            screen.blit(scaled_screen, (0, 0))
+            # 4. Integer scale directly to the window surface.
+            pygame.transform.scale(internal_surface, (window_width, window_height), screen)
             pygame.display.flip()
             
     except KeyboardInterrupt:
         pass
+    except Exception as e:
+        import traceback
+        print(f"Error: {e}")
+        traceback.print_exc()
     finally:
-        stream.stop()
-        stream.close()
+        if stream is not None:
+            stream.stop()
+            stream.close()
         pygame.quit()
 
 if __name__ == "__main__":

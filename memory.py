@@ -57,6 +57,13 @@ class Memory:
     def read_byte(self, address):
         address &= 0xFFFF
         
+        if (
+            not self.boot_rom_disabled
+            and self.cartridge_boot_area is not None
+            and address < len(self.cartridge_boot_area)
+        ):
+            return self.memory[address]
+
         # 1. ROM (Highest frequency)
         if address <= 0x7FFF:
             return self.mbc.read_rom(address) if self.mbc else self.memory[address]

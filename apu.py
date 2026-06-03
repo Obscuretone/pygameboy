@@ -199,6 +199,10 @@ class NoiseChannel:
         self.length_enabled = bool(nr44 & 0x40)
 
 class APU:
+    SAMPLE_RATE = 44100
+    CPU_CLOCK_HZ = 4194304
+    SAMPLE_PERIOD = CPU_CLOCK_HZ / SAMPLE_RATE
+
     def __init__(self):
         self.registers = bytearray(0x30)
         self.sound_enabled = False
@@ -207,7 +211,7 @@ class APU:
         self.ch3 = WaveChannel()
         self.ch4 = NoiseChannel()
         
-        self.cycles = 0
+        self.cycles = 0.0
         self.frame_sequencer_clock = 0
         self.frame_sequencer_step = 0
         
@@ -290,8 +294,8 @@ class APU:
             self.step_frame_sequencer()
             
         self.cycles += cycles
-        if self.cycles >= 95:
-            self.cycles -= 95
+        while self.cycles >= self.SAMPLE_PERIOD:
+            self.cycles -= self.SAMPLE_PERIOD
             self.sample()
 
     def step_frame_sequencer(self):
@@ -352,4 +356,3 @@ class APU:
         self.right_output = (right * r_vol) / (60.0 * 7.0)
         
         self.buffer.append((self.left_output, self.right_output))
-
