@@ -937,7 +937,7 @@ class CPU:
             bool: A dictionary with flag names as keys and their states as values (True for set, False for clear).
         """
 
-        # TODO: Make sure the flag exists
+        if flag not in self.flags: raise ValueError(f"Unknown flag: {flag}")
         return self.flags[flag]
 
     #     _    _      _                   ______                _   _
@@ -1136,7 +1136,7 @@ class CPU:
         """
         # Load to high 8 bit address
         # Calculate the address using register C
-        # TODO: Verify 0x00 < address < 0xFF
+        assert 0 <= address <= 0xFF
         address = 0xFF00 + address
 
         # Store the value of register A at the calculated address
@@ -1152,7 +1152,7 @@ class CPU:
         self.write_register(register, data)
 
     def __bit_n__reg(self, bit, register):
-        # TODO: make sure 0 > bit < 8
+        assert 0 <= bit < 8
 
         # Get the value of the register
         value = self.read_register(register)
@@ -1176,7 +1176,7 @@ class CPU:
         self.set_flag("n", False)
 
     def __bit_n__mem(self, bit, memory_location):
-        # TODO: make sure 0 > bit < 8
+        assert 0 <= bit < 8
 
         # Get the value from memory
         value = self.ram.read_byte(memory_location)
@@ -3969,8 +3969,11 @@ class CPU:
         bytes = 1
         """
 
-        # TODO: this should be smarter.
-        self.__sub_reg_reg("A", "A")
+        self.write_register("A", 0)
+        self.set_flag("z", True)
+        self.set_flag("n", True)
+        self.set_flag("h", False)
+        self.set_flag("c", False)
         self.registers["PC"] += 1
 
         return 4
@@ -4713,12 +4716,11 @@ class CPU:
 
         # Pop the lower byte of BC from the stack
         lower_byte = self.ram.read_byte(self.registers["SP"])
-        self.registers["SP"] = self.registers["SP"] + 1 & 0xFFFF
-        # TODO: Make an 8bit and a 16bit increment function.
+        self.registers["SP"] = (self.registers["SP"] + 1) & 0xFFFF
 
         # Pop the upper byte of BC from the stack
         upper_byte = self.ram.read_byte(self.registers["SP"])
-        self.registers["SP"] = self.registers["SP"] + 1 & 0xFFFF
+        self.registers["SP"] = (self.registers["SP"] + 1) & 0xFFFF
 
         # Combine the lower and upper bytes to form BC
         bc_value = (int(upper_byte) << 8) | int(lower_byte)
