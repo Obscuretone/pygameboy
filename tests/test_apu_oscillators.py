@@ -48,6 +48,7 @@ class TestAPUOscillators(unittest.TestCase):
             self.memory.write_byte(0xFF30 + i, 0x42)
             
         # Trigger Ch 3
+        self.memory.write_byte(0xFF1C, 0x20)
         self.memory.write_byte(0xFF1E, 0x80)
         
         # Sample 0 should be 4
