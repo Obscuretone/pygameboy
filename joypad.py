@@ -1,13 +1,36 @@
-class Joypad:
-    def __init__(self, memory=None):
-        self.memory = memory
-        # bits 0-3: Right/A, Left/B, Up/Select, Down/Start (0=pressed, 1=not pressed)
-        self.direction_keys = 0x0F
-        self.button_keys = 0x0F
-        # bits 4, 5 (0=selected, 1=not selected)
-        self.selection = 0x30
+from typing import Any, Optional
 
-    def read(self):
+class Joypad:
+    """
+    Implements the GameBoy Joypad input system.
+    
+    The GameBoy has 8 buttons, split into two groups:
+    - Direction Keys: Right, Left, Up, Down
+    - Button Keys: A, B, Select, Start
+    
+    The $FF00 register is used to select which group to read.
+    """
+    def __init__(self, memory: Any = None):
+        """
+        Initialize the Joypad system.
+
+        Args:
+            memory: The memory bus for requesting interrupts.
+        """
+        self.memory: Any = memory
+        # bits 0-3: Right/A, Left/B, Up/Select, Down/Start (0=pressed, 1=not pressed)
+        self.direction_keys: int = 0x0F
+        self.button_keys: int = 0x0F
+        # bits 4, 5 (0=selected, 1=not selected)
+        self.selection: int = 0x30
+
+    def read(self) -> int:
+        """
+        Read the current state of the Joypad register ($FF00).
+        
+        Returns:
+            The 8-bit value of the Joypad register.
+        """
         res = self.selection | 0xCF  # bits 6-7 always 1, bits 0-3 start as 1
         if not (self.selection & 0x10):  # Direction keys selected (bit 4=0)
             res &= 0xF0 | self.direction_keys
@@ -15,16 +38,29 @@ class Joypad:
             res &= 0xF0 | self.button_keys
         return res
 
-    def write(self, value):
+    def write(self, value: int) -> None:
+        """
+        Write to the Joypad register (bits 4 and 5 only).
+
+        Args:
+            value: The 8-bit value to write.
+        """
         # Only bits 4 and 5 are writable
         self.selection = value & 0x30
 
-    def set_key(self, key, pressed):
+    def set_key(self, key: str, pressed: bool) -> None:
+        """
+        Update the state of a specific key.
+
+        Args:
+            key: The name of the key (e.g., 'a_button', 'up').
+            pressed: True if the key is pressed, False if released.
+        """
         mask = 0
         is_button = False
         
         # Standard GB button names
-        if key == "right" or key == "a_button": # avoid 'a' confusion with keyboard 'a'
+        if key == "right" or key == "a_button":
             mask = 0x01
         elif key == "left" or key == "b_button":
             mask = 0x02

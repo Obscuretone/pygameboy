@@ -1,3 +1,4 @@
+from typing import Optional, Union, Any
 from apu import APU
 from serial_cable import Serial
 from mbc import MBC0, MBC1, MBC2, MBC3, MBC5
@@ -8,33 +9,39 @@ from clock import SystemClock
 
 class Memory:
     """
-    GameBoy Memory Areas
-
-    $FFFF    Interrupt Enable Flag
-    $FF80-$FFFE    Zero Page - 127 bytes
-    $FF00-$FF7F    Hardware I/O Registers
-    $FEA0-$FEFF    Unusable Memory
-    $FE00-$FE9F    OAM - Object Attribute Memory
-    $E000-$FDFF    Echo RAM - Reserved, Do Not Use
-    $D000-$DFFF    Internal RAM - Bank 1-7 (switchable - CGB only)
-    $C000-$CFFF    Internal RAM - Bank 0 (fixed)
-    $A000-$BFFF    Cartridge RAM (If Available)
-    $9C00-$9FFF    BG Map Data 2
-    $9800-$9BFF    BG Map Data 1
-    $8000-$97FF    Character RAM
-    $4000-$7FFF    Cartridge ROM - Switchable Banks 1-xx
-    $0150-$3FFF    Cartridge ROM - Bank 0 (fixed)
-    $0100-$014F    Cartridge Header Area
-    $0000-$00FF    Restart and Interrupt Vectors
+    Handles the GameBoy's 64KB address space and memory-mapped I/O.
+    
+    Memory Map:
+    $0000-$3FFF    16KB ROM Bank 00 (in cartridge, fixed at bank 00)
+    $4000-$7FFF    16KB ROM Bank 01..NN (in cartridge, switchable bank number)
+    $8000-$9FFF    8KB Video RAM (VRAM) (switchable bank 0-1 in CGB Mode)
+    $A000-$BFFF    8KB External RAM (in cartridge, switchable bank, if any)
+    $C000-$CFFF    4KB Work RAM (WRAM) bank 0
+    $D000-$DFFF    4KB Work RAM (WRAM) bank 1 (switchable bank 1-7 in CGB Mode)
+    $E000-$FDFF    Same as $C000-$DDFF (ECHO RAM) (typically not used)
+    $FE00-$FE9F    Sprite attribute table (OAM)
+    $FEA0-$FEFF    Not Usable
+    $FF00-$FF7F    I/O Registers
+    $FF80-$FFFE    High RAM (HRAM)
+    $FFFF          Interrupt Enable register (IE)
     """
 
-    def __init__(self, clock=None, data=None, backend="numpy"):
+    def __init__(self, clock: Optional[SystemClock] = None, data: Optional[Union[bytes, bytearray, np.ndarray]] = None, backend: str = "numpy"):
+        """
+        Initialize the memory system.
+
+        Args:
+            clock: The system clock for timing-related I/O (e.g., LY register).
+            data: Initial memory data (e.g., ROM + Bootloader).
+            backend: The storage backend to use ('numpy' or 'bytearray').
+        """
         if data is None and clock is not None and not hasattr(clock, "update"):
             data = clock
             clock = None
 
         self.clock = clock
         self.backend = backend
+        
         # Initialize memory with zeroes if data is not provided
         if backend == "numpy":
             self.memory = (
@@ -46,15 +53,25 @@ class Memory:
             self.memory = bytearray(0x10000) if data is None else bytearray(data)
         else:
             raise ValueError(f"Unknown memory backend: {backend}")
-        self.cartridge_boot_area = None
-        self.boot_rom_disabled = False
-        self.video = None
-        self.joypad = Joypad(self)
-        self.mbc = None
-        self.serial = Serial(self)
-        self.apu = APU()
+            
+        self.cartridge_boot_area: Optional[bytearray] = None
+        self.boot_rom_disabled: bool = False
+        self.video: Any = None
+        self.joypad: Joypad = Joypad(self)
+        self.mbc: Any = None
+        self.serial: Serial = Serial(self)
+        self.apu: APU = APU()
 
-    def read_byte(self, address):
+    def read_byte(self, address: int) -> int:
+        """
+        Read a single byte from the specified address.
+
+        Args:
+            address: The 16-bit address to read from.
+
+        Returns:
+            The byte value at the specified address.
+        """
         address &= 0xFFFF
         
         if (
@@ -105,7 +122,14 @@ class Memory:
             
         return self.memory[address]
 
-    def write_byte(self, address, value):
+    def write_byte(self, address: int, value: int) -> None:
+        """
+        Write a single byte to the specified address.
+
+        Args:
+            address: The 16-bit address to write to.
+            value: The byte value to write.
+        """
         address &= 0xFFFF
         value &= 0xFF
         
@@ -181,5 +205,11 @@ class Memory:
             
         self.memory[address] = value
 
-    def request_interrupt(self, mask):
+    def request_interrupt(self, mask: int) -> None:
+        """
+        Request a hardware interrupt by setting the corresponding bit in the IF register ($FF0F).
+
+        Args:
+            mask: The interrupt mask bit to set (e.g., 0x01 for V-Blank).
+        """
         self.memory[0xFF0F] = int(self.memory[0xFF0F]) | (mask & 0x1F)

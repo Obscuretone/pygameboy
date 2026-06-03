@@ -1,3 +1,4 @@
+from typing import Optional, Dict, List, Tuple, Union, Any
 import os
 import sys
 import argparse
@@ -22,7 +23,7 @@ from mbc import MBC0, MBC1, MBC2, MBC3, MBC5
 from joypad import KeyboardMapper
 
 # Standard GB color palette (original green shades)
-GB_PALETTE = np.array([
+GB_PALETTE: np.ndarray = np.array([
     (155, 188, 15), # 0: Lightest
     (139, 172, 15), # 1: Light
     (48, 98, 48),   # 2: Dark
@@ -30,7 +31,7 @@ GB_PALETTE = np.array([
 ], dtype=np.uint8)
 
 # Pygame to Joypad mapping
-PYGAME_MAP = {
+PYGAME_MAP: Dict[int, str] = {
     pygame.K_UP: "up",
     pygame.K_DOWN: "down",
     pygame.K_LEFT: "left",
@@ -42,7 +43,8 @@ PYGAME_MAP = {
     pygame.K_SPACE: "select"
 }
 
-def get_rom_title(rom):
+def get_rom_title(rom: Union[bytes, bytearray]) -> str:
+    """Extract the ROM title from the cartridge header."""
     try:
         title = bytes(rom[0x0134:0x0143]).split(b"\0", 1)[0].decode("ascii")
     except UnicodeDecodeError:
@@ -50,7 +52,8 @@ def get_rom_title(rom):
     return title or "Unknown"
 
 
-def print_rom_info(rom):
+def print_rom_info(rom: Union[bytes, bytearray]) -> None:
+    """Print metadata about the loaded ROM."""
     title = get_rom_title(rom)
     mbc_type = rom[0x0147]
     rom_size = 32768 << rom[0x0148]
@@ -66,7 +69,8 @@ def print_rom_info(rom):
     print(f"ROM Size:    {rom_size // 1024} KB")
     print(f"RAM Size:    {ram_size // 1024} KB")
 
-def handle_input(joypad):
+def handle_input(joypad: Any) -> bool:
+    """Process pygame events and update joypad state."""
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             return False
@@ -75,7 +79,8 @@ def handle_input(joypad):
                 joypad.set_key(PYGAME_MAP[event.key], event.type == pygame.KEYDOWN)
     return True
 
-def main():
+def main() -> None:
+    """Main execution loop of the emulator."""
     parser = argparse.ArgumentParser()
     parser.add_argument("rom", nargs="?", default="Tetris.gb")
     parser.add_argument("-v", "--verbose", action="store_true")
