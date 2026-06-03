@@ -1,3 +1,4 @@
+from joypad import Joypad
 import numpy as np
 from clock import SystemClock
 
@@ -44,9 +45,13 @@ class Memory:
             raise ValueError(f"Unknown memory backend: {backend}")
         self.cartridge_boot_area = None
         self.boot_rom_disabled = False
+        self.video = None
+        self.joypad = Joypad()
 
     def read_byte(self, address):
         address &= 0xFFFF
+        if address == 0xFF00:
+            return self.joypad.read()
         if self.video:
             if 0x8000 <= address <= 0x9FFF or 0xFE00 <= address <= 0xFE9F:
                 return self.video.read_byte(address)
@@ -57,6 +62,9 @@ class Memory:
     def write_byte(self, address, value):
         address &= 0xFFFF
         value &= 0xFF
+        if address == 0xFF00:
+            self.joypad.write(value)
+            return
         if self.video:
             if 0x8000 <= address <= 0x9FFF or 0xFE00 <= address <= 0xFE9F:
                 self.video.write_byte(address, value)
