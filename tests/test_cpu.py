@@ -183,7 +183,7 @@ class TestCPU(unittest.TestCase):
     def test_inc_8bit(self):
         """Test the __inc function for 8-bit register A."""
         self.cpu.write_register("A", 0x00)  # Set register A to 0
-        self.cpu._CPU__inc("A")
+        self.cpu._inc("A")
         self.assertEqual(
             self.cpu.read_register("A"), 0x01
         )  # After incrementing, A should be 1
@@ -191,7 +191,7 @@ class TestCPU(unittest.TestCase):
     def test_inc_8bit_wraparound(self):
         """Test the __inc function for 8-bit register A with wraparound."""
         self.cpu.write_register("A", 0xFF)  # Set register A to 255 (0xFF)
-        self.cpu._CPU__inc("A")
+        self.cpu._inc("A")
         self.assertEqual(
             self.cpu.read_register("A"), 0x00
         )  # After incrementing, A should wrap around to 0x100
@@ -201,7 +201,7 @@ class TestCPU(unittest.TestCase):
         self.cpu.write_register("A", 0x0F)
         self.cpu.set_flag("c")
 
-        self.cpu._CPU__inc("A")
+        self.cpu._inc("A")
 
         self.assertEqual(self.cpu.read_register("A"), 0x10)
         self.assertFalse(self.cpu.get_flag("z"))
@@ -210,13 +210,13 @@ class TestCPU(unittest.TestCase):
         self.assertTrue(self.cpu.get_flag("c"))
 
         self.cpu.write_register("A", 0xFF)
-        self.cpu._CPU__inc("A")
+        self.cpu._inc("A")
         self.assertTrue(self.cpu.get_flag("z"))
 
     def test_inc_16bit(self):
         """Test the __inc function for 16-bit register BC."""
         self.cpu.write_register("BC", 0x0000)  # Set register BC to 0
-        self.cpu._CPU__inc("BC")
+        self.cpu._inc("BC")
         self.assertEqual(
             self.cpu.read_register("BC"), 0x0001
         )  # After incrementing, BC should be 1
@@ -224,7 +224,7 @@ class TestCPU(unittest.TestCase):
     def test_inc_16bit_wraparound(self):
         """Test the __inc function for register BC with wraparound."""
         self.cpu.write_register("BC", 0xFFFF)  # Set register BC to 0xFFFF
-        self.cpu._CPU__inc("BC")
+        self.cpu._inc("BC")
         self.assertEqual(
             self.cpu.read_register("BC"), 0x0000
         )  # After incrementing, BC should wrap around to 0x0000
@@ -232,7 +232,7 @@ class TestCPU(unittest.TestCase):
     def test_dec_8bit(self):
         """Test the __dec function for 8-bit register A."""
         self.cpu.write_register("A", 0x01)  # Set register A to 1
-        self.cpu._CPU__dec("A")
+        self.cpu._dec("A")
         self.assertEqual(
             self.cpu.read_register("A"), 0x00
         )  # After decrementing, A should be 0
@@ -240,7 +240,7 @@ class TestCPU(unittest.TestCase):
     def test_dec_8bit_wraparound(self):
         """Test the __dec function for 8-bit register A with wraparound."""
         self.cpu.write_register("A", 0x00)  # Set register A to 0
-        self.cpu._CPU__dec("A")
+        self.cpu._dec("A")
         self.assertEqual(
             self.cpu.read_register("A"), 0xFF
         )  # After decrementing, A should wrap around to 0xFF
@@ -250,7 +250,7 @@ class TestCPU(unittest.TestCase):
         self.cpu.write_register("A", 0x10)
         self.cpu.set_flag("c")
 
-        self.cpu._CPU__dec("A")
+        self.cpu._dec("A")
 
         self.assertEqual(self.cpu.read_register("A"), 0x0F)
         self.assertFalse(self.cpu.get_flag("z"))
@@ -259,13 +259,13 @@ class TestCPU(unittest.TestCase):
         self.assertTrue(self.cpu.get_flag("c"))
 
         self.cpu.write_register("A", 0x01)
-        self.cpu._CPU__dec("A")
+        self.cpu._dec("A")
         self.assertTrue(self.cpu.get_flag("z"))
 
     def test_dec_16bit(self):
         """Test the __dec function for 8-bit register A."""
         self.cpu.write_register("BC", 0x0001)  # Set register A to 1
-        self.cpu._CPU__dec("BC")
+        self.cpu._dec("BC")
         self.assertEqual(
             self.cpu.read_register("BC"), 0x0000
         )  # After decrementing, A should be 0
@@ -273,7 +273,7 @@ class TestCPU(unittest.TestCase):
     def test_dec_16bit_wraparound(self):
         """Test the __dec function for 8-bit register A with wraparound."""
         self.cpu.write_register("BC", 0x00)  # Set register A to 0
-        self.cpu._CPU__dec("BC")
+        self.cpu._dec("BC")
         self.assertEqual(
             self.cpu.read_register("BC"), 0xFFFF
         )  # After decrementing, A should wrap around to 0xFF
@@ -282,7 +282,7 @@ class TestCPU(unittest.TestCase):
         """Test addition of two non-zero values."""
         self.cpu.write_register("A", 0x05)
         self.cpu.write_register("B", 0x03)
-        self.cpu._CPU__add("A", "B")
+        self.cpu._add("A", "B")
         self.assertEqual(
             self.cpu.read_register("A"), 0x08
         )  # After addition, A should be 0x08
@@ -293,7 +293,7 @@ class TestCPU(unittest.TestCase):
         self.cpu.write_register("A", 0xFF)
         self.cpu.write_register("B", 0x01)
         self.cpu.set_flag("c", True)  # Set carry flag
-        self.cpu._CPU__add("A", "B")
+        self.cpu._add("A", "B")
         self.assertEqual(
             self.cpu.read_register("A"), 0x00
         )  # After addition, A should be 0x00
@@ -306,7 +306,7 @@ class TestCPU(unittest.TestCase):
         self.cpu.write_register("B", 0x00)
 
         # Perform addition operation
-        self.cpu._CPU__add("A", "B")
+        self.cpu._add("A", "B")
 
         # Check that register A contains 0x00 after addition
         self.assertEqual(
@@ -324,7 +324,7 @@ class TestCPU(unittest.TestCase):
         self.ram.write_byte(0xBEEF, 0x03)
 
         # Perform addition operation
-        self.cpu._CPU__add_reg_mem("A", "HL")
+        self.cpu._add_reg_mem("A", "HL")
 
         # Check that register A contains 0x08 after addition
         self.assertEqual(
@@ -341,7 +341,7 @@ class TestCPU(unittest.TestCase):
         self.ram.write_byte(0xBEEF, 0x01)
 
         # Perform addition operation
-        self.cpu._CPU__add_reg_mem("A", "HL")
+        self.cpu._add_reg_mem("A", "HL")
 
         # Check that register A contains 0x00 after addition
         self.assertEqual(
@@ -357,7 +357,7 @@ class TestCPU(unittest.TestCase):
         self.cpu.write_register("B", 0x06)
 
         # Subtract B from A (A - B)
-        self.cpu._CPU__sub_reg_reg("A", "B")
+        self.cpu._sub_reg_reg("A", "B")
 
         # Check if the result in register A is correct (0x0A - 0x06 = 0x04)
         self.assertEqual(self.cpu.read_register("A"), 0x04)
@@ -375,7 +375,7 @@ class TestCPU(unittest.TestCase):
         self.cpu.write_register("B", 0x05)
 
         # Subtract B from A (A - B)
-        self.cpu._CPU__sub_reg_reg("A", "B")
+        self.cpu._sub_reg_reg("A", "B")
 
         # Check if the result in register A is correct (0x02 - 0x05 = 0xFD)
         self.assertEqual(self.cpu.read_register("A"), 0xFD)
@@ -394,7 +394,7 @@ class TestCPU(unittest.TestCase):
         self.cpu.set_flag("c", True)
 
         # Perform addition of B to A with carry (A + B + CY)
-        self.cpu._CPU__adc("A", "B")
+        self.cpu._adc("A", "B")
 
         # Check if the result in register A is correct (0xFF + 0x01 + 1 = 0x01)
         self.assertEqual(self.cpu.read_register("A"), 0x01)
@@ -413,7 +413,7 @@ class TestCPU(unittest.TestCase):
         self.cpu.set_flag("c", False)
 
         # Perform addition of B to A with carry (A + B + CY)
-        self.cpu._CPU__adc("A", "B")
+        self.cpu._adc("A", "B")
 
         # Check if the result in register A is correct (0xFF + 0x01 + 1 = 0x01)
         self.assertEqual(self.cpu.read_register("A"), 0x02)
@@ -434,7 +434,7 @@ class TestCPU(unittest.TestCase):
         self.cpu.set_flag("c", True)
 
         # Perform addition of value at memory address 0x1000 to A with carry (A + mem[0x1000] + CY)
-        self.cpu._CPU__adc_reg_mem("A", "HL")
+        self.cpu._adc_reg_mem("A", "HL")
 
         # Check if the result in register A is correct (0x0A + 0x07 + 1 = 0x12)
         self.assertEqual(self.cpu.read_register("A"), 0x01)
@@ -452,7 +452,7 @@ class TestCPU(unittest.TestCase):
         self.cpu.set_flag("c", True)
 
         # Perform addition of immediate value 0x07 to A with carry (A + 0x07 + CY)
-        self.cpu._CPU__adc_reg_int("A", 0x01)
+        self.cpu._adc_reg_int("A", 0x01)
 
         # Check if the result in register A is correct (0x0A + 0x07 + 1 = 0x12)
         self.assertEqual(self.cpu.read_register("A"), 0x01)
@@ -471,7 +471,7 @@ class TestCPU(unittest.TestCase):
         self.cpu.set_flag("c", True)
 
         # Perform subtraction of B from A with borrow (A - B - CY)
-        self.cpu._CPU__sbc("A", "B")
+        self.cpu._sbc("A", "B")
 
         # Check if the result in register A is correct (0x0A - 0x07 - 1 = 0x02)
         self.assertEqual(self.cpu.read_register("A"), 0x02)
@@ -489,7 +489,7 @@ class TestCPU(unittest.TestCase):
         self.cpu.write_register("B", 0x07)
 
         # Load register A with the value of register B
-        self.cpu._CPU__ld_reg_reg("A", "B")
+        self.cpu._ld_reg_reg("A", "B")
 
         # Check if the value of register A is equal to the value of register B
         self.assertEqual(self.cpu.read_register("A"), 0x07)
@@ -502,7 +502,7 @@ class TestCPU(unittest.TestCase):
         self.cpu.ram.write_byte(0x1000, 0x00)
 
         # Load the memory location 0x1000 with the value of register A
-        self.cpu._CPU__ld_mem_reg("DE", "A")
+        self.cpu._ld_mem_reg("DE", "A")
 
         # Check if the value at memory address 0x1000 is equal to the value of register A
         self.assertEqual(self.cpu.ram.read_byte(0x1000), 0x0A)
@@ -516,7 +516,7 @@ class TestCPU(unittest.TestCase):
         self.cpu.write_register("C", 0x10)
 
         # Load the memory location 0xFF10 with the value of register C
-        self.cpu._CPU__ld_memffxx_reg_reg("A", "C")
+        self.cpu._ld_memffxx_reg_reg("A", "C")
 
         # Check if the value at memory address 0xFF0A is equal to the value of register C
         self.assertEqual(self.cpu.ram.read_byte(0xFF0A), self.cpu.read_register("C"))
@@ -528,7 +528,7 @@ class TestCPU(unittest.TestCase):
         self.cpu.write_register("C", 0x10)
 
         # Load the memory location 0xFF0A with the value of register C
-        self.cpu._CPU__ld_memffxx_int_reg(0x0A, "C")
+        self.cpu._ld_memffxx_int_reg(0x0A, "C")
 
         # Check if the value at memory address 0xFF0A is equal to the value of register C
         self.assertEqual(self.cpu.ram.read_byte(0xFF0A), self.cpu.read_register("C"))
@@ -545,7 +545,7 @@ class TestCPU(unittest.TestCase):
         self.cpu.write_register(test_16bit_address, test_location)
 
         # Load the value at memory location DE into register A
-        self.cpu._CPU__ld_reg_mem(test_register, test_16bit_address)
+        self.cpu._ld_reg_mem(test_register, test_16bit_address)
 
         # Check if the value at memory address 0xFF0A is equal to the value of register C
         self.assertEqual(self.cpu.read_register(test_register), test_value)
@@ -556,20 +556,20 @@ class TestCPU(unittest.TestCase):
         test_value = 0xAB
 
         # Load the memory location 0xFF0A with the value of register C
-        self.cpu._CPU__ld_reg_int("L", test_value)
+        self.cpu._ld_reg_int("L", test_value)
 
         # Check if the value at memory address 0xFF0A is equal to the value of register C
         self.assertEqual(self.cpu.read_register("L"), test_value)
 
     def test_bit_n_reg(self):
-        """Test the __bit_n__reg function."""
+        """Test the _bit_n__reg function."""
         # Set register A to 0b01010101
         self.cpu.write_register("A", 0b01010101)
 
         # Test each bit of register A individually
         for bit in range(8):
-            # Call __bit_n__reg with the current bit and register A
-            self.cpu._CPU__bit_n__reg(bit, "A")
+            # Call _bit_n__reg with the current bit and register A
+            self.cpu._bit_n__reg(bit, "A")
 
             # Check if the Z flag is set correctly
             expected_z = (self.cpu.read_register("A") >> bit) & 0x01 == 0
@@ -582,7 +582,7 @@ class TestCPU(unittest.TestCase):
             self.assertFalse(self.cpu.get_flag("n"))
 
     def test_rlc_reg(self):
-        """Test the __rlc_reg function."""
+        """Test the _rlc_reg function."""
         # Test rotation for each register
         for register in self.registers_8bit:
             # Set initial value for the register
@@ -592,7 +592,7 @@ class TestCPU(unittest.TestCase):
             self.cpu.clear_flag("c")
 
             # Perform rotate left carry operation
-            self.cpu._CPU__rlc_reg(register)
+            self.cpu._rlc_reg(register)
 
             # Check if the rotation is correct
             self.assertEqual(self.cpu.read_register(register), 0b11111110)
@@ -608,7 +608,7 @@ class TestCPU(unittest.TestCase):
             # Test with a value that rotates back to original
             self.cpu.write_register(register, 0b10000000)
             self.cpu.clear_flag("c")
-            self.cpu._CPU__rlc_reg(register)
+            self.cpu._rlc_reg(register)
             self.assertEqual(self.cpu.read_register(register), 0b00000001)
 
             # Check if the flags are set correctly
@@ -627,7 +627,7 @@ class TestCPU(unittest.TestCase):
         self.cpu.set_flag("c", True)
 
         # Execute the rotate left operation
-        self.cpu._CPU__rl_reg("A")
+        self.cpu._rl_reg("A")
 
         # Check if the result in register A is correct after rotation
         self.assertEqual(self.cpu.read_register("A"), 0b00110101)
@@ -701,14 +701,14 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(self.cpu.read_register("SP"), 0x0000)
 
     def test_bit_n_mem(self):
-        """Test the __bit_n__mem function."""
+        """Test the _bit_n__mem function."""
         # Set memory location 0x1000 to 0b01010101
         self.cpu.ram.write_byte(0x1000, 0b01010101)
 
         # Test each bit of memory location 0x1000 individually
         for bit in range(8):
-            # Call __bit_n__mem with the current bit and memory location 0x1000
-            self.cpu._CPU__bit_n__mem(bit, 0x1000)
+            # Call _bit_n__mem with the current bit and memory location 0x1000
+            self.cpu._bit_n__mem(bit, 0x1000)
 
             # Check if the Z flag is set correctly
             expected_z = (self.cpu.ram.read_byte(0x1000) >> bit) & 0x01 == 0
