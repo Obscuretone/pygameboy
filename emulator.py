@@ -4,7 +4,7 @@ from cpu import CPU  # Import the CPU class
 from memory import Memory  # Import the CPU class
 from video import VideoChip
 import cProfile
-from mbc import MBC0, MBC1, MBC3, MBC5
+from mbc import MBC0, MBC1, MBC2, MBC3, MBC5
 
 parser = argparse.ArgumentParser()
 parser.add_argument("rom", nargs="?", default="Tetris.gb")
@@ -53,6 +53,8 @@ if mbc_type == 0:
     ram.mbc = MBC0(rom)
 elif mbc_type in [0x01, 0x02, 0x03]:
     ram.mbc = MBC1(rom)
+elif mbc_type in [0x05, 0x06]:
+    ram.mbc = MBC2(rom)
 elif mbc_type in [0x0F, 0x10, 0x11, 0x12, 0x13]:
     ram.mbc = MBC3(rom)
 elif mbc_type in [0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E]:

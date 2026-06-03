@@ -165,3 +165,40 @@ class MBC5(MBC):
             return
         real_address = (self.ram_bank * 0x2000) + (address - 0xA000)
         self.ram[real_address % len(self.ram)] = value
+
+class MBC2(MBC):
+    def __init__(self, rom_data):
+        # MBC2 has 512 x 4 bits of RAM built-in
+        super().__init__(rom_data, 512)
+        self.rom_bank = 1
+
+    def read_rom(self, address):
+        if address <= 0x3FFF:
+            return self.rom[address]
+        elif address <= 0x7FFF:
+            real_address = (self.rom_bank * 0x4000) + (address - 0x4000)
+            return self.rom[real_address % len(self.rom)]
+        return 0xFF
+
+    def write_rom(self, address, value):
+        if address <= 0x3FFF:
+            if (address & 0x0100) == 0:
+                # RAM Enable (Bit 8 is 0)
+                self.ram_enabled = (value & 0x0F) == 0x0A
+            else:
+                # ROM Bank Number (Bit 8 is 1)
+                bank = value & 0x0F
+                if bank == 0:
+                    bank = 1
+                self.rom_bank = bank
+
+    def read_ram(self, address):
+        if not self.ram_enabled:
+            return 0xFF
+        # MBC2 RAM is only 512 bytes, and only the lower 4 bits are usable
+        return self.ram[(address - 0xA000) % 512] | 0xF0
+
+    def write_ram(self, address, value):
+        if not self.ram_enabled:
+            return
+        self.ram[(address - 0xA000) % 512] = value & 0x0F
