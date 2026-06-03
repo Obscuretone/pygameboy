@@ -112,6 +112,7 @@ def main() -> None:
         rom = bytearray(f.read())
 
     rom_title = get_rom_title(rom)
+    print(" [ DMG-01 Emulator | Python + Pygame + NumPy ]")
     print_rom_info(rom)
     sys.stdout.flush()
 
