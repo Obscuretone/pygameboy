@@ -788,6 +788,7 @@ class CPU:
             # really need a union type...
         }
 
+        value = int(value)
         if reg in reg_pairs:
             self.registers[reg] = value & 0xFFFF
             if reg == "AF":
@@ -980,7 +981,7 @@ class CPU:
         a = self.read_register(registerA)
         b = self.read_register(registerB)
 
-        result = a + b
+        result = int(a) + int(b)
 
         self.write_register(registerA, result & 0xFF)
 
@@ -996,7 +997,7 @@ class CPU:
 
         b = self.memory[self.read_register(memory_address)]
 
-        result = a + b
+        result = int(a) + int(b)
 
         self.write_register(register, result & 0xFF)
 
@@ -1041,7 +1042,7 @@ class CPU:
         carry = 1 if self.get_flag("c") else 0
 
         # Perform the addition with carry
-        result = a + b + carry
+        result = int(a) + int(b) + carry
 
         self.write_register(registerA, result & 0xFF)
 
@@ -1059,7 +1060,7 @@ class CPU:
         carry = 1 if self.get_flag("c") else 0
 
         # Perform the addition with carry
-        result = a + b + carry
+        result = int(a) + int(b) + carry
 
         self.write_register(registerA, result & 0xFF)
 
@@ -4720,7 +4721,7 @@ class CPU:
         self.registers["SP"] = self.registers["SP"] + 1 & 0xFFFF
 
         # Combine the lower and upper bytes to form BC
-        bc_value = (upper_byte << 8) | lower_byte
+        bc_value = (int(upper_byte) << 8) | int(lower_byte)
 
         # Write BC back to the register
         self.write_register("BC", bc_value)
