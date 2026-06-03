@@ -65,9 +65,10 @@ else:
 
 video = VideoChip(clock, ram)
 ram.video = video
+apu = ram.apu
 
 
-cpu = CPU(clock, ram, video, args.verbose)
+cpu = CPU(clock, ram, video, apu, args.verbose)
 
 
 run_args = {
