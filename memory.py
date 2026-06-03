@@ -1,4 +1,6 @@
-from mbc import MBC0, MBC1
+from apu import APU
+from serial_cable import Serial
+from mbc import MBC0, MBC1, MBC3, MBC5
 from joypad import Joypad
 import numpy as np
 from clock import SystemClock
@@ -49,11 +51,17 @@ class Memory:
         self.video = None
         self.joypad = Joypad()
         self.mbc = None
+        self.serial = Serial(self)
+        self.apu = APU()
 
     def read_byte(self, address):
         address &= 0xFFFF
         if address == 0xFF00:
             return self.joypad.read()
+        if address in [0xFF01, 0xFF02]:
+            return self.serial.read_byte(address)
+        if 0xFF10 <= address <= 0xFF3F:
+            return self.apu.read_byte(address)
         if self.video:
             if 0x8000 <= address <= 0x9FFF or 0xFE00 <= address <= 0xFE9F:
                 return self.video.read_byte(address)
@@ -73,6 +81,12 @@ class Memory:
         value &= 0xFF
         if address == 0xFF00:
             self.joypad.write(value)
+            return
+        if address in [0xFF01, 0xFF02]:
+            self.serial.write_byte(address, value)
+            return
+        if 0xFF10 <= address <= 0xFF3F:
+            self.apu.write_byte(address, value)
             return
         if self.video:
             if 0x8000 <= address <= 0x9FFF or 0xFE00 <= address <= 0xFE9F:
