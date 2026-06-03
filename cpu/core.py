@@ -269,9 +269,7 @@ class CPU(CPUOpcodes):
         self.fast_or_a_ops = self._build_fast_or_table()
         self.fast_cp_a_ops = self._build_fast_cp_table()
 
-        self.opcode_stats = defaultdict(
-            lambda: {"total_time": 0, "count": 0, "average_time": 0}
-        )
+        self.opcode_stats: Optional[Dict[int, Dict[str, float]]] = None
 
         #  _____            _     _
         # |  __ \          (_)   | |
@@ -1984,26 +1982,28 @@ class CPU(CPUOpcodes):
         return opcode, method(self, data)
 
     def update_stats(self, opcode: int, time_taken: float) -> None:
+        if self.opcode_stats is None:
+            self.opcode_stats = defaultdict(lambda: {"total_time": 0.0, "count": 0})
         stats = self.opcode_stats[opcode]
         stats["total_time"] += time_taken
         stats["count"] += 1
 
     def display_stats_on_exit(self):
+        if self.opcode_stats is None:
+            return
         print(
-            "\nOpcode statistics on exit (sorted by average time per cycle in descending order):"
+            "\nOpcode statistics on exit (sorted by total time descending):"
         )
         sorted_stats = sorted(
             self.opcode_stats.items(),
-            key=lambda x: x[1]["average_time"] / x[1]["count"],
+            key=lambda x: x[1]["total_time"],
             reverse=True,
         )
         for opcode, stats in sorted_stats:
-            avg_time_per_cycle = stats["average_time"] / stats["count"]
-
-            if avg_time_per_cycle * 1000 * 1000 > 0.237:
-                print(
-                    f"Opcode {opcode:02X}: Average time per cycle {1000 * 1000 * avg_time_per_cycle:.6f}μs over {stats['count']} executions"
-                )
+            avg_time = stats["total_time"] / stats["count"]
+            print(
+                f"Opcode {opcode:02X}: Total {stats['total_time']:.4f}s, Avg {avg_time*1_000_000:.4f}μs, Count {stats['count']}"
+            )
 
     def run(
         self,
@@ -2074,13 +2074,15 @@ class CPU(CPUOpcodes):
                     clock.update(batch_cycles)
                     batch_cycles = 0
                 
-                # Per-instruction logic (keep minimal)
+                # Update interrupt delay (only if pending)
                 if self.enable_interrupts_delay > 0:
                     update_interrupt_enable_delay()
 
+                # 7. Check limits
                 instructions_executed += 1
                 if self.stopped:
                     break
+                
                 if max_instructions is not None and instructions_executed >= max_instructions:
                     break
                 if max_cycles is not None and elapsed_cycles >= max_cycles:
