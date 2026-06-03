@@ -17,11 +17,12 @@ class PulseChannel:
 
     def step(self, cycles):
         if not self.enabled:
+            self.output = 0
             return
 
         self.timer -= cycles
-        if self.timer <= 0:
-            # Reload timer: (2048 - frequency) * 4
+        while self.timer <= 0:
+            # Reload timer
             self.timer += (2048 - self.frequency) * 4
             self.duty_step = (self.duty_step + 1) % 8
             self.output = self.volume if self.DUTY_CYCLES[self.duty][self.duty_step] else 0
@@ -97,6 +98,8 @@ class APU:
         self.ch3 = WaveChannel()
         self.ch4 = NoiseChannel()
         self.cycles = 0
+        self.left_output = 0
+        self.right_output = 0
 
     def read_byte(self, address):
         if not self.sound_enabled and address != 0xFF26:
@@ -148,6 +151,7 @@ class APU:
             elif 0xFF30 <= address <= 0xFF3F:
                 self.ch3.wave_ram[address - 0xFF30] = value
 
+
     def step(self, cycles):
         if not self.sound_enabled:
             return
@@ -157,5 +161,50 @@ class APU:
         self.ch3.step(cycles)
         self.ch4.step(cycles)
         
-        # In a real implementation, we'd sample the outputs here
-        # to a buffer for playback.
+        # Sampling rate logic
+        # Gameboy clock is ~4.19MHz. If we sample at 44100Hz, 
+        # we should sample every ~95 cycles.
+        self.cycles += cycles
+        if self.cycles >= 95:
+            self.cycles -= 95
+            self.sample()
+
+    def sample(self):
+        # print("Sampling!")
+        # NR50 (0xFF24): Channel control / ON-OFF / Volume
+        # NR51 (0xFF25): Selection of Sound output terminals
+        
+        nr50 = self.registers[0x14]
+        nr51 = self.registers[0x15]
+        
+        l_vol = (nr50 & 0x70) >> 4
+        r_vol = (nr50 & 0x07)
+        
+        # Get channel outputs (0-15)
+        c1 = self.ch1.output
+        c2 = self.ch2.output
+        c3 = self.ch3.output
+        c4 = self.ch4.output
+        
+        left = 0
+        right = 0
+        
+        # Mixing
+        if nr51 & 0x80: left += c4
+        if nr51 & 0x40: left += c3
+        if nr51 & 0x20: left += c2
+        if nr51 & 0x10: left += c1
+        
+        if nr51 & 0x08: right += c4
+        if nr51 & 0x04: right += c3
+        if nr51 & 0x02: right += c2
+        if nr51 & 0x01: right += c1
+        
+        # Apply master volume
+        left = (left * l_vol) // 8
+        right = (right * r_vol) // 8
+        
+        # For now, we just keep the last sample
+        self.left_output = left
+        self.right_output = right
+
