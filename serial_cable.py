@@ -8,7 +8,7 @@ from constants import (
     SERIAL_INTERRUPT_BIT,
 )
 from protocols import MemoryBus
-from gb_types import Address, Byte
+from gb_types import Address, Byte, UNMAPPED_BYTE
 
 
 class Serial:
@@ -18,6 +18,9 @@ class Serial:
     Often used by test ROMs (like Blargg's) to output debug information.
     """
 
+    SB_DEFAULT = 0x00
+    SC_DEFAULT = 0x7E
+
     def __init__(self, memory: MemoryBus):
         """
         Initialize the Serial port.
@@ -26,8 +29,8 @@ class Serial:
             memory: The memory bus for requesting interrupts.
         """
         self.memory: MemoryBus = memory
-        self.SB: int = 0x00  # Serial Transfer Data
-        self.SC: int = 0x7E  # Serial Transfer Control
+        self.SB: int = self.SB_DEFAULT  # Serial Transfer Data
+        self.SC: int = self.SC_DEFAULT  # Serial Transfer Control
 
     def read_byte(self, address: Address) -> Byte:
         """Read a serial register byte."""
@@ -35,7 +38,7 @@ class Serial:
             return self.SB
         elif address == REG_SC:
             return self.SC
-        return 0xFF
+        return UNMAPPED_BYTE
 
     def write_byte(self, address: Address, value: Byte) -> None:
         """Write to a serial register and potentially start a transfer."""
