@@ -1,32 +1,43 @@
 from typing import Any, Final, List, Optional
 from gb_types import Byte, Address, Word
-from protocols import ClockDevice
+from protocols import ClockDevice, MemoryBus
 from constants import (
-    REG_IF, IE_REG,
-    VEC_VBLANK, VEC_STAT, VEC_TIMER, VEC_SERIAL, VEC_JOYPAD
+    REG_IF,
+    IE_REG,
+    VEC_VBLANK,
+    VEC_STAT,
+    VEC_TIMER,
+    VEC_SERIAL,
+    VEC_JOYPAD,
 )
+
 
 class InterruptManager:
     """
     Manages GameBoy hardware interrupts.
     """
+
     VECTORS: Final[List[Address]] = [
-        VEC_VBLANK, VEC_STAT, VEC_TIMER, VEC_SERIAL, VEC_JOYPAD
+        VEC_VBLANK,
+        VEC_STAT,
+        VEC_TIMER,
+        VEC_SERIAL,
+        VEC_JOYPAD,
     ]
-    
+
     VBLANK: Final[int] = 0x01
     STAT: Final[int] = 0x02
     TIMER: Final[int] = 0x04
     SERIAL: Final[int] = 0x08
     JOYPAD: Final[int] = 0x10
 
-    def __init__(self, memory: Any):
-        self.memory = memory
+    def __init__(self, memory: MemoryBus):
+        self.memory: MemoryBus = memory
         self.ime: bool = False
         self.pending_ime_enable: bool = False
         self.ime_enable_delay: int = 0
 
-    def request(self, mask: int) -> None:
+    def request(self, mask: Byte) -> None:
         """Request an interrupt by setting a bit in IF ($FF0F)."""
         if_val = self.memory.read_byte(REG_IF)
         self.memory.write_byte(REG_IF, if_val | (mask & 0x1F))
@@ -39,7 +50,7 @@ class InterruptManager:
                 self.ime = True
                 self.pending_ime_enable = False
 
-    def get_pending(self) -> int:
+    def get_pending(self) -> Byte:
         """Get currently requested and enabled interrupts."""
         return self.memory.read_byte(REG_IF) & self.memory.read_byte(IE_REG) & 0x1F
 
@@ -51,7 +62,7 @@ class InterruptManager:
         requested = self.get_pending()
         if requested:
             cpu.halted = False
-        
+
         if not self.ime or not requested:
             return 0
 
@@ -61,11 +72,11 @@ class InterruptManager:
                 self.ime = False
                 self.pending_ime_enable = False
                 self.ime_enable_delay = 0
-                
+
                 # Clear IF bit
                 if_val = self.memory.read_byte(REG_IF)
                 self.memory.write_byte(REG_IF, if_val & ~mask)
-                
+
                 # Push PC to stack
                 pc = cpu.registers.PC
                 sp = (cpu.registers.SP - 1) & 0xFFFF
@@ -73,7 +84,7 @@ class InterruptManager:
                 sp = (sp - 1) & 0xFFFF
                 cpu._write_memory_byte(sp, pc & 0xFF)
                 cpu.registers.SP = sp
-                
+
                 # Jump to vector
                 cpu.registers.PC = self.VECTORS[bit]
                 return 20

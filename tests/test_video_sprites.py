@@ -12,7 +12,7 @@ class TestVideoSprites(unittest.TestCase):
     def setUp(self):
         self.clock = SystemClock(4194304)
         self.mem = MockMemory()
-        self.video = VideoChip(self.clock, self.mem)
+        self.video = VideoChip(self.clock, self.mem)  # type: ignore
 
     def test_sprite_rendering(self):
         # Configure LCDC for BG enable and OBJ enable

@@ -1,25 +1,29 @@
 from typing import Any
 import sys
 from constants import REG_SB, REG_SC
+from protocols import MemoryBus
+from gb_types import Address, Byte
+
 
 class Serial:
     """
     Implements the GameBoy's serial communication port.
-    
+
     Often used by test ROMs (like Blargg's) to output debug information.
     """
-    def __init__(self, memory: Any):
+
+    def __init__(self, memory: MemoryBus):
         """
         Initialize the Serial port.
 
         Args:
             memory: The memory bus for requesting interrupts.
         """
-        self.memory: Any = memory
-        self.SB: int = 0x00 # Serial Transfer Data
-        self.SC: int = 0x7E # Serial Transfer Control
+        self.memory: MemoryBus = memory
+        self.SB: int = 0x00  # Serial Transfer Data
+        self.SC: int = 0x7E  # Serial Transfer Control
 
-    def read_byte(self, address: int) -> int:
+    def read_byte(self, address: Address) -> Byte:
         """Read a serial register byte."""
         if address == REG_SB:
             return self.SB
@@ -27,7 +31,7 @@ class Serial:
             return self.SC
         return 0xFF
 
-    def write_byte(self, address: int, value: int) -> None:
+    def write_byte(self, address: Address, value: Byte) -> None:
         """Write to a serial register and potentially start a transfer."""
         if address == REG_SB:
             self.SB = value
@@ -42,7 +46,7 @@ class Serial:
                 char = chr(self.SB)
                 sys.stdout.write(char)
                 sys.stdout.flush()
-                
+
                 # Clear the transfer flag (bit 7)
                 self.SC &= 0x7F
                 # Request a Serial Interrupt

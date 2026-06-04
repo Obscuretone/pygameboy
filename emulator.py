@@ -1,16 +1,16 @@
-from typing import Optional, Dict, List, Tuple, Union, Any, Final
+from typing import Dict, Union, Final
 import os
 import sys
 import argparse
-import cProfile
 import numpy as np
 
 # Fix pygame on macOS before importing
-if sys.platform == 'darwin':
-    os.environ['SDL_VIDEODRIVER'] = 'cocoa'
-    os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
+if sys.platform == "darwin":
+    os.environ["SDL_VIDEODRIVER"] = "cocoa"
+    os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 
 import pygame
+
 try:
     import sounddevice as sd
 except ImportError:
@@ -22,15 +22,17 @@ from cpu import CPU
 from memory import Memory
 from video import VideoChip
 from mbc import MBC0, MBC1, MBC2, MBC3, MBC5
-from joypad import KeyboardMapper
 
 # Standard GB color palette (original green shades)
-GB_PALETTE: Final[np.ndarray] = np.array([
-    (155, 188, 15), # 0: Lightest
-    (139, 172, 15), # 1: Light
-    (48, 98, 48),   # 2: Dark
-    (15, 56, 15)    # 3: Darkest
-], dtype=np.uint8)
+GB_PALETTE: Final[np.ndarray] = np.array(
+    [
+        (155, 188, 15),  # 0: Lightest
+        (139, 172, 15),  # 1: Light
+        (48, 98, 48),  # 2: Dark
+        (15, 56, 15),  # 3: Darkest
+    ],
+    dtype=np.uint8,
+)
 
 # Pygame to Joypad mapping
 PYGAME_MAP: Final[Dict[int, str]] = {
@@ -42,8 +44,9 @@ PYGAME_MAP: Final[Dict[int, str]] = {
     pygame.K_x: "b_button",
     pygame.K_RETURN: "start",
     pygame.K_RSHIFT: "select",
-    pygame.K_SPACE: "select"
+    pygame.K_SPACE: "select",
 }
+
 
 def get_rom_title(rom: Union[bytes, bytearray]) -> str:
     """Extract the ROM title from the cartridge header."""
@@ -61,15 +64,20 @@ def print_rom_info(rom: Union[bytes, bytearray]) -> None:
     rom_size = 32768 << rom[0x0148]
     ram_size = 0
     ram_code = rom[0x0149]
-    if ram_code == 2: ram_size = 8192
-    elif ram_code == 3: ram_size = 32768
-    elif ram_code == 4: ram_size = 131072
-    elif ram_code == 5: ram_size = 65536
-    
+    if ram_code == 2:
+        ram_size = 8192
+    elif ram_code == 3:
+        ram_size = 32768
+    elif ram_code == 4:
+        ram_size = 131072
+    elif ram_code == 5:
+        ram_size = 65536
+
     print(f"Loading ROM: {title}")
     print(f"MBC Type:    {hex(mbc_type)}")
     print(f"ROM Size:    {rom_size // 1024} KB")
     print(f"RAM Size:    {ram_size // 1024} KB")
+
 
 def handle_input(joypad: InputDevice) -> bool:
     """Process pygame events and update joypad state."""
@@ -81,13 +89,16 @@ def handle_input(joypad: InputDevice) -> bool:
                 joypad.set_key(PYGAME_MAP[event.key], event.type == pygame.KEYDOWN)
     return True
 
+
 def main() -> None:
     """Main execution loop of the emulator."""
 
     parser = argparse.ArgumentParser()
     parser.add_argument("rom", nargs="?", default="Tetris.gb")
     parser.add_argument("-v", "--verbose", action="store_true")
-    parser.add_argument("-s", "--scale", type=int, default=4, help="Window scale (default 4x)")
+    parser.add_argument(
+        "-s", "--scale", type=int, default=4, help="Window scale (default 4x)"
+    )
     parser.add_argument("--profile", action="store_true")
     parser.add_argument("--slow-step", action="store_true")
     parser.add_argument("--no-realtime", action="store_true")
@@ -121,11 +132,11 @@ def main() -> None:
 
     # Initial memory setup
     mem_data = bytearray(0x10000)
-    mem_data[:len(rom)] = rom 
-    mem_data[:len(bootloader)] = bootloader
+    mem_data[: len(rom)] = rom
+    mem_data[: len(bootloader)] = bootloader
 
     ram = Memory(clock, mem_data, backend="bytearray")
-    ram.cartridge_boot_area = rom[:len(bootloader)]
+    ram.cartridge_boot_area = rom[: len(bootloader)]
 
     # Detect MBC Type
     mbc_type = rom[0x0147]
@@ -184,7 +195,7 @@ def main() -> None:
     pygame.display.init()
     print("Pygame display initialized")
     sys.stdout.flush()
-    
+
     window_width = 160 * args.scale
     window_height = 144 * args.scale
     print(f"Setting mode to {window_width}x{window_height}...")
@@ -192,11 +203,11 @@ def main() -> None:
     screen = pygame.display.set_mode((window_width, window_height))
     print("Display mode set")
     sys.stdout.flush()
-    
+
     pygame.display.set_caption(f"PyGameBoy - {rom_title}")
     print("Caption set")
     sys.stdout.flush()
-    
+
     # Internal surface for 160x144 rendering
     internal_surface = pygame.Surface((160, 144))
     print("Internal surface created")
@@ -212,9 +223,9 @@ def main() -> None:
                 print(f"Frame {frame_count}")
                 sys.stdout.flush()
             frame_count += 1
-            
+
             running = handle_input(ram.joypad)
-            
+
             # Run CPU for one frame worth of cycles (~70224 cycles)
             cpu.run(
                 max_cycles=70224,
@@ -223,25 +234,28 @@ def main() -> None:
                 announce=False,
                 profile_opcodes=args.profile,
             )
-            
+
             # 1. Get raw indices (0-3) from PPU
             raw_indices = ram.video.frame_buffer.reshape((144, 160))
-            
+
             # 2. Map to RGB using NumPy broadcasting
             rgb_data = GB_PALETTE[raw_indices]
-            
+
             # 3. Blit to internal surface
             # Pygame surfarray uses (width, height, channels) order
             pygame.surfarray.blit_array(internal_surface, rgb_data.transpose(1, 0, 2))
-            
+
             # 4. Integer scale directly to the window surface.
-            pygame.transform.scale(internal_surface, (window_width, window_height), screen)
+            pygame.transform.scale(
+                internal_surface, (window_width, window_height), screen
+            )
             pygame.display.flip()
-            
+
     except KeyboardInterrupt:
         pass
     except Exception as e:
         import traceback
+
         print(f"Error: {e}")
         traceback.print_exc()
     finally:
@@ -249,6 +263,7 @@ def main() -> None:
             stream.stop()
             stream.close()
         pygame.quit()
+
 
 if __name__ == "__main__":
     main()

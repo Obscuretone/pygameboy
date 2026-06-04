@@ -1,1 +1,1 @@
-from .core import CPU
+from .core import CPU as CPU

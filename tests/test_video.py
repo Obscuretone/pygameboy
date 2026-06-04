@@ -13,7 +13,7 @@ class TestVideo(unittest.TestCase):
     def setUp(self):
         self.clock = SystemClock(4194304)
         self.mem = MockMemory()
-        self.video = VideoChip(self.clock, self.mem)
+        self.video = VideoChip(self.clock, self.mem)  # type: ignore
 
     def test_mode_transitions(self):
         # Initial mode should be 2 (OAM Search) or whatever STAT is initialized to
