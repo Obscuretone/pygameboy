@@ -95,17 +95,17 @@ class Memory:
             actual_clock = clock  # type: ignore
         self.clock: Optional[ClockDevice] = actual_clock
 
-        # Initialize with provided data
+        # Initialize with provided data if any
         if data is not None:
             limit = min(len(data), WORD_VALUE_COUNT)
             self.storage[:limit] = data[:limit]
 
-        # Initialize IO registers to hardware defaults for any values still 0
+        # Initialize IO registers to hardware defaults
         for i in range(0xFF00, 0x10000):
             if self.storage[i] == 0:
                 self.storage[i] = 0xFF
         
-        # Explicitly zero out common registers that should be 0 at boot
+        # Explicitly set registers that should be 0 at boot
         for addr in [REG_JOYP, REG_DIV, REG_TIMA, REG_TMA, REG_TAC, REG_LY, IE_REG, 0xFF50]:
             self.storage[addr] = 0x00
         
