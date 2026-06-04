@@ -8,7 +8,7 @@ from memory import Memory
 def build_cpu(backend, program, setup=None):
     clock = SystemClock(clock_speed_hz=4194304)
     ram = Memory(clock, backend=backend)
-    ram.memory[: len(program)] = program
+    ram.storage[: len(program)] = program
     if setup is not None:
         for address, value in setup.items():
             ram.write_byte(address, value)
@@ -31,7 +31,8 @@ def measure_case(backend, program, instructions, fast, setup=None):
 
 def run_case(label, backend, program, instructions, fast, repeats=5, setup=None):
     results = [
-        measure_case(backend, program, instructions, fast, setup) for _ in range(repeats)
+        measure_case(backend, program, instructions, fast, setup)
+        for _ in range(repeats)
     ]
     best_instr, best_cycles = max(results, key=lambda result: result[0])
     avg_instr = sum(result[0] for result in results) / repeats
@@ -45,7 +46,9 @@ def run_case(label, backend, program, instructions, fast, repeats=5, setup=None)
 def run_suite(name, program, instructions, include_normal=True, setup=None):
     print(f"\n{name}: {instructions:,} instructions")
     if include_normal:
-        run_case("numpy normal", "numpy", program, instructions, fast=False, setup=setup)
+        run_case(
+            "numpy normal", "numpy", program, instructions, fast=False, setup=setup
+        )
     run_case("numpy fast", "numpy", program, instructions, fast=True, setup=setup)
     if include_normal:
         run_case(
@@ -56,7 +59,9 @@ def run_suite(name, program, instructions, include_normal=True, setup=None):
             fast=False,
             setup=setup,
         )
-    run_case("bytearray fast", "bytearray", program, instructions, fast=True, setup=setup)
+    run_case(
+        "bytearray fast", "bytearray", program, instructions, fast=True, setup=setup
+    )
 
 
 def run_timer_case(backend, instructions=50_000, repeats=5):
@@ -89,10 +94,10 @@ def run_interrupt_case(backend, interrupts=5_000, repeats=5):
     for _ in range(repeats):
         cpu = build_cpu(backend, program, setup={0xFFFF: 0x04, 0xFF0F: 0x04})
         cpu.registers["SP"] = 0xFFFE
-        cpu.interrupt_master_enable = True
+        cpu.interrupts.ime = True
         start = time.perf_counter()
         for _ in range(interrupts):
-            cpu._request_interrupt(0x04)
+            cpu.interrupts.request(0x04)
             cpu.run(
                 max_instructions=1,
                 realtime=False,
@@ -218,7 +223,19 @@ def main():
     )
 
     carry_alu_repeats = 5_000
-    carry_alu_mix = [0x3E, 0x0F, 0x37, 0xCE, 0x00, 0x06, 0x10, 0x88, 0xDE, 0x01, 0x98] * carry_alu_repeats
+    carry_alu_mix = [
+        0x3E,
+        0x0F,
+        0x37,
+        0xCE,
+        0x00,
+        0x06,
+        0x10,
+        0x88,
+        0xDE,
+        0x01,
+        0x98,
+    ] * carry_alu_repeats
     run_suite(
         "Carry ALU mix",
         carry_alu_mix,
@@ -252,8 +269,8 @@ def main():
         include_normal=False,
     )
 
-    cb_memory_repeats = 5_000
-    cb_memory_mix = [
+    cb_storage_repeats = 5_000
+    cb_storage_mix = [
         0x21,
         0x00,
         0xC3,
@@ -267,11 +284,11 @@ def main():
         0xCE,
         0xCB,
         0x8E,
-    ] * cb_memory_repeats
+    ] * cb_storage_repeats
     run_suite(
-        "CB memory mix",
-        cb_memory_mix,
-        cb_memory_repeats * 6,
+        "CB storage mix",
+        cb_storage_mix,
+        cb_storage_repeats * 6,
         include_normal=False,
     )
 
@@ -331,7 +348,16 @@ def main():
     )
 
     hardware_io_repeats = 6_000
-    hardware_io_mix = [0xF0, 0x44, 0xFE, 0x90, 0x3E, 0x01, 0xE0, 0x50] * hardware_io_repeats
+    hardware_io_mix = [
+        0xF0,
+        0x44,
+        0xFE,
+        0x90,
+        0x3E,
+        0x01,
+        0xE0,
+        0x50,
+    ] * hardware_io_repeats
     run_suite(
         "Hardware IO mix",
         hardware_io_mix,
@@ -349,7 +375,17 @@ def main():
     )
 
     accumulator_control_repeats = 6_000
-    accumulator_control_mix = [0x3E, 0x3C, 0x27, 0x2F, 0x07, 0x0F, 0x37, 0x17, 0x1F] * accumulator_control_repeats
+    accumulator_control_mix = [
+        0x3E,
+        0x3C,
+        0x27,
+        0x2F,
+        0x07,
+        0x0F,
+        0x37,
+        0x17,
+        0x1F,
+    ] * accumulator_control_repeats
     run_suite(
         "Accumulator control mix",
         accumulator_control_mix,
@@ -357,18 +393,30 @@ def main():
         include_normal=False,
     )
 
-    memory_alu_repeats = 5_000
-    memory_alu_mix = [0x21, 0x00, 0xC0, 0x3E, 0x5A, 0x86, 0x96, 0xA6, 0xAE, 0xB6, 0xBE] * memory_alu_repeats
+    storage_alu_repeats = 5_000
+    storage_alu_mix = [
+        0x21,
+        0x00,
+        0xC0,
+        0x3E,
+        0x5A,
+        0x86,
+        0x96,
+        0xA6,
+        0xAE,
+        0xB6,
+        0xBE,
+    ] * storage_alu_repeats
     run_suite(
         "ALU (HL) mix",
-        memory_alu_mix,
-        memory_alu_repeats * 8,
+        storage_alu_mix,
+        storage_alu_repeats * 8,
         include_normal=False,
         setup={0xC000: 0x24},
     )
 
-    memory_transfer_repeats = 5_000
-    memory_transfer_mix = [
+    storage_transfer_repeats = 5_000
+    storage_transfer_mix = [
         0x21,
         0x00,
         0xC0,
@@ -382,11 +430,11 @@ def main():
         0x55,
         0x34,
         0x35,
-    ] * memory_transfer_repeats
+    ] * storage_transfer_repeats
     run_suite(
         "Memory transfer mix",
-        memory_transfer_mix,
-        memory_transfer_repeats * 9,
+        storage_transfer_mix,
+        storage_transfer_repeats * 9,
         include_normal=False,
     )
 

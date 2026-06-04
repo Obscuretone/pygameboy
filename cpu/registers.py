@@ -1,11 +1,24 @@
 from typing import Union, Tuple, Dict, Final
-import numpy as np
-from gb_types import Byte, Word, REG_A, REG_F, REG_B, REG_C, REG_D, REG_E, REG_H, REG_L, REG_PC, REG_SP
+from gb_types import (
+    Word,
+    REG_A,
+    REG_F,
+    REG_B,
+    REG_C,
+    REG_D,
+    REG_E,
+    REG_H,
+    REG_L,
+    REG_PC,
+    REG_SP,
+)
+
 
 class RegisterFile:
     """
     Manages the GameBoy's internal registers.
     """
+
     A: Final[int] = REG_A
     F: Final[int] = REG_F
     B: Final[int] = REG_B
@@ -16,10 +29,20 @@ class RegisterFile:
     L: Final[int] = REG_L
 
     _single: Final[Dict[str, int]] = {
-        "A": A, "F": F, "B": B, "C": C, "D": D, "E": E, "H": H, "L": L,
+        "A": A,
+        "F": F,
+        "B": B,
+        "C": C,
+        "D": D,
+        "E": E,
+        "H": H,
+        "L": L,
     }
     _pairs: Final[Dict[str, Tuple[int, int]]] = {
-        "AF": (A, F), "BC": (B, C), "DE": (D, E), "HL": (H, L),
+        "AF": (A, F),
+        "BC": (B, C),
+        "DE": (D, E),
+        "HL": (H, L),
     }
 
     def __init__(self) -> None:
@@ -76,5 +99,3 @@ class RegisterFile:
                 return
             raise KeyError(reg)
         self.data[reg] = value & 0xFF
-
-

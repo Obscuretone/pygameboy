@@ -1,11 +1,13 @@
 import time
 
+
 class SystemClock:
     """
     Manages the timing and synchronization of the GameBoy system.
-    
+
     The GameBoy runs at a base clock speed of 4,194,304 Hz.
     """
+
     def __init__(self, clock_speed_hz: int):
         """
         Initialize the system clock.

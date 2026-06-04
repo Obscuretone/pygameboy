@@ -14,7 +14,7 @@ class TestDMAJoypad(unittest.TestCase):
     def test_oam_dma_transfer(self):
         # Set up source data at 0xC000
         for i in range(160):
-            self.memory.memory[0xC000 + i] = i
+            self.memory.storage[0xC000 + i] = i
         
         # Initiate DMA transfer from 0xC0
         self.memory.write_byte(0xFF46, 0xC0)

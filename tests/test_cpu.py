@@ -15,7 +15,7 @@ class TestCPU(unittest.TestCase):
         """Set up a new CPU instance before each test."""
         self.mem = bytearray(0x10000)
         self.ram = Memory(self.mem)
-        self.cpu = CPU(ram=self.ram)
+        self.cpu = CPU(ram=self.ram)  # type: ignore
 
     def test_fast_ld_hl_a_writes_through_video_bus(self):
         """Test fast LD (HL),A updates VRAM through Memory/Video bus."""
@@ -34,7 +34,7 @@ class TestCPU(unittest.TestCase):
     def test_boot_overlay_reads_beat_mbc_until_disabled(self):
         """Test boot ROM mapped reads are not stolen by cartridge MBC reads."""
         self.ram.cartridge_boot_area = bytearray([0x99])
-        self.ram.memory[0x0000] = 0x42
+        self.ram.storage[0x0000] = 0x42
 
         self.assertEqual(self.ram.read_byte(0x0000), 0x42)
 
@@ -108,40 +108,40 @@ class TestCPU(unittest.TestCase):
     def test_set_16bit_check_8bit(self):
         """Test setting 16 bit registers and checking 8-bit registers."""
 
-        self.cpu._write_reg_AF(0b1111111111110000)
-        self.assertEqual(self.cpu._read_reg_A(), 0b11111111)
-        self.assertEqual(self.cpu._read_reg_F(), 0b11110000)
+        self.cpu.write_register("AF", 0b1111111111110000)
+        self.assertEqual(self.cpu.read_register("A"), 0b11111111)
+        self.assertEqual(self.cpu.read_register("F"), 0b11110000)
 
-        self.cpu._write_reg_BC(0xFFFF)
-        self.assertEqual(self.cpu._read_reg_B(), 0xFF)
-        self.assertEqual(self.cpu._read_reg_C(), 0xFF)
+        self.cpu.write_register("BC", 0xFFFF)
+        self.assertEqual(self.cpu.read_register("B"), 0xFF)
+        self.assertEqual(self.cpu.read_register("C"), 0xFF)
 
-        self.cpu._write_reg_DE(0x1234)
-        self.assertEqual(self.cpu._read_reg_D(), 0x12)
-        self.assertEqual(self.cpu._read_reg_E(), 0x34)
+        self.cpu.write_register("DE", 0x1234)
+        self.assertEqual(self.cpu.read_register("D"), 0x12)
+        self.assertEqual(self.cpu.read_register("E"), 0x34)
 
-        self.cpu._write_reg_HL(0x10000)
-        self.assertEqual(self.cpu._read_reg_H(), 0x00)
-        self.assertEqual(self.cpu._read_reg_L(), 0x00)
+        self.cpu.write_register("HL", 0x10000)
+        self.assertEqual(self.cpu.read_register("H"), 0x00)
+        self.assertEqual(self.cpu.read_register("L"), 0x00)
 
     def test_set_8bit_check_16bit(self):
         """Test setting two 8-bit registers and checking 16-bit register."""
 
-        self.cpu._write_reg_A(0b11111111)
-        self.cpu._write_reg_F(0b11110000)
-        self.assertEqual(self.cpu._read_reg_AF(), 0b1111111111110000)
+        self.cpu.write_register("A", 0b11111111)
+        self.cpu.write_register("F", 0b11110000)
+        self.assertEqual(self.cpu.read_register("AF"), 0b1111111111110000)
 
-        self.cpu._write_reg_B(0xFF)
-        self.cpu._write_reg_C(0xFF)
-        self.assertEqual(self.cpu._read_reg_BC(), 0xFFFF)
+        self.cpu.write_register("B", 0xFF)
+        self.cpu.write_register("C", 0xFF)
+        self.assertEqual(self.cpu.read_register("BC"), 0xFFFF)
 
-        self.cpu._write_reg_D(0xAB)
-        self.cpu._write_reg_E(0xCD)
-        self.assertEqual(self.cpu._read_reg_DE(), 0xABCD)
+        self.cpu.write_register("D", 0xAB)
+        self.cpu.write_register("E", 0xCD)
+        self.assertEqual(self.cpu.read_register("DE"), 0xABCD)
 
-        self.cpu._write_reg_H(0x100)
-        self.cpu._write_reg_L(0x100)
-        self.assertEqual(self.cpu._read_reg_HL(), 0x0000)
+        self.cpu.write_register("H", 0x100)
+        self.cpu.write_register("L", 0x100)
+        self.assertEqual(self.cpu.read_register("HL"), 0x0000)
 
     def test_set_clear_flags(self):
         """Test setting and clearing individual flags."""
@@ -210,7 +210,7 @@ class TestCPU(unittest.TestCase):
     def test_inc_8bit(self):
         """Test the __inc function for 8-bit register A."""
         self.cpu.write_register("A", 0x00)  # Set register A to 0
-        self.cpu._inc("A")
+        self.cpu._inc_reg("A")
         self.assertEqual(
             self.cpu.read_register("A"), 0x01
         )  # After incrementing, A should be 1
@@ -218,7 +218,7 @@ class TestCPU(unittest.TestCase):
     def test_inc_8bit_wraparound(self):
         """Test the __inc function for 8-bit register A with wraparound."""
         self.cpu.write_register("A", 0xFF)  # Set register A to 255 (0xFF)
-        self.cpu._inc("A")
+        self.cpu._inc_reg("A")
         self.assertEqual(
             self.cpu.read_register("A"), 0x00
         )  # After incrementing, A should wrap around to 0x100
@@ -228,7 +228,7 @@ class TestCPU(unittest.TestCase):
         self.cpu.write_register("A", 0x0F)
         self.cpu.set_flag("c")
 
-        self.cpu._inc("A")
+        self.cpu._inc_reg("A")
 
         self.assertEqual(self.cpu.read_register("A"), 0x10)
         self.assertFalse(self.cpu.get_flag("z"))
@@ -237,13 +237,13 @@ class TestCPU(unittest.TestCase):
         self.assertTrue(self.cpu.get_flag("c"))
 
         self.cpu.write_register("A", 0xFF)
-        self.cpu._inc("A")
+        self.cpu._inc_reg("A")
         self.assertTrue(self.cpu.get_flag("z"))
 
     def test_inc_16bit(self):
         """Test the __inc function for 16-bit register BC."""
         self.cpu.write_register("BC", 0x0000)  # Set register BC to 0
-        self.cpu._inc("BC")
+        self.cpu._inc_reg("BC", is8=False)
         self.assertEqual(
             self.cpu.read_register("BC"), 0x0001
         )  # After incrementing, BC should be 1
@@ -251,7 +251,7 @@ class TestCPU(unittest.TestCase):
     def test_inc_16bit_wraparound(self):
         """Test the __inc function for register BC with wraparound."""
         self.cpu.write_register("BC", 0xFFFF)  # Set register BC to 0xFFFF
-        self.cpu._inc("BC")
+        self.cpu._inc_reg("BC", is8=False)
         self.assertEqual(
             self.cpu.read_register("BC"), 0x0000
         )  # After incrementing, BC should wrap around to 0x0000
@@ -259,7 +259,7 @@ class TestCPU(unittest.TestCase):
     def test_dec_8bit(self):
         """Test the __dec function for 8-bit register A."""
         self.cpu.write_register("A", 0x01)  # Set register A to 1
-        self.cpu._dec("A")
+        self.cpu._dec_reg("A")
         self.assertEqual(
             self.cpu.read_register("A"), 0x00
         )  # After decrementing, A should be 0
@@ -267,7 +267,7 @@ class TestCPU(unittest.TestCase):
     def test_dec_8bit_wraparound(self):
         """Test the __dec function for 8-bit register A with wraparound."""
         self.cpu.write_register("A", 0x00)  # Set register A to 0
-        self.cpu._dec("A")
+        self.cpu._dec_reg("A")
         self.assertEqual(
             self.cpu.read_register("A"), 0xFF
         )  # After decrementing, A should wrap around to 0xFF
@@ -277,7 +277,7 @@ class TestCPU(unittest.TestCase):
         self.cpu.write_register("A", 0x10)
         self.cpu.set_flag("c")
 
-        self.cpu._dec("A")
+        self.cpu._dec_reg("A")
 
         self.assertEqual(self.cpu.read_register("A"), 0x0F)
         self.assertFalse(self.cpu.get_flag("z"))
@@ -286,13 +286,13 @@ class TestCPU(unittest.TestCase):
         self.assertTrue(self.cpu.get_flag("c"))
 
         self.cpu.write_register("A", 0x01)
-        self.cpu._dec("A")
+        self.cpu._dec_reg("A")
         self.assertTrue(self.cpu.get_flag("z"))
 
     def test_dec_16bit(self):
         """Test the __dec function for 8-bit register A."""
         self.cpu.write_register("BC", 0x0001)  # Set register A to 1
-        self.cpu._dec("BC")
+        self.cpu._dec_reg("BC", is8=False)
         self.assertEqual(
             self.cpu.read_register("BC"), 0x0000
         )  # After decrementing, A should be 0
@@ -300,7 +300,7 @@ class TestCPU(unittest.TestCase):
     def test_dec_16bit_wraparound(self):
         """Test the __dec function for 8-bit register A with wraparound."""
         self.cpu.write_register("BC", 0x00)  # Set register A to 0
-        self.cpu._dec("BC")
+        self.cpu._dec_reg("BC", is8=False)
         self.assertEqual(
             self.cpu.read_register("BC"), 0xFFFF
         )  # After decrementing, A should wrap around to 0xFF
@@ -384,7 +384,7 @@ class TestCPU(unittest.TestCase):
         self.cpu.write_register("B", 0x06)
 
         # Subtract B from A (A - B)
-        self.cpu._sub_reg_reg("A", "B")
+        self.cpu._sub_reg("A", "B")
 
         # Check if the result in register A is correct (0x0A - 0x06 = 0x04)
         self.assertEqual(self.cpu.read_register("A"), 0x04)
@@ -402,7 +402,7 @@ class TestCPU(unittest.TestCase):
         self.cpu.write_register("B", 0x05)
 
         # Subtract B from A (A - B)
-        self.cpu._sub_reg_reg("A", "B")
+        self.cpu._sub_reg("A", "B")
 
         # Check if the result in register A is correct (0x02 - 0x05 = 0xFD)
         self.assertEqual(self.cpu.read_register("A"), 0xFD)
@@ -516,7 +516,7 @@ class TestCPU(unittest.TestCase):
         self.cpu.write_register("B", 0x07)
 
         # Load register A with the value of register B
-        self.cpu._ld_reg_reg("A", "B")
+        self.cpu.write_register("A", self.cpu.read_register("B"))
 
         # Check if the value of register A is equal to the value of register B
         self.assertEqual(self.cpu.read_register("A"), 0x07)
@@ -692,7 +692,7 @@ class TestCPU(unittest.TestCase):
         self.cpu.write_register("PC", 0x100)
 
         # Execute JR 'e8' instruction with a positive offset of 0x05
-        self.cpu.jr_e8([0x05])
+        self.cpu.jr_e8([0x05])  # type: ignore
 
         # Check if the program counter (PC) is updated correctly to address 0x107
         self.assertEqual(self.cpu.read_register("PC"), 0x107)
@@ -703,7 +703,8 @@ class TestCPU(unittest.TestCase):
         self.cpu.write_register("PC", 0x0200)
 
         # Execute JR 'e8' instruction with a negative offset of -0x0F
-        self.cpu.jr_e8([0xF1])  # Two's complement representation of -0x0F
+        self.cpu.jr_e8([0xF1])  # type: ignore
+  # Two's complement representation of -0x0F
 
         # Check if the program counter (PC) is updated correctly to address 0x1F3 (0x0200 - 0x000f + 0x0002)
         self.assertEqual(
@@ -719,7 +720,7 @@ class TestCPU(unittest.TestCase):
         self.cpu.ram.write_byte(0xFFFE, 0xCD)  # Lower byte on the stack
 
         # Execute the POP BC instruction
-        self.cpu.pop_bc(None)
+        self.cpu.pop_bc(None)  # type: ignore
 
         # Check if the BC register pair was correctly loaded
         self.assertEqual(self.cpu.read_register("BC"), 0xABCD)
@@ -1399,8 +1400,8 @@ class TestCPU(unittest.TestCase):
         self.cpu.write_register("SP", 0xFFFC)
         self.ram.write_byte(0xFFFC, 0x34)
         self.ram.write_byte(0xFFFD, 0x12)
-        self.cpu.enable_interrupts_pending = True
-        self.cpu.interrupt_master_enable = False
+        self.cpu.interrupts.pending_ime_enable = True
+        self.cpu.interrupts.ime = False
 
         opcode, cycles = self.cpu.step_fast()
 
@@ -1408,8 +1409,8 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(cycles, 16)
         self.assertEqual(self.cpu.read_register("PC"), 0x1234)
         self.assertEqual(self.cpu.read_register("SP"), 0xFFFE)
-        self.assertFalse(self.cpu.enable_interrupts_pending)
-        self.assertTrue(self.cpu.interrupt_master_enable)
+        self.assertFalse(self.cpu.interrupts.pending_ime_enable)
+        self.assertTrue(self.cpu.interrupts.ime)
 
     def test_fast_add_a_hl_updates_flags(self):
         """Test fast ADD A,(HL) reads memory and updates flags."""
@@ -1959,15 +1960,15 @@ class TestCPU(unittest.TestCase):
         opcode, cycles = self.cpu.step_fast()
         self.assertEqual(opcode, 0xFB)
         self.assertEqual(cycles, 4)
-        self.assertTrue(self.cpu.enable_interrupts_pending)
-        self.assertFalse(self.cpu.interrupt_master_enable)
+        self.assertTrue(self.cpu.interrupts.pending_ime_enable)
+        self.assertFalse(self.cpu.interrupts.ime)
 
-        self.cpu.interrupt_master_enable = True
+        self.cpu.interrupts.ime = True
         opcode, cycles = self.cpu.step_fast()
         self.assertEqual(opcode, 0xF3)
         self.assertEqual(cycles, 4)
-        self.assertFalse(self.cpu.enable_interrupts_pending)
-        self.assertFalse(self.cpu.interrupt_master_enable)
+        self.assertFalse(self.cpu.interrupts.pending_ime_enable)
+        self.assertFalse(self.cpu.interrupts.ime)
 
     def test_fast_accumulator_rotates_reset_zero_and_update_carry(self):
         """Test fast RLCA/RRCA/RLA/RRA accumulator rotates."""
@@ -2092,7 +2093,7 @@ class TestCPU(unittest.TestCase):
         self.ram.write_byte(0xFF0F, 0x04)
         self.cpu.write_register("PC", 0x1234)
         self.cpu.write_register("SP", 0xFFFE)
-        self.cpu.interrupt_master_enable = True
+        self.cpu.interrupts.ime = True
 
         executed, cycles = self.cpu.run(
             max_instructions=1,
@@ -2109,7 +2110,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(self.ram.read_byte(0xFFFC), 0x34)
         self.assertEqual(self.ram.read_byte(0xFFFD), 0x12)
         self.assertEqual(self.ram.read_byte(0xFF0F) & 0x04, 0)
-        self.assertFalse(self.cpu.interrupt_master_enable)
+        self.assertFalse(self.cpu.interrupts.ime)
 
     def test_ei_enables_interrupts_after_following_instruction(self):
         """Test EI enables IME after one subsequent instruction."""
@@ -2131,7 +2132,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(executed, 3)
         self.assertEqual(cycles, 28)
         self.assertEqual(self.cpu.read_register("PC"), 0x50)
-        self.assertFalse(self.cpu.interrupt_master_enable)
+        self.assertFalse(self.cpu.interrupts.ime)
 
     def test_halt_wakes_when_interrupt_is_requested(self):
         """Test HALT idles until an enabled requested interrupt wakes CPU."""
@@ -2139,7 +2140,7 @@ class TestCPU(unittest.TestCase):
         self.ram.write_byte(0x0001, 0x00)
         self.ram.write_byte(0xFFFF, 0x04)
         self.cpu.write_register("SP", 0xFFFE)
-        self.cpu.interrupt_master_enable = True
+        self.cpu.interrupts.ime = True
 
         executed, cycles = self.cpu.run(
             max_instructions=1,
@@ -2180,11 +2181,11 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(cycles, 256)
         self.assertEqual(self.ram.read_byte(0xFF04), 1)
 
-        self.cpu.divider_cycles = 123
+        self.cpu.timer.divider_cycles = 123
         self.cpu._write_memory_byte(0xFF04, 0xAB)
 
         self.assertEqual(self.ram.read_byte(0xFF04), 0)
-        self.assertEqual(self.cpu.divider_cycles, 0)
+        self.assertEqual(self.cpu.timer.divider_cycles, 0)
 
     def test_timer_tima_increments_when_enabled_by_tac(self):
         """Test TIMA increments according to TAC clock select."""

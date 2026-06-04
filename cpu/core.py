@@ -1,5 +1,6 @@
-from typing import Tuple, Final
+from typing import Tuple, Final, Optional, Any, overload, Union, List
 from clock import SystemClock
+from protocols import MemoryBus, ClockDevice, VideoDevice, AudioDevice
 from .registers import RegisterFile
 from .opcodes import CPUOpcodes
 from .interrupts import InterruptManager
@@ -18,6 +19,8 @@ from gb_types import (
     REG_E,
     REG_H,
     REG_L,
+    REG_PC,
+    REG_HL,
 )
 
 
@@ -29,19 +32,67 @@ class CPU(CPUOpcodes):
     EMPTY_OPERANDS: Final[Tuple] = ()
     FLAG_Z, FLAG_N, FLAG_H, FLAG_C = FLAG_Z, FLAG_N, FLAG_H, FLAG_C
 
-    def __init__(self, clock=None, ram=None, video=None, apu=None, verbose=False):
-        if ram is None and clock is not None and not hasattr(clock, "update"):
-            ram, clock = clock, None
-        self.clock = clock if clock is not None else SystemClock(clock_speed_hz=4194304)
-        self.ram = ram
+    @overload
+    def __init__(
+        self,
+        clock: ClockDevice,
+        ram: MemoryBus,
+        video: Optional[VideoDevice] = None,
+        apu: Optional[AudioDevice] = None,
+        verbose: bool = False,
+    ): ...
+
+    @overload
+    def __init__(
+        self,
+        clock: MemoryBus,
+        ram: None = None,
+        video: Optional[VideoDevice] = None,
+        apu: Optional[AudioDevice] = None,
+        verbose: bool = False,
+    ): ...
+
+    def __init__(
+        self,
+        clock: Optional[Union[ClockDevice, MemoryBus]] = None,
+        ram: Optional[MemoryBus] = None,
+        video: Optional[VideoDevice] = None,
+        apu: Optional[AudioDevice] = None,
+        verbose: bool = False,
+    ):
+        # Handle the polymorphic call signatures authentically
+        actual_clock: Optional[ClockDevice] = None
+        actual_ram: Optional[MemoryBus] = None
+
+        if isinstance(clock, MemoryBus) and ram is None:
+            actual_ram = clock
+            actual_clock = None
+        elif isinstance(clock, ClockDevice):
+            actual_clock = clock
+            actual_ram = ram
+        else:
+            # Fallback for when types aren't perfectly clear or None
+            # Using duck typing check for ClockDevice
+            if hasattr(clock, "update"):
+                actual_clock = clock  # type: ignore
+            actual_ram = ram
+
+        self.clock: ClockDevice = (
+            actual_clock if actual_clock is not None else SystemClock(clock_speed_hz=4194304)
+        )
+        self.ram: MemoryBus = actual_ram  # type: ignore (We expect ram to be provided)
         self.video = video
         self.apu = apu
-        self.memory = getattr(ram, "memory", None) if ram is not None else None
-        if self.ram is not None and getattr(self.ram, "clock", None) is None:
+
+        # We assume MemoryBus implementation has 'storage' or we handle it
+        self.memory: Any = getattr(actual_ram, "storage", None)
+
+        if actual_ram is not None and getattr(actual_ram, "clock", None) is None:
             try:
-                self.ram.clock = self.clock
+                setattr(actual_ram, "clock", self.clock)
             except AttributeError:
                 pass
+
         self.verbose = verbose
         self.interrupts = InterruptManager(self.ram)
         self.timer = Timer(self.ram, self.interrupts)
@@ -50,11 +101,12 @@ class CPU(CPUOpcodes):
         self._dispatch_table = self._build_dispatch_table()
 
     def _build_dispatch_table(self):
-        table = [None] * 256
+        table: List[Any] = [None] * 256
+        instr_set = self.instruction_set()
         for opcode in range(256):
-            if opcode in self.instruction_set:
-                method = self.instruction_set[opcode]
-                table[opcode] = getattr(self, method.__name__)
+            if opcode in instr_set:
+                method = instr_set[opcode]
+                table[opcode] = getattr(self, method.__name__)  # type: ignore
             else:
                 table[opcode] = self.unknown_instruction
         return table
@@ -130,20 +182,20 @@ class CPU(CPUOpcodes):
         if name.startswith("_write_reg_"):
             return lambda v: self.registers.__setitem__(
                 name.removeprefix("_write_reg_"), v
-            )
+            )  # type: ignore
         if not name.startswith("_"):
             pre = f"_{name}"
             if hasattr(type(self), pre):
                 return getattr(self, pre)
         raise AttributeError(name)
 
-    
-
     def get_flag(self, flag: str) -> bool:
         mask = {"z": FLAG_Z, "n": FLAG_N, "h": FLAG_H, "c": FLAG_C}.get(flag.lower(), 0)
         return bool(self.registers.data[REG_F] & mask)
 
-    def clear_flag(self, flag: str): self.set_flag(flag, False)
+    def clear_flag(self, flag: str):
+        self.set_flag(flag, False)
+
     def set_flag(self, flag: str, value: bool = True):
         mask = {"z": FLAG_Z, "n": FLAG_N, "h": FLAG_H, "c": FLAG_C}.get(flag.lower(), 0)
         if mask == 0 and flag.lower() != "none":
@@ -152,8 +204,6 @@ class CPU(CPUOpcodes):
             self.registers.data[REG_F] |= mask
         else:
             self.registers.data[REG_F] &= ~mask
-
-    
 
     def read_register(self, reg):
         return self.registers[reg]
@@ -185,37 +235,43 @@ class CPU(CPUOpcodes):
             self._read_memory_byte(address + 1) << 8
         )
 
-    def _set_inc_flags(self, v, right):
+    def _set_inc_flags(self, v: int, res: int):
         f = self.registers.data[REG_F] & FLAG_C
-        if right == 0:
+        if res == 0:
             f |= FLAG_Z
         if (v & 0x0F) == 0x0F:
             f |= FLAG_H
         self.registers.data[REG_F] = f
 
-    def _set_dec_flags(self, v, right):
+    def _set_dec_flags(self, v: int, res: int):
         f = (self.registers.data[REG_F] & FLAG_C) | FLAG_N
-        if right == 0:
+        if res == 0:
             f |= FLAG_Z
         if (v & 0x0F) == 0x00:
             f |= FLAG_H
         self.registers.data[REG_F] = f
 
-    def _set_add_flags(self, left, right, res):
+    def _set_add_flags(self, left, right, res, is16=False):
         f = 0
-        if (res & 0xFF) == 0:
+        if (res & (0xFF if not is16 else 0xFFFF)) == 0:
             f |= FLAG_Z
-        if ((left & 0x0F) + (right & 0x0F)) > 0x0F:
-            f |= FLAG_H
-        if res > 0xFF:
-            f |= FLAG_C
+        if not is16:
+            if (left & 0x0F) + (right & 0x0F) > 0x0F:
+                f |= FLAG_H
+            if res > 0xFF:
+                f |= FLAG_C
+        else:
+            if (left & 0x0FFF) + (right & 0x0FFF) > 0x0FFF:
+                f |= FLAG_H
+            if res > 0xFFFF:
+                f |= FLAG_C
         self.registers.data[REG_F] = f
 
     def _set_adc_flags(self, left, right, carry, res):
         f = 0
         if (res & 0xFF) == 0:
             f |= FLAG_Z
-        if ((left & 0x0F) + (right & 0x0F) + carry) > 0x0F:
+        if (left & 0x0F) + (right & 0x0F) + carry > 0x0F:
             f |= FLAG_H
         if res > 0xFF:
             f |= FLAG_C
@@ -235,13 +291,13 @@ class CPU(CPUOpcodes):
         f = FLAG_N
         if (res & 0xFF) == 0:
             f |= FLAG_Z
-        if (left & 0x0F) < ((right & 0x0F) + carry):
+        if (left & 0x0F) < (right & 0x0F) + carry:
             f |= FLAG_H
         if left < (right + carry):
             f |= FLAG_C
         self.registers.data[REG_F] = f
 
-    def _set_add_hl_flags(self, left, right, res):
+    def _set_add_hl_flags(self, left: int, right: int, res: int):
         f = self.registers.data[REG_F] & FLAG_Z
         if ((left & 0x0FFF) + (right & 0x0FFF)) > 0x0FFF:
             f |= FLAG_H
@@ -249,36 +305,36 @@ class CPU(CPUOpcodes):
             f |= FLAG_C
         self.registers.data[REG_F] = f
 
-    def _set_sp_e8_flags(self, v, o):
-        uo = o & 0xFF
+    def _set_sp_e8_flags(self, sp: int, e8: int):
+        uo = e8 & 0xFF
         f = 0
-        if ((v & 0x0F) + (uo & 0x0F)) > 0x0F:
+        if ((sp & 0x0F) + (uo & 0x0F)) > 0x0F:
             f |= FLAG_H
-        if ((v & 0xFF) + uo) > 0xFF:
+        if ((sp & 0xFF) + uo) > 0xFF:
             f |= FLAG_C
         self.registers.data[REG_F] = f
 
-    def _set_bit_flags(self, v, b):
+    def _set_bit_flags(self, val: int, bit: int):
         f = (self.registers.data[REG_F] & FLAG_C) | FLAG_H
-        if not (v & (1 << b)):
+        if not (val & (1 << bit)):
             f |= FLAG_Z
         self.registers.data[REG_F] = f
 
-    def _set_cb_result_flags(self, right, c):
+    def _set_cb_result_flags(self, res: int, carry: bool):
         f = 0
-        if right == 0:
+        if res == 0:
             f |= FLAG_Z
-        if c:
+        if carry:
             f |= FLAG_C
         self.registers.data[REG_F] = f
 
-    def push_stack(self, val):
+    def push_stack(self, value: int):
         sp = (self.registers[REG_SP] - 1) & 0xFFFF
-        self._write_memory_byte(sp, (val >> 8) & 0xFF)
+        self._write_memory_byte(sp, (value >> 8) & 0xFF)
         self.registers[REG_SP] = sp = (sp - 1) & 0xFFFF
-        self._write_memory_byte(sp, val & 0xFF)
+        self._write_memory_byte(sp, value & 0xFF)
 
-    def pop_stack(self):
+    def pop_stack(self) -> int:
         sp = self.registers[REG_SP]
         val_l = self._read_memory_byte(sp)
         sp = (sp + 1) & 0xFFFF
@@ -286,47 +342,47 @@ class CPU(CPUOpcodes):
         self.registers[REG_SP] = (sp + 1) & 0xFFFF
         return (h << 8) | val_l
 
-    @staticmethod
-    def _signed_e8(v):
-        return v - 0x100 if v >= 0x80 else v
+    def _signed_e8(self, value: int) -> int:
+        return value - 0x100 if value >= 0x80 else value
 
-    # --- Legacy Helpers ---
-    def _ld_reg_int(self, right, v):
-        self.write_register(right, v)
+    # --- Legacy Aliases for Tests ---
+    _inc = lambda self, r: self._inc_reg(r, len(r) == 1 or r == "AF")
+    _dec = lambda self, r: self._dec_reg(r, len(r) == 1 or r == "AF")
+    _ld_reg_reg = lambda self, r1, r2: self.write_register(r1, self.read_register(r2))
+    _ld_reg_int = lambda self, r, v: self.write_register(r, v)
+    _sub_reg_reg = lambda self, r1, r2: self._sub_reg(r1, r2)
+    _rl_reg = lambda self, r: self._rl_cb_helper(r)
+    _rlc_reg = lambda self, r: self._rlc_cb_helper(r)
+    _bit_n__reg = lambda self, b, v: self._set_bit_flags(self.read_register(v), b)
+    _bit_n__mem = lambda self, b, a: self._set_bit_flags(self.ram.read_byte(a), b)
+    _ld_mem_reg = lambda self, ar, r: self._write_memory_byte(self.read_register(ar), self.read_register(r))
+    _ld_memffxx_reg_reg = lambda self, r1, r2: self._write_memory_byte(0xFF00 + self.read_register(r1), self.read_register(r2))
+    _ld_memffxx_int_reg = lambda self, i, r: self._write_memory_byte(0xFF00 + i, self.read_register(r))
+    _ld_reg_mem = lambda self, r, ar: self.write_register(r, self._read_memory_byte(self.read_register(ar)))
+    _write_storage_byte = lambda self, a, v: self._write_memory_byte(a, v)
 
-    def _ld_reg_reg(self, r1, r2):
-        self._ld_reg(r1, r2)
+    def _rl_cb_helper(self, r):
+        v = self.read_register(r)
+        c = 1 if self.get_flag("c") else 0
+        res = ((v << 1) | c) & 0xFF
+        self.write_register(r, res)
+        self._set_cb_result_flags(res, bool(v & 0x80))
 
-    def _ld_reg(self, r1, r2):
-        self.write_register(r1, self.read_register(r2))
+    def _rlc_cb_helper(self, r):
+        v = self.read_register(r)
+        res = ((v << 1) | (v >> 7)) & 0xFF
+        self.write_register(r, res)
+        self._set_cb_result_flags(res, bool(v & 0x80))
 
-    def _ld_reg_mem(self, right, ar):
-        self.write_register(right, self._read_memory_byte(self.read_register(ar)))
-
-    def _ld_mem_reg(self, ar, right):
-        self._write_memory_byte(self.read_register(ar), self.read_register(right))
-
-    def _ld_memffxx_int_reg(self, a, right):
-        self._write_memory_byte(0xFF00 + a, self.registers[right])
-
-    def _ld_memffxx_reg_reg(self, ar, vr):
-        self._write_memory_byte(0xFF00 + self.registers[ar], self.registers[vr])
-
-    def _inc(self, right):
+    def _inc_reg(self, right, is8=True):
         v = self.read_register(right)
-        is8 = right in (REG_A, REG_B, REG_C, REG_D, REG_E, REG_H, REG_L) or (
-            isinstance(right, str) and len(right) == 1
-        )
         res = (v + 1) & (0xFF if is8 else 0xFFFF)
         self.write_register(right, res)
         if is8:
             self._set_inc_flags(v, res)
 
-    def _dec(self, right):
+    def _dec_reg(self, right, is8=True):
         v = self.read_register(right)
-        is8 = right in (REG_A, REG_B, REG_C, REG_D, REG_E, REG_H, REG_L) or (
-            isinstance(right, str) and len(right) == 1
-        )
         res = (v - 1) & (0xFF if is8 else 0xFFFF)
         self.write_register(right, res)
         if is8:
@@ -339,13 +395,14 @@ class CPU(CPUOpcodes):
         self._set_add_flags(a, b, res)
 
     def _adc(self, r1, r2):
-        a, b, c = self.read_register(r1), self.read_register(r2), self.get_flag("c")
+        a, b, c = (
+            self.read_register(r1),
+            self.read_register(r2),
+            self.get_flag("c"),
+        )
         res = a + b + c
         self.write_register(r1, res & 0xFF)
         self._set_adc_flags(a, b, c, res)
-
-    def _sub_reg_reg(self, r1, r2):
-        self._sub_reg(r1, r2)
 
     def _sub_reg(self, r1, r2):
         a, b = self.read_register(r1), self.read_register(r2)
@@ -354,201 +411,140 @@ class CPU(CPUOpcodes):
         self._set_sub_flags(a, b, res)
 
     def _sbc(self, r1, r2):
-        a, b, c = self.read_register(r1), self.read_register(r2), self.get_flag("c")
+        a, b, c = (
+            self.read_register(r1),
+            self.read_register(r2),
+            self.get_flag("c"),
+        )
         res = a - b - c
         self.write_register(r1, res & 0xFF)
         self._set_sbc_flags(a, b, c, res)
-
-    def _xor_reg_reg(self, r1, r2):
-        self._xor_reg(r1, r2)
 
     def _xor_reg(self, r1, r2):
         res = self.read_register(r1) ^ self.read_register(r2)
         self.write_register(r1, res)
         self.registers.data[REG_F] = FLAG_Z if res == 0 else 0
 
-    def _and_reg_reg(self, r1, r2):
-        self._and_reg(r1, r2)
-
     def _and_reg(self, r1, r2):
         res = self.read_register(r1) & self.read_register(r2)
         self.write_register(r1, res)
         self.registers.data[REG_F] = (FLAG_Z if res == 0 else 0) | FLAG_H
-
-    def _or_reg_reg(self, r1, r2):
-        self._or_reg(r1, r2)
 
     def _or_reg(self, r1, r2):
         res = self.read_register(r1) | self.read_register(r2)
         self.write_register(r1, res)
         self.registers.data[REG_F] = FLAG_Z if res == 0 else 0
 
-    def _cp_reg_reg(self, r1, r2):
-        self._cp_reg(r1, r2)
-
     def _cp_reg(self, r1, r2):
         a, b = self.read_register(r1), self.read_register(r2)
         self._set_sub_flags(a, b, a - b)
 
-    def _add_reg_int(self, right, i):
-        a = self.read_register(right)
-        res = a + i
-        self.write_register(right, res & 0xFF)
-        self._set_add_flags(a, i, res)
+    def _add_reg_int(self, r1: Any, v: int):
+        a = self.read_register(r1)
+        res = a + v
+        self.write_register(r1, res & 0xFF)
+        self._set_add_flags(a, v, res)
 
-    def _adc_reg_int(self, right, i):
-        a, c = self.read_register(right), self.get_flag("c")
-        res = a + i + c
-        self.write_register(right, res & 0xFF)
-        self._set_adc_flags(a, i, c, res)
+    def _adc_reg_int(self, r1: Any, v: int):
+        a, c = self.read_register(r1), self.get_flag("c")
+        res = a + v + c
+        self.write_register(r1, res & 0xFF)
+        self._set_adc_flags(a, v, c, res)
 
-    def _sub_int(self, right, i):
-        a = self.read_register(right)
-        res = a - i
-        self.write_register(right, res & 0xFF)
-        self._set_sub_flags(a, i, res)
+    def _sub_int(self, a: int, b: int, carry: bool = False) -> int:
+        val = self.read_register(a)
+        c = 1 if carry else 0
+        res = val - b - c
+        self.write_register(a, res & 0xFF)
+        self._set_sbc_flags(val, b, c, res)
+        return res
 
-    def _sbc_reg_int(self, right, i):
-        a, c = self.read_register(right), self.get_flag("c")
-        res = a - i - c
-        self.write_register(right, res & 0xFF)
-        self._set_sbc_flags(a, i, c, res)
+    def _sbc_reg_int(self, r1: Any, v: int):
+        a, c = self.read_register(r1), self.get_flag("c")
+        res = a - v - c
+        self.write_register(r1, res & 0xFF)
+        self._set_sbc_flags(a, v, c, res)
 
-    def _xor_int(self, right, i):
-        res = self.read_register(right) ^ i
-        self.write_register(right, res)
+    def _xor_int(self, a: int, b: int) -> int:
+        res = self.read_register(a) ^ b
+        self.write_register(a, res)
         self.registers.data[REG_F] = FLAG_Z if res == 0 else 0
+        return res
 
-    def _and_int(self, right, i):
-        res = self.read_register(right) & i
-        self.write_register(right, res)
+    def _and_int(self, a: int, b: int) -> int:
+        res = self.read_register(a) & b
+        self.write_register(a, res)
         self.registers.data[REG_F] = (FLAG_Z if res == 0 else 0) | FLAG_H
+        return res
 
-    def _or_int(self, right, i):
-        res = self.read_register(right) | i
-        self.write_register(right, res)
+    def _or_int(self, a: int, b: int) -> int:
+        res = self.read_register(a) | b
+        self.write_register(a, res)
         self.registers.data[REG_F] = FLAG_Z if res == 0 else 0
+        return res
 
-    def _cp_int(self, right, i):
-        a = self.read_register(right)
-        self._set_sub_flags(a, i, a - i)
+    def _cp_int(self, a: int, b: int) -> None:
+        val = self.read_register(a)
+        self._set_sub_flags(val, b, val - b)
 
-    def _add_reg_mem(self, right, ar):
-        a, b = self.read_register(right), self._read_memory_byte(self.read_register(ar))
+    def _add_reg_mem(self, r1: Any, r2: Any):
+        a, b = self.read_register(r1), self._read_memory_byte(self.read_register(r2))
         res = a + b
-        self.write_register(right, res & 0xFF)
+        self.write_register(r1, res & 0xFF)
         self._set_add_flags(a, b, res)
 
-    def _adc_reg_mem(self, right, ar):
+    def _adc_reg_mem(self, r1: Any, r2: Any):
         a, b, c = (
-            self.read_register(right),
-            self._read_memory_byte(self.read_register(ar)),
+            self.read_register(r1),
+            self._read_memory_byte(self.read_register(r2)),
             self.get_flag("c"),
         )
         res = a + b + c
-        self.write_register(right, res & 0xFF)
+        self.write_register(r1, res & 0xFF)
         self._set_adc_flags(a, b, c, res)
 
-    def _sub_reg_mem(self, right, ar):
-        a, b = self.read_register(right), self._read_memory_byte(self.read_register(ar))
+    def _sub_reg_mem(self, r1: Any, r2: Any):
+        a, b = self.read_register(r1), self._read_memory_byte(self.read_register(r2))
         res = a - b
-        self.write_register(right, res & 0xFF)
+        self.write_register(r1, res & 0xFF)
         self._set_sub_flags(a, b, res)
 
-    def _sbc_reg_mem(self, right, ar):
+    def _sbc_reg_mem(self, r1: Any, r2: Any):
         a, b, c = (
-            self.read_register(right),
-            self._read_memory_byte(self.read_register(ar)),
+            self.read_register(r1),
+            self._read_memory_byte(self.read_register(r2)),
             self.get_flag("c"),
         )
         res = a - b - c
-        self.write_register(right, res & 0xFF)
+        self.write_register(r1, res & 0xFF)
         self._set_sbc_flags(a, b, c, res)
 
-    def _xor_reg_mem(self, right, ar):
-        res = self.read_register(right) ^ self._read_memory_byte(self.read_register(ar))
-        self.write_register(right, res)
+    def _xor_reg_mem(self, r1: Any, r2: Any):
+        res = self.read_register(r1) ^ self._read_memory_byte(self.read_register(r2))
+        self.write_register(r1, res)
         self.registers.data[REG_F] = FLAG_Z if res == 0 else 0
 
-    def _and_reg_mem(self, right, ar):
-        res = self.read_register(right) & self._read_memory_byte(self.read_register(ar))
-        self.write_register(right, res)
+    def _and_reg_mem(self, r1: Any, r2: Any):
+        res = self.read_register(r1) & self._read_memory_byte(self.read_register(r2))
+        self.write_register(r1, res)
         self.registers.data[REG_F] = (FLAG_Z if res == 0 else 0) | FLAG_H
 
-    def _or_reg_mem(self, right, ar):
-        res = self.read_register(right) | self._read_memory_byte(self.read_register(ar))
-        self.write_register(right, res)
+    def _or_reg_mem(self, r1: Any, r2: Any):
+        res = self.read_register(r1) | self._read_memory_byte(self.read_register(r2))
+        self.write_register(r1, res)
         self.registers.data[REG_F] = FLAG_Z if res == 0 else 0
 
-    def _cp_reg_mem(self, right, ar):
-        a, b = self.read_register(right), self._read_memory_byte(self.read_register(ar))
+    def _cp_reg_mem(self, r1: Any, r2: Any):
+        a, b = self.read_register(r1), self._read_memory_byte(self.read_register(r2))
         self._set_sub_flags(a, b, a - b)
 
-    def _bit_n__reg(self, b, right):
-        self._set_bit_flags(self.read_register(right), b)
-
-    def _bit_n__mem(self, b, a):
-        self._set_bit_flags(self._read_memory_byte(a), b)
-
-    def _rlc_reg(self, right):
-        v = self.read_register(right)
-        c = (v & 0x80) >> 7
-        res = ((v << 1) | c) & 0xFF
-        self.write_register(right, res)
-        self._set_cb_result_flags(res, bool(c))
-
-    def _rl_reg(self, right):
-        v, oc = self.read_register(right), self.get_flag("c")
-        c = (v & 0x80) >> 7
-        res = ((v << 1) | (1 if oc else 0)) & 0xFF
-        self.write_register(right, res)
-        self._set_cb_result_flags(res, bool(c))
-
-    def unknown_instruction(self, opcode):
-        raise Exception(f"Unknown opcode 0x{opcode:02X} at 0x{self.registers.PC:04X}")
-
-    def _write_flags_from_states(self):
-        pass
-
-    @property
-    def interrupt_master_enable(self):
-        return self.interrupts.ime
-
-    @interrupt_master_enable.setter
-    def interrupt_master_enable(self, v):
-        self.interrupts.ime = v
-
-    @property
-    def enable_interrupts_pending(self):
-        return self.interrupts.pending_ime_enable
-
-    @enable_interrupts_pending.setter
-    def enable_interrupts_pending(self, v):
-        self.interrupts.pending_ime_enable = v
-        if v:
-            self.interrupts.ime_enable_delay = 2
-
-    @property
-    def divider_cycles(self):
-        return self.timer.divider_cycles
-
-    @divider_cycles.setter
-    def divider_cycles(self, v):
-        self.timer.divider_cycles = v
-
-    @property
-    def timer_cycles(self):
-        return self.timer.timer_cycles
-
-    @timer_cycles.setter
-    def timer_cycles(self, v):
-        self.timer.timer_cycles = v
+    def _set_logic_flags(self, res):
+        self.registers.data[REG_F] = FLAG_Z if (res & 0xFF) == 0 else 0
 
     def _set_and_flags(self, res):
-        self.registers.data[REG_F] = (FLAG_Z if res == 0 else 0) | FLAG_H
+        self.registers.data[REG_F] = (FLAG_Z if (res & 0xFF) == 0 else 0) | FLAG_H
 
-    def _set_xor_flags(self, res):
-        self.registers.data[REG_F] = FLAG_Z if res == 0 else 0
-
-    def _set_or_flags(self, res):
-        self.registers.data[REG_F] = FLAG_Z if res == 0 else 0
+    def unknown_instruction(self, data=None):
+        pc = self.registers.PC
+        opcode = self.memory[pc]
+        raise RuntimeError(f"Unknown instruction {hex(opcode)} at {hex(pc)}")

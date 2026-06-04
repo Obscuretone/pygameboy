@@ -1,11 +1,13 @@
-from typing import Union, List, Optional, Final
+from typing import List, Final
 from gb_types import ROMData, RAMData
 from constants import ROM_BANK_SIZE, RAM_BANK_SIZE, ERAM_START, ROM_END
+
 
 class MBC:
     """
     Base class for Memory Bank Controllers (MBC).
     """
+
     def __init__(self, rom_data: ROMData, ram_size: int = 0):
         self.rom: ROMData = rom_data
         self.ram: RAMData = bytearray(ram_size)
@@ -34,6 +36,7 @@ class MBC:
 
 class MBC0(MBC):
     """No Banking (ROM up to 32KB)"""
+
     def __init__(self, rom_data: ROMData):
         super().__init__(rom_data, 0)
 
@@ -42,7 +45,8 @@ class MBC1(MBC):
     """
     MBC1 Implementation.
     """
-    def __init__(self, rom_data: ROMData, ram_size: int = 0x8000): # Default 32KB RAM
+
+    def __init__(self, rom_data: ROMData, ram_size: int = 0x8000):  # Default 32KB RAM
         super().__init__(rom_data, ram_size)
         self.rom_bank: int = 1
         self.ram_bank: int = 0
@@ -89,11 +93,13 @@ class MBC1(MBC):
         real_address = (bank * RAM_BANK_SIZE) + (address - ERAM_START)
         self.ram[real_address % len(self.ram)] = value
 
+
 class MBC3(MBC):
     """
     MBC3 Implementation.
     Supports up to 2MB ROM and 32KB RAM, plus Real-Time Clock (RTC).
     """
+
     def __init__(self, rom_data: ROMData, ram_size: int = 0x8000):
         super().__init__(rom_data, ram_size)
         self.rom_bank: int = 1
@@ -144,12 +150,14 @@ class MBC3(MBC):
         elif 0x08 <= self.ram_bank <= 0x0C:
             self.rtc_registers[self.ram_bank - 0x08] = value
 
+
 class MBC5(MBC):
     """
     MBC5 Implementation.
     Supports up to 8MB ROM and 128KB RAM.
     """
-    def __init__(self, rom_data: ROMData, ram_size: int = 0x20000): # Default 128KB RAM
+
+    def __init__(self, rom_data: ROMData, ram_size: int = 0x20000):  # Default 128KB RAM
         super().__init__(rom_data, ram_size)
         self.rom_bank: int = 1
         self.ram_bank: int = 0
@@ -186,11 +194,13 @@ class MBC5(MBC):
         real_address = (self.ram_bank * RAM_BANK_SIZE) + (address - ERAM_START)
         self.ram[real_address % len(self.ram)] = value
 
+
 class MBC2(MBC):
     """
     MBC2 Implementation.
     Includes built-in 512 x 4 bits of RAM.
     """
+
     RAM_SIZE: Final[int] = 512
 
     def __init__(self, rom_data: ROMData):

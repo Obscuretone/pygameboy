@@ -12,7 +12,7 @@ class TestVideoRender(unittest.TestCase):
     def setUp(self):
         self.clock = SystemClock(4194304)
         self.mem = MockMemory()
-        self.video = VideoChip(self.clock, self.mem)
+        self.video = VideoChip(self.clock, self.mem)  # type: ignore
 
     def test_background_rendering(self):
         # Configure LCDC for BG enable, 0x8000 tile data, 0x9800 tile map
