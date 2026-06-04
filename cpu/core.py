@@ -134,8 +134,8 @@ class CPU(CPUOpcodes):
         halt_cycles = self.HALT_CYCLES
 
         apu_accumulated = 0
-        APU_STEP_THRESHOLD = 32
-        V_STEP_THRESHOLD = 24
+        APU_STEP_THRESHOLD = 256
+        V_STEP_THRESHOLD = 114
         v_accumulated = 0
 
         try:
