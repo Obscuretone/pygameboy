@@ -1,6 +1,6 @@
-from typing import List, Deque, Tuple, Optional, Final, ClassVar
-import numpy as np
+from typing import List, Deque, Final, ClassVar
 from collections import deque
+import numpy as np
 from gb_types import (
     Sample,
     Cycles,
@@ -8,19 +8,9 @@ from gb_types import (
     Byte,
     BIT_0,
     BIT_1,
-    BIT_2,
-    BIT_3,
-    BIT_4,
-    BIT_5,
-    BIT_6,
-    BIT_7,
-    BIT_14,
     LOW_NIBBLE_MASK,
-    HIGH_NIBBLE_MASK,
-    BYTE_MASK,
     UNMAPPED_BYTE,
     AUDIO_LENGTH_MASK,
-    SIGN_BIT_8,
 )
 from constants import (
     REG_NR10,
@@ -32,14 +22,12 @@ from constants import (
     REG_NR22,
     REG_NR23,
     REG_NR24,
-    REG_NR30,
     REG_NR31,
     REG_NR32,
     REG_NR33,
     REG_NR34,
     REG_NR41,
     REG_NR42,
-    REG_NR43,
     REG_NR44,
     REG_NR50,
     REG_NR51,
@@ -361,9 +349,10 @@ class APU:
 
         self.left_output: float = 0.0
         self.right_output: float = 0.0
-        self.buffer: Deque[Sample] = deque(
-            maxlen=self.SAMPLE_RATE
-        )  # 1 second of audio buffer
+        self.buffer = np.zeros((self.SAMPLE_RATE, 2), dtype=np.float32)
+        self.buffer_write_pos = 0
+        self.buffer_read_pos = 0
+        self.buffer_size = 0
 
     def read_byte(self, address: Address) -> Byte:
         """Read an APU register or Wave RAM byte."""
@@ -529,4 +518,8 @@ class APU:
         self.left_output = (left * l_vol) / self.NORM_DIVISOR
         self.right_output = (right * r_vol) / self.NORM_DIVISOR
 
-        self.buffer.append((self.left_output, self.right_output))
+        if self.buffer_size < self.SAMPLE_RATE:
+            self.buffer[self.buffer_write_pos, 0] = self.left_output
+            self.buffer[self.buffer_write_pos, 1] = self.right_output
+            self.buffer_write_pos = (self.buffer_write_pos + 1) % self.SAMPLE_RATE
+            self.buffer_size += 1

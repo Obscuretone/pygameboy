@@ -1,6 +1,5 @@
-from typing import Any, Final, List, Optional
-from gb_types import Byte, Address, Word, WORD_MASK, BYTE_MASK
-from protocols import ClockDevice, MemoryBus
+from typing import Any, Final, List
+from gb_types import Byte, Address, WORD_MASK, BYTE_MASK
 from constants import (
     REG_IF,
     IE_REG,

@@ -1,4 +1,4 @@
-from typing import Dict, Union, Final, List, Tuple
+from typing import Dict, Union, Final
 import os
 import sys
 import argparse
@@ -176,18 +176,43 @@ def main() -> None:
         print("Starting boot sequence...")
 
     # Audio setup
-    last_audio_sample = [0.0, 0.0]
+    last_audio_sample = np.array([0.0, 0.0], dtype=np.float32)
 
     def audio_callback(outdata, frames, time, status):
         nonlocal last_audio_sample
         if status:
             print(status)
-        for i in range(frames):
-            if apu.buffer:
-                last_audio_sample = apu.buffer.popleft()
-                outdata[i] = last_audio_sample
+            
+        read_pos = apu.buffer_read_pos
+        size = apu.buffer_size
+        
+        if size >= frames:
+            if read_pos + frames <= apu.SAMPLE_RATE:
+                outdata[:] = apu.buffer[read_pos:read_pos+frames]
             else:
-                outdata[i] = last_audio_sample
+                chunk1 = apu.SAMPLE_RATE - read_pos
+                chunk2 = frames - chunk1
+                outdata[:chunk1] = apu.buffer[read_pos:]
+                outdata[chunk1:] = apu.buffer[:chunk2]
+            
+            apu.buffer_read_pos = (read_pos + frames) % apu.SAMPLE_RATE
+            apu.buffer_size -= frames
+            last_audio_sample[:] = outdata[-1]
+        else:
+            if size > 0:
+                if read_pos + size <= apu.SAMPLE_RATE:
+                    outdata[:size] = apu.buffer[read_pos:read_pos+size]
+                else:
+                    chunk1 = apu.SAMPLE_RATE - read_pos
+                    chunk2 = size - chunk1
+                    outdata[:chunk1] = apu.buffer[read_pos:]
+                    outdata[chunk1:size] = apu.buffer[:chunk2]
+                outdata[size:] = outdata[size-1]
+                apu.buffer_read_pos = (read_pos + size) % apu.SAMPLE_RATE
+                apu.buffer_size = 0
+                last_audio_sample[:] = outdata[-1]
+            else:
+                outdata[:] = last_audio_sample
 
     stream = None
     if args.no_audio:

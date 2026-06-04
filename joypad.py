@@ -1,10 +1,8 @@
-from typing import Any, Optional
-from protocols import MemoryBus
+from typing import Any
 from gb_types import Byte, BIT_6, BIT_7
 from constants import (
     JOYPAD_DIRECTION_SELECT_BIT,
     JOYPAD_BUTTON_SELECT_BIT,
-    JOYPAD_INTERRUPT_BIT,
     JOYPAD_KEYS_MASK,
     INT_JOYPAD_BIT,
     REG_JOYP,

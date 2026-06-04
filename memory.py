@@ -1,12 +1,8 @@
-from typing import Optional, Union, Any, List, Callable, Final, cast
+from typing import Optional, Union, List, Callable
 
-import numpy as np
 from protocols import (
     MemoryBankController,
     VideoDevice,
-    AudioDevice,
-    InputDevice,
-    SerialDevice,
     ClockDevice,
 )
 from apu import APU
@@ -30,9 +26,6 @@ from constants import (
     ROM_END,
     ERAM_START,
     ERAM_END,
-    VRAM_START,
-    VRAM_END,
-    OAM_START,
     OAM_END,
     UNUSABLE_START,
     UNUSABLE_END,
@@ -53,14 +46,8 @@ from constants import (
     REG_BOOT,
     REG_DMA,
     REG_NR10,
-    REG_NR52,
-    REG_WAVE_RAM_START,
     REG_WAVE_RAM_END,
-    REG_LCDC,
-    REG_WX,
-    CYCLES_VBLANK,
     MAX_SCANLINE,
-    PAGE_SIZE_BYTES,
     PAGE_COUNT,
     ROM_BANK_SIZE,
     IE_REG,

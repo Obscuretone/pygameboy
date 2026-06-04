@@ -1,6 +1,6 @@
 import unittest
-from pygameboy.video import VideoChip
-from pygameboy.clock import SystemClock
+from video import VideoChip
+from clock import SystemClock
 
 class MockMemory:
     storage = bytearray(0x10000)

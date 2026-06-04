@@ -1,4 +1,4 @@
-from typing import Union, List, Optional, Final, Callable
+from typing import List, Optional, Final, Callable
 from gb_types import (
     ROMData,
     RAMData,
@@ -21,7 +21,6 @@ from constants import (
     MBC_RAM_BANK_SEL_END,
     MBC_BANK_MODE_SEL_END,
     MBC5_ROM_BANK_LOW_END,
-    ROM_START,
 )
 
 

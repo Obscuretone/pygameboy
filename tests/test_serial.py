@@ -1,8 +1,8 @@
 import unittest
 import io
 import sys
-from pygameboy.memory import Memory
-from pygameboy.clock import SystemClock
+from memory import Memory
+from clock import SystemClock
 
 class TestSerial(unittest.TestCase):
     def setUp(self):

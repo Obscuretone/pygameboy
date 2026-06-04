@@ -1,18 +1,15 @@
-from typing import Any, List, Dict, Optional, TypedDict, Final
+from typing import Any, Final
 import numpy as np
-from protocols import ClockDevice, MemoryBus
+from protocols import ClockDevice
 from constants import (
     VRAM_START,
-    VRAM_END,
     OAM_START,
-    OAM_END,
     REG_LCDC,
     REG_STAT,
     REG_SCY,
     REG_SCX,
     REG_LY,
     REG_LYC,
-    REG_DMA,
     REG_BGP,
     REG_OBP0,
     REG_OBP1,
@@ -24,37 +21,22 @@ from constants import (
     OBP_DEFAULT,
     STAT_MODE_MASK,
     STAT_LYC_FLAG,
-    STAT_INTERRUPT_MASK,
     LCDC_BG_ENABLE,
     LCDC_OBJ_ENABLE,
-    LCDC_OBJ_SIZE,
     LCDC_BG_TILE_MAP_SEL,
     LCDC_TILE_DATA_SEL,
     LCDC_WINDOW_ENABLE,
     LCDC_WINDOW_TILE_MAP_SEL,
-    VRAM_TILE_DATA_1_OFFSET,
     VRAM_TILE_MAP_0_OFFSET,
     VRAM_TILE_MAP_1_OFFSET,
     VRAM_TILE_DATA_INDEX_OFFSET,
-    SPRITE_PALETTE_SEL,
-    SPRITE_X_FLIP,
-    SPRITE_Y_FLIP,
-    SPRITE_PRIORITY,
-    SPRITE_16BIT_TILE_MASK,
     VRAM_SIZE,
     OAM_SIZE,
-    PALETTE_COLOR_MASK,
     CYCLES_HBLANK,
     CYCLES_VBLANK,
     CYCLES_OAM_SEARCH,
     CYCLES_PIXEL_TRANSFER,
     VBLANK_LINE_LIMIT,
-    TILE_SIZE_BYTES,
-    SPRITE_COUNT,
-    SPRITE_SIZE_BYTES,
-    MAX_SPRITES_PER_SCANLINE,
-    TILE_MAP_WIDTH,
-    OAM_DMA_TRANSFER_SIZE,
     INT_VBLANK_BIT,
     INT_STAT_BIT,
     MODE_HBLANK,
@@ -62,7 +44,7 @@ from constants import (
     MODE_OAM_SEARCH,
     MODE_PIXEL_TRANSFER,
 )
-from gb_types import Address, Byte, Cycles, BIT_0, BYTE_MASK
+from gb_types import Address, Byte, Cycles
 
 
 class VideoChip:
@@ -246,6 +228,9 @@ class VideoChip:
 
         if not (self.LCDC & LCDC_BG_ENABLE):
             self.frame_buffer[line_start:line_end] = 0
+            if not hasattr(self, 'bg_color_indices'):
+                self.bg_color_indices = np.zeros(self.SCREEN_WIDTH * self.SCREEN_HEIGHT, dtype=np.uint8)
+            self.bg_color_indices[line_start:line_end] = 0
         else:
             tile_data_base = (
                 VRAM_START if (self.LCDC & LCDC_TILE_DATA_SEL) else (VRAM_START + VRAM_TILE_DATA_INDEX_OFFSET)
@@ -257,11 +242,11 @@ class VideoChip:
 
             x_pos = np.where(using_window, self.x_indices - window_x, (self.x_indices + self.SCX) & 0xFF)
             y_pos = np.where(using_window, self.window_line, (self.LY + self.SCY) & 0xFF)
-            
+
             map1 = VRAM_START + VRAM_TILE_MAP_1_OFFSET
             map0 = VRAM_START + VRAM_TILE_MAP_0_OFFSET
             tile_map_base = np.where(
-                using_window, 
+                using_window,
                 map1 if (self.LCDC & LCDC_WINDOW_TILE_MAP_SEL) else map0,
                 map1 if (self.LCDC & LCDC_BG_TILE_MAP_SEL) else map0
             )
@@ -284,7 +269,11 @@ class VideoChip:
             bits = 7 - (x_pos & 7)
             color_indices = (((byte2 >> bits) & 1) << 1) | ((byte1 >> bits) & 1)
             self.frame_buffer[line_start:line_end] = (self.BGP >> (color_indices * 2)) & 3
-            
+
+            if not hasattr(self, 'bg_color_indices'):
+                self.bg_color_indices = np.zeros(self.SCREEN_WIDTH * self.SCREEN_HEIGHT, dtype=np.uint8)
+            self.bg_color_indices[line_start:line_end] = color_indices
+
             if np.any(using_window): self.window_line += 1
 
         if self.LCDC & LCDC_OBJ_ENABLE:
@@ -312,13 +301,15 @@ class VideoChip:
                     b1, b2 = self.vram_np[voff], self.vram_np[voff + 1]
                     bits = self._BIT_INDICES if (attr & 0x20) else self._BITS_NORMAL
                     idx_s = (((b2 >> bits) & 1) << 1) | ((b1 >> bits) & 1)
-                    
+
                     s_x, e_x = max(0, x), min(160, x + 8)
                     if s_x < e_x:
                         target = line_buf[s_x:e_x]
                         slice_s = idx_s[s_x-x : e_x-x]
                         mask = (slice_s != 0)
-                        if attr & 0x80: mask &= (target == 0)
+                        if attr & 0x80: 
+                            bg_idx = self.bg_color_indices[line_start + s_x : line_start + e_x]
+                            mask &= (bg_idx == 0)
                         if np.any(mask): target[mask] = (pal >> (slice_s[mask] * 2)) & 3
 
     def perform_dma(self, value: Byte) -> None:
