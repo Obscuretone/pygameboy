@@ -1,7 +1,6 @@
 import unittest
-from pygameboy.apu import APU
-from pygameboy.memory import Memory
-from pygameboy.clock import SystemClock
+from memory import Memory
+from clock import SystemClock
 
 class TestAPUOscillators(unittest.TestCase):
     def setUp(self):

@@ -1,6 +1,6 @@
 import unittest
-from pygameboy.memory import Memory
-from pygameboy.clock import SystemClock
+from memory import Memory
+from clock import SystemClock
 
 class TestAPU(unittest.TestCase):
     def setUp(self):

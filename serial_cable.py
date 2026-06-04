@@ -7,8 +7,7 @@ from constants import (
     SERIAL_TRANSFER_MASK,
     SERIAL_INTERRUPT_BIT,
 )
-from protocols import MemoryBus
-from gb_types import Address, Byte, UNMAPPED_BYTE
+from gb_types import Address, Byte
 
 
 class Serial:

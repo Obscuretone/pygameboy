@@ -1,7 +1,7 @@
 import unittest
-from ..memory import Memory
-from ..cpu import CPU
-from ..video import VideoChip
+from memory import Memory
+from cpu import CPU
+from video import VideoChip
 
 
 class TestCPU(unittest.TestCase):
@@ -675,7 +675,7 @@ class TestCPU(unittest.TestCase):
         self.cpu.set_flag("c", True)
 
         # Perform the rotation
-        self.cpu._rla(None)
+        self.cpu._rla()
 
         # Check if the result in register A is correct after rotation
         self.assertEqual(self.cpu.read_register("A"), 0b10101011)
@@ -688,11 +688,12 @@ class TestCPU(unittest.TestCase):
 
     def test_jr_e8_positive_offset(self):
         """Test JR 'e8' with positive offset."""
-        # Set the program counter (PC) to address 0x100
-        self.cpu.write_register("PC", 0x100)
+        # Set the program counter (PC) to address 0x0100
+        self.cpu.write_register("PC", 0x0100)
 
-        # Execute JR 'e8' instruction with a positive offset of 0x05
-        self.cpu.jr_e8([0x05])  # type: ignore
+        # Execute JR 'e8' instruction with a positive offset of 5
+        self.cpu.memory[0x0101] = 0x05
+        self.cpu.jr_e8()  # type: ignore
 
         # Check if the program counter (PC) is updated correctly to address 0x107
         self.assertEqual(self.cpu.read_register("PC"), 0x107)
@@ -703,7 +704,8 @@ class TestCPU(unittest.TestCase):
         self.cpu.write_register("PC", 0x0200)
 
         # Execute JR 'e8' instruction with a negative offset of -0x0F
-        self.cpu.jr_e8([0xF1])  # type: ignore
+        self.cpu.memory[0x0201] = 0xF1
+        self.cpu.jr_e8()  # type: ignore
   # Two's complement representation of -0x0F
 
         # Check if the program counter (PC) is updated correctly to address 0x1F3 (0x0200 - 0x000f + 0x0002)
@@ -720,7 +722,7 @@ class TestCPU(unittest.TestCase):
         self.cpu.ram.write_byte(0xFFFE, 0xCD)  # Lower byte on the stack
 
         # Execute the POP BC instruction
-        self.cpu.pop_bc(None)  # type: ignore
+        self.cpu.pop_bc()  # type: ignore
 
         # Check if the BC register pair was correctly loaded
         self.assertEqual(self.cpu.read_register("BC"), 0xABCD)

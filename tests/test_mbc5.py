@@ -1,5 +1,5 @@
 import unittest
-from pygameboy.mbc import MBC5
+from mbc import MBC5
 
 class TestMBC5(unittest.TestCase):
     def setUp(self):

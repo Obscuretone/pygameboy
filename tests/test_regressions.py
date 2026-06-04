@@ -13,8 +13,8 @@ class TestRegressions(unittest.TestCase):
 
     def test_io_register_defaults(self):
         """Verify critical I/O registers have correct hardware defaults at start."""
-        # IF ($FF0F) on DMG should have top 3 bits as 1
-        self.assertEqual(self.memory.read_byte(0xFF0F) & 0xE0, 0xE0)
+        # IF ($FF0F) on DMG should have top 3 bits as 1 (0xE1)
+        self.assertEqual(self.memory.read_byte(0xFF0F), 0xE1)
         # IE ($FFFF) should be 0
         self.assertEqual(self.memory.read_byte(0xFFFF), 0x00)
         # STAT ($FF41) Bit 7 should always be 1
@@ -42,12 +42,16 @@ class TestRegressions(unittest.TestCase):
 
     def test_apu_nr52_power_toggle_behavior(self):
         """Verify APU registers are managed correctly during power toggles."""
-        # Power ON
+        # Turn APU ON (NR52 Bit 7 = 1)
         self.memory.write_byte(0xFF26, 0x80)
+        # Verify registers are initialized to 0
+        self.assertEqual(self.memory.read_byte(0xFF10), 0x00)
+        
+        # Write to a register
         self.memory.write_byte(0xFF10, 0x55)
         self.assertEqual(self.memory.read_byte(0xFF10), 0x55)
         
-        # Power OFF
+        # Power OFF (NR52 Bit 7 = 0)
         self.memory.write_byte(0xFF26, 0x00)
         # Registers should read as 0xFF when APU is off
         self.assertEqual(self.memory.read_byte(0xFF10), 0xFF)

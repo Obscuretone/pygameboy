@@ -1,7 +1,7 @@
 import unittest
-from pygameboy.memory import Memory
-from pygameboy.video import VideoChip
-from pygameboy.clock import SystemClock
+from memory import Memory
+from video import VideoChip
+from clock import SystemClock
 
 class TestDMAJoypad(unittest.TestCase):
     def setUp(self):

@@ -1,5 +1,5 @@
 from typing import Any, Final, Tuple
-from gb_types import Cycles, Address, Byte
+from gb_types import Cycles
 from constants import (
     REG_DIV,
     REG_TIMA,
