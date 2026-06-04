@@ -1,6 +1,11 @@
 from typing import Any, Optional
 from protocols import MemoryBus
 from gb_types import Byte
+from constants import (
+    JOYPAD_DIRECTION_SELECT_BIT,
+    JOYPAD_BUTTON_SELECT_BIT,
+    JOYPAD_INTERRUPT_BIT,
+)
 
 
 class Joypad:
@@ -33,9 +38,9 @@ class Joypad:
         Read the $FF00 register.
         """
         res = self.selection | 0x0F
-        if not (self.selection & 0x10):  # Direction keys selected
+        if not (self.selection & JOYPAD_DIRECTION_SELECT_BIT):  # Direction keys selected
             res &= self.direction_keys
-        if not (self.selection & 0x20):  # Button keys selected
+        if not (self.selection & JOYPAD_BUTTON_SELECT_BIT):  # Button keys selected
             res &= self.button_keys
         return res | 0xC0  # Bits 6-7 always 1
 
@@ -43,7 +48,9 @@ class Joypad:
         """
         Write to the $FF00 register to select button groups.
         """
-        self.selection = value & 0x30
+        self.selection = value & (
+            JOYPAD_DIRECTION_SELECT_BIT | JOYPAD_BUTTON_SELECT_BIT
+        )
 
     def set_key(self, key: str, pressed: bool) -> None:
         """
@@ -75,7 +82,7 @@ class Joypad:
 
             # Trigger interrupt if transitioning from not-pressed to pressed
             if (old_state & bit) and self.memory:
-                self.memory.request_interrupt(0x10)  # Joypad interrupt
+                self.memory.request_interrupt(JOYPAD_INTERRUPT_BIT)
         else:
             if is_button:
                 self.button_keys |= bit

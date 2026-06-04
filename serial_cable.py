@@ -1,6 +1,12 @@
 from typing import Any
 import sys
-from constants import REG_SB, REG_SC
+from constants import (
+    REG_SB,
+    REG_SC,
+    SERIAL_START_BIT,
+    SERIAL_TRANSFER_MASK,
+    SERIAL_INTERRUPT_BIT,
+)
 from protocols import MemoryBus
 from gb_types import Address, Byte
 
@@ -39,7 +45,7 @@ class Serial:
             self.SC = value
             # Bit 7 marks the start of a transfer
             # Bit 0 indicates shift clock (0=External, 1=Internal)
-            if (value & 0x81) == 0x81:
+            if (value & SERIAL_TRANSFER_MASK) == SERIAL_TRANSFER_MASK:
                 # In a real Gameboy, this takes time and shifts bits in/out.
                 # For emulation, test ROMs like Blargg's use this to print debug text.
                 # We immediately "finish" the transfer by printing the character.
@@ -48,6 +54,6 @@ class Serial:
                 sys.stdout.flush()
 
                 # Clear the transfer flag (bit 7)
-                self.SC &= 0x7F
+                self.SC &= ~SERIAL_START_BIT
                 # Request a Serial Interrupt
-                self.memory.request_interrupt(0x08)
+                self.memory.request_interrupt(SERIAL_INTERRUPT_BIT)
