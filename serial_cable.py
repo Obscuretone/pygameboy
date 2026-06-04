@@ -1,5 +1,6 @@
 from typing import Any
 import sys
+from constants import REG_SB, REG_SC
 
 class Serial:
     """
@@ -20,17 +21,17 @@ class Serial:
 
     def read_byte(self, address: int) -> int:
         """Read a serial register byte."""
-        if address == 0xFF01:
+        if address == REG_SB:
             return self.SB
-        elif address == 0xFF02:
+        elif address == REG_SC:
             return self.SC
         return 0xFF
 
     def write_byte(self, address: int, value: int) -> None:
         """Write to a serial register and potentially start a transfer."""
-        if address == 0xFF01:
+        if address == REG_SB:
             self.SB = value
-        elif address == 0xFF02:
+        elif address == REG_SC:
             self.SC = value
             # Bit 7 marks the start of a transfer
             # Bit 0 indicates shift clock (0=External, 1=Internal)
