@@ -105,9 +105,12 @@ class Memory:
             if self.storage[i] == 0:
                 self.storage[i] = 0xFF
         
-        # Explicitly zero out common registers that should be 0 at boot
-        for addr in [REG_JOYP, REG_DIV, REG_TIMA, REG_TMA, REG_TAC, REG_IF, REG_LY, IE_REG, 0xFF50]:
+        # Explicitly zero out common registers
+        for addr in [REG_JOYP, REG_DIV, REG_TIMA, REG_TMA, REG_TAC, REG_LY, IE_REG, 0xFF50]:
             self.storage[addr] = 0x00
+        
+        # IF defaults to 0xE1 (top bits 1)
+        self.storage[REG_IF] = 0xE1
         
         # APU master switch default (Sound Off)
         self.storage[0xFF26] = 0x00 
