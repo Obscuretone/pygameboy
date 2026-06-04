@@ -316,6 +316,7 @@ class APU:
     """
 
     SAMPLE_RATE: ClassVar[int] = 44100
+    BUFFER_MAX: ClassVar[int] = 4096 * 2  # ~0.18s latency max
     CPU_CLOCK_HZ: Final[int] = GB_CLOCK_HZ
     SAMPLE_PERIOD: Final[float] = CPU_CLOCK_HZ / SAMPLE_RATE
 
@@ -349,7 +350,7 @@ class APU:
 
         self.left_output: float = 0.0
         self.right_output: float = 0.0
-        self.buffer = np.zeros((self.SAMPLE_RATE, 2), dtype=np.float32)
+        self.buffer = np.zeros((self.BUFFER_MAX, 2), dtype=np.float32)
         self.buffer_write_pos = 0
         self.buffer_read_pos = 0
         self.buffer_size = 0
@@ -476,7 +477,7 @@ class APU:
             self.step_frame_sequencer()
 
         self.cycles += cycles
-        if self.cycles >= self.SAMPLE_PERIOD:
+        while self.cycles >= self.SAMPLE_PERIOD:
             self.cycles -= self.SAMPLE_PERIOD
             self.sample()
 
@@ -530,8 +531,8 @@ class APU:
         self.left_output = (left * l_vol) / self.NORM_DIVISOR
         self.right_output = (right * r_vol) / self.NORM_DIVISOR
 
-        if self.buffer_size < self.SAMPLE_RATE:
+        if self.buffer_size < self.BUFFER_MAX:
             self.buffer[self.buffer_write_pos, 0] = self.left_output
             self.buffer[self.buffer_write_pos, 1] = self.right_output
-            self.buffer_write_pos = (self.buffer_write_pos + 1) % self.SAMPLE_RATE
+            self.buffer_write_pos = (self.buffer_write_pos + 1) % self.BUFFER_MAX
             self.buffer_size += 1
