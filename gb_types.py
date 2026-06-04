@@ -12,6 +12,31 @@ Word: TypeAlias = int
 Address: TypeAlias = int
 Cycles: TypeAlias = int
 
+# Common numeric constants
+BYTE_MASK: Final[int] = 0xFF
+WORD_MASK: Final[int] = 0xFFFF
+LOW_NIBBLE_MASK: Final[int] = 0x0F
+HIGH_NIBBLE_MASK: Final[int] = 0xF0
+UNMAPPED_BYTE: Final[int] = 0xFF
+
+# Bit masks
+BIT_0: Final[int] = 0x01
+BIT_1: Final[int] = 0x02
+BIT_2: Final[int] = 0x04
+BIT_3: Final[int] = 0x08
+BIT_4: Final[int] = 0x10
+BIT_5: Final[int] = 0x20
+BIT_6: Final[int] = 0x40
+BIT_7: Final[int] = 0x80
+BIT_8: Final[int] = 0x0100
+BIT_9: Final[int] = 0x0200
+BIT_10: Final[int] = 0x0400
+BIT_11: Final[int] = 0x0800
+BIT_12: Final[int] = 0x1000
+BIT_13: Final[int] = 0x2000
+BIT_14: Final[int] = 0x4000
+BIT_15: Final[int] = 0x8000
+
 # Data types
 MemoryData: TypeAlias = Union[bytearray, np.ndarray]
 ROMData: TypeAlias = Union[bytes, bytearray]
