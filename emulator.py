@@ -33,6 +33,11 @@ from constants import (
     DMG_PALETTE_COLORS,
     ROM_BASE_SIZE,
     RAM_SIZE_MAP,
+    MBC_TYPE_ROM_ONLY,
+    MBC_TYPE_MBC1,
+    MBC_TYPE_MBC2,
+    MBC_TYPE_MBC3,
+    MBC_TYPE_MBC5,
 )
 
 # Standard GB color palette (original green shades)
@@ -135,15 +140,15 @@ def main() -> None:
 
     # Detect MBC Type
     mbc_type = rom[CART_TYPE_ADDR]
-    if mbc_type == 0:
+    if mbc_type == MBC_TYPE_ROM_ONLY:
         ram.mbc = MBC0(rom)
-    elif mbc_type in [0x01, 0x02, 0x03]:
+    elif mbc_type in MBC_TYPE_MBC1:
         ram.mbc = MBC1(rom)
-    elif mbc_type in [0x05, 0x06]:
+    elif mbc_type in MBC_TYPE_MBC2:
         ram.mbc = MBC2(rom)
-    elif mbc_type in [0x0F, 0x10, 0x11, 0x12, 0x13]:
+    elif mbc_type in MBC_TYPE_MBC3:
         ram.mbc = MBC3(rom)
-    elif mbc_type in [0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E]:
+    elif mbc_type in MBC_TYPE_MBC5:
         ram.mbc = MBC5(rom)
     else:
         print(f"Warning: Unsupported MBC type {hex(mbc_type)}, using MBC0")
