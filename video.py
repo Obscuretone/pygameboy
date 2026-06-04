@@ -238,6 +238,9 @@ class VideoChip:
         self.stat_irq_signal = signal
 
     def render_scanline(self) -> None:
+        if self.LY >= self.SCREEN_HEIGHT:
+            return
+
         line_start = self.LY * self.SCREEN_WIDTH
         line_end = line_start + self.SCREEN_WIDTH
 
