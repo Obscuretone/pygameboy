@@ -100,18 +100,17 @@ class Memory:
             limit = min(len(data), WORD_VALUE_COUNT)
             self.storage[:limit] = data[:limit]
 
-        # Initialize IO registers to hardware defaults
+        # Initialize IO registers to hardware defaults for any values still 0
         for i in range(0xFF00, 0x10000):
             if self.storage[i] == 0:
                 self.storage[i] = 0xFF
         
-        # Explicitly zero out common registers
+        # Explicitly zero out common registers that should be 0 at boot
         for addr in [REG_JOYP, REG_DIV, REG_TIMA, REG_TMA, REG_TAC, REG_LY, IE_REG, 0xFF50]:
             self.storage[addr] = 0x00
         
-        # IF defaults to 0xE1 (top bits 1)
+        # IF defaults to 0xE1 (bits 5-7 are 1 on DMG)
         self.storage[REG_IF] = 0xE1
-        
         # APU master switch default (Sound Off)
         self.storage[0xFF26] = 0x00 
 
@@ -145,6 +144,7 @@ class Memory:
     def mbc(self, value: Optional[MemoryBankController]) -> None:
         self._mbc = value
         if value:
+            # Register bank change callbacks for performance mirroring
             setattr(value, "on_bank_change", self._on_mbc_bank_change)
             setattr(value, "on_ram_bank_change", self._on_mbc_ram_bank_change)
             
@@ -171,9 +171,11 @@ class Memory:
         self._update_page_table()
 
     def _on_mbc_bank_change(self, start_addr: int, bank_num: int, data: bytes) -> None:
+        """Mirror MBC ROM bank changes into local storage for fast CPU access."""
         self.storage[start_addr : start_addr + len(data)] = data
 
     def _on_mbc_ram_bank_change(self, bank_num: int, data: bytes) -> None:
+        """Mirror MBC RAM bank changes."""
         self.storage[ERAM_START : ERAM_START + len(data)] = data
 
     def set_mbc(self, mbc: MemoryBankController) -> None:
@@ -189,23 +191,30 @@ class Memory:
 
     def _update_page_table(self) -> None:
         """Configure the write page tables."""
+        # 1. Default: direct RAM write
         for i in range(PAGE_COUNT):
             self.write_pages[i] = self._write_ram_direct
 
+        # 2. ROM: trapping writes to MBC
         if self._mbc:
             for i in range(ROM_START >> 8, (ROM_END >> 8) + 1):
                 self.write_pages[i] = self._write_mbc_rom
+            # 3. External RAM: trapping writes to MBC
             for i in range(ERAM_START >> 8, (ERAM_END >> 8) + 1):
                 self.write_pages[i] = self._write_mbc_ram
 
-        # specialized mirroring for WRAM
+        # 4. specialized mirroring for WRAM
         for i in range(WRAM_START >> 8, (0xDDFF >> 8) + 1):
             self.write_pages[i] = self._write_wram_mirrored
 
+        # 5. specialized handler for Echo RAM
         for i in range(ECHO_START >> 8, (ECHO_END >> 8) + 1):
             self.write_pages[i] = self._write_echo_ram
 
+        # 6. Unusable area (0xFEA0-0xFEFF): writes ignored
         self.write_pages[UNUSABLE_START >> 8] = self._write_oam_unusable_area
+
+        # 7. I/O and HRAM
         self.write_pages[IO_START >> 8] = self._write_io_hram
 
     def _write_ram_direct(self, address: Address, value: Byte) -> None:
@@ -226,11 +235,13 @@ class Memory:
             self.storage[address] = value
 
     def _write_wram_mirrored(self, address: Address, value: Byte) -> None:
+        """Write to WRAM and mirror to Echo RAM."""
         self.storage[address] = value
         if address <= 0xDDFF:
             self.storage[address + ECHO_OFFSET] = value
 
     def _write_echo_ram(self, address: Address, value: Byte) -> None:
+        """Write to Echo RAM and mirror to WRAM."""
         self.storage[address] = value
         self.storage[address - ECHO_OFFSET] = value
 
@@ -239,6 +250,7 @@ class Memory:
             self.storage[address] = value
 
     def _write_io_hram(self, address: Address, value: Byte) -> None:
+        # Trapping IO side effects
         if address >= HRAM_START:
             self.storage[address] = value
             return
@@ -253,10 +265,11 @@ class Memory:
 
         if REG_NR10 <= address <= REG_WAVE_RAM_END:
             self.apu.write_byte(address, value)
+            # Synchronize NR52 switch behavior
             if address == 0xFF26:
-                if not (value & 0x80):
+                if not (value & 0x80): # Sound OFF
                     for i in range(0xFF10, 0xFF26): self.storage[i] = 0xFF
-                else:
+                else: # Sound ON
                     for i in range(0xFF10, 0xFF26): self.storage[i] = 0x00
             else:
                 self.storage[address] = value
@@ -271,9 +284,11 @@ class Memory:
             return
 
         if address == REG_BOOT and value and self.cartridge_boot_area is not None:
+            # Restore underlying cartridge ROM from the shadow area
             self.storage[: len(self.cartridge_boot_area)] = self.cartridge_boot_area
             self.cartridge_boot_area = None
             self.boot_rom_disabled = True
+            # Also write the value to storage so it reads back correctly
             self.storage[REG_BOOT] = value
             return
 
@@ -290,6 +305,7 @@ class Memory:
         if UNUSABLE_START <= addr <= UNUSABLE_END:
             return 0x00
         
+        # Fast scanline fallback if video disabled
         if addr == REG_LY and self.clock is not None and not self._video:
             return (self.clock.get_cycles_elapsed() // 456) % MAX_SCANLINE
             
@@ -300,4 +316,5 @@ class Memory:
         self.write_pages[addr >> 8](addr, value & BYTE_MASK)
 
     def request_interrupt(self, mask: Byte) -> None:
-        self.storage[REG_IF] |= (mask & INTERRUPT_MASK)
+        # IF bits 5-7 are fixed to 1 on DMG
+        self.storage[REG_IF] |= (mask & INTERRUPT_MASK) | 0xE0
