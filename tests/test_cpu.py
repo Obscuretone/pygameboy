@@ -2224,6 +2224,19 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(self.ram.read_byte(0xFF05), 0x42)
         self.assertEqual(self.ram.read_byte(0xFF0F) & 0x04, 0x04)
 
+    def test_pc_boundary_wrap_around(self):
+        """Test that PC wraps correctly when executing at the 64KB boundary."""
+        self.cpu.registers.PC = 0xFFFF
+        self.ram.storage[0xFFFF] = 0x00 # NOP
+        
+        # Execute 2 instructions. 
+        # 1. PC=0xFFFF, opcode=0x00, PC becomes 0x0000
+        # 2. PC=0x0000, executes whatever is there
+        self.cpu.run(max_instructions=2, realtime=False, fast=True, announce=False)
+        
+        self.assertLess(self.cpu.registers.PC, 0x10000)
+        self.assertEqual(self.cpu.registers.PC, 1) # Assuming next instruction is 1 byte NOP
+
 
 if __name__ == "__main__":
     unittest.main()
