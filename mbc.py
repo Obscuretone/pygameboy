@@ -1,4 +1,4 @@
-from typing import List, Final
+from typing import Union, List, Optional, Final
 from gb_types import ROMData, RAMData
 from constants import ROM_BANK_SIZE, RAM_BANK_SIZE, ERAM_START, ROM_END
 
@@ -7,6 +7,8 @@ class MBC:
     """
     Base class for Memory Bank Controllers (MBC).
     """
+
+    RAM_ENABLE_VAL: Final[int] = 0x0A
 
     def __init__(self, rom_data: ROMData, ram_size: int = 0):
         self.rom: ROMData = rom_data
@@ -46,6 +48,10 @@ class MBC1(MBC):
     MBC1 Implementation.
     """
 
+    ROM_BANK_LOW_MASK: Final[int] = 0x1F
+    RAM_BANK_MASK: Final[int] = 0x03
+    MODE_MASK: Final[int] = 0x01
+
     def __init__(self, rom_data: ROMData, ram_size: int = 0x8000):  # Default 32KB RAM
         super().__init__(rom_data, ram_size)
         self.rom_bank: int = 1
@@ -64,20 +70,20 @@ class MBC1(MBC):
     def write_rom(self, address: int, value: int) -> None:
         if address <= 0x1FFF:
             # RAM Enable
-            self.ram_enabled = (value & 0x0F) == 0x0A
+            self.ram_enabled = (value & 0x0F) == self.RAM_ENABLE_VAL
         elif address <= 0x3FFF:
             # ROM Bank Number (Lower 5 bits)
-            bank = value & 0x1F
+            bank = value & self.ROM_BANK_LOW_MASK
             if bank == 0:
                 bank = 1
             self.rom_bank = (self.rom_bank & 0x60) | bank
         elif address <= 0x5FFF:
             # RAM Bank Number or Upper ROM Bank bits
-            self.ram_bank = value & 0x03
-            self.rom_bank = (self.rom_bank & 0x1F) | ((value & 0x03) << 5)
+            self.ram_bank = value & self.RAM_BANK_MASK
+            self.rom_bank = (self.rom_bank & 0x1F) | ((value & self.RAM_BANK_MASK) << 5)
         elif address <= 0x7FFF:
             # Banking Mode Select
-            self.mode = value & 0x01
+            self.mode = value & self.MODE_MASK
 
     def read_ram(self, address: int) -> int:
         if not self.ram_enabled:
@@ -100,6 +106,8 @@ class MBC3(MBC):
     Supports up to 2MB ROM and 32KB RAM, plus Real-Time Clock (RTC).
     """
 
+    ROM_BANK_MASK: Final[int] = 0x7F
+
     def __init__(self, rom_data: ROMData, ram_size: int = 0x8000):
         super().__init__(rom_data, ram_size)
         self.rom_bank: int = 1
@@ -117,9 +125,9 @@ class MBC3(MBC):
 
     def write_rom(self, address: int, value: int) -> None:
         if address <= 0x1FFF:
-            self.ram_enabled = (value & 0x0F) == 0x0A
+            self.ram_enabled = (value & 0x0F) == self.RAM_ENABLE_VAL
         elif address <= 0x3FFF:
-            bank = value & 0x7F
+            bank = value & self.ROM_BANK_MASK
             if bank == 0:
                 bank = 1
             self.rom_bank = bank
@@ -157,6 +165,8 @@ class MBC5(MBC):
     Supports up to 8MB ROM and 128KB RAM.
     """
 
+    RAM_BANK_MASK: Final[int] = 0x0F
+
     def __init__(self, rom_data: ROMData, ram_size: int = 0x20000):  # Default 128KB RAM
         super().__init__(rom_data, ram_size)
         self.rom_bank: int = 1
@@ -172,7 +182,7 @@ class MBC5(MBC):
 
     def write_rom(self, address: int, value: int) -> None:
         if address <= 0x1FFF:
-            self.ram_enabled = (value & 0x0F) == 0x0A
+            self.ram_enabled = (value & 0x0F) == self.RAM_ENABLE_VAL
         elif address <= 0x2FFF:
             # Low 8 bits of ROM Bank
             self.rom_bank = (self.rom_bank & 0x100) | value
@@ -180,7 +190,7 @@ class MBC5(MBC):
             # 9th bit of ROM Bank
             self.rom_bank = (self.rom_bank & 0xFF) | ((value & 0x01) << 8)
         elif address <= 0x5FFF:
-            self.ram_bank = value & 0x0F
+            self.ram_bank = value & self.RAM_BANK_MASK
 
     def read_ram(self, address: int) -> int:
         if not self.ram_enabled:
@@ -202,6 +212,7 @@ class MBC2(MBC):
     """
 
     RAM_SIZE: Final[int] = 512
+    ROM_BANK_MASK: Final[int] = 0x0F
 
     def __init__(self, rom_data: ROMData):
         # MBC2 has 512 x 4 bits of RAM built-in
@@ -220,10 +231,10 @@ class MBC2(MBC):
         if address < ROM_BANK_SIZE:
             if (address & 0x0100) == 0:
                 # RAM Enable (Bit 8 is 0)
-                self.ram_enabled = (value & 0x0F) == 0x0A
+                self.ram_enabled = (value & 0x0F) == self.RAM_ENABLE_VAL
             else:
                 # ROM Bank Number (Bit 8 is 1)
-                bank = value & 0x0F
+                bank = value & self.ROM_BANK_MASK
                 if bank == 0:
                     bank = 1
                 self.rom_bank = bank
