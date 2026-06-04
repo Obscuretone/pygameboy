@@ -38,7 +38,6 @@ class Timer:
             div_inc = self.divider_cycles >> 8
             self.divider_cycles &= 0xFF
             if self.storage is not None:
-                # Cast to int to avoid NumPy scalar overflow warnings
                 self.storage[REG_DIV] = (int(self.storage[REG_DIV]) + div_inc) & 0xFF
             else:
                 div = self.memory.read_byte(REG_DIV)
@@ -56,29 +55,26 @@ class Timer:
         self.timer_cycles += cycles
         period = self.PERIODS[tac & TAC_CLOCK_SELECT_MASK]
 
-        if self.timer_cycles >= period:
-            tima_inc = self.timer_cycles // period
-            self.timer_cycles %= period
-
+        # Use a while loop to handle potential multiple increments accurately
+        while self.timer_cycles >= period:
+            self.timer_cycles -= period
+            
             if self.storage is not None:
                 tima = int(self.storage[REG_TIMA])
-                new_tima = tima + tima_inc
-                if new_tima > 0xFF:
+                if tima == 0xFF:
                     # Overflow: reload from TMA and request interrupt
-                    tma = int(self.storage[REG_TMA])
-                    self.storage[REG_TIMA] = tma
+                    self.storage[REG_TIMA] = int(self.storage[REG_TMA])
                     self.interrupt_manager.request(INT_TIMER_BIT)
                 else:
-                    self.storage[REG_TIMA] = new_tima
+                    self.storage[REG_TIMA] = (tima + 1) & 0xFF
             else:
                 tima = self.memory.read_byte(REG_TIMA)
-                new_tima = tima + tima_inc
-                if new_tima > 0xFF:
+                if tima == 0xFF:
                     tma = self.memory.read_byte(REG_TMA)
                     self.memory.write_byte(REG_TIMA, tma)
                     self.interrupt_manager.request(INT_TIMER_BIT)
                 else:
-                    self.memory.write_byte(REG_TIMA, new_tima)
+                    self.memory.write_byte(REG_TIMA, (tima + 1) & 0xFF)
 
     def reset_div(self) -> None:
         """Called when DIV is written to (always resets to 0)."""

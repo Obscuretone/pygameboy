@@ -141,10 +141,23 @@ class Memory:
         if value:
             # Register bank change callback for performance mirroring
             setattr(value, "on_bank_change", self._on_mbc_bank_change)
-            # Sync Initial Bank 0 and 1
-            self.storage[0:ROM_BANK_SIZE] = value.rom[0:ROM_BANK_SIZE]
-            bank1_start = ROM_BANK_SIZE
-            self.storage[ROM_BANK_SIZE : ROM_BANK_SIZE * 2] = value.rom[bank1_start : bank1_start + ROM_BANK_SIZE]
+            
+            # Sync Initial Banks carefully
+            # Bank 0: 0x0000 - 0x3FFF
+            bank0_data = value.rom[0:ROM_BANK_SIZE]
+            if not self.boot_rom_disabled and self.cartridge_boot_area is not None:
+                # Boot ROM overlay is active. 
+                # 1. Update the "shadow" area that will be restored when boot ROM is disabled.
+                boot_len = len(self.cartridge_boot_area)
+                self.cartridge_boot_area[:] = bank0_data[:boot_len]
+                # 2. Update the rest of bank 0 in main storage
+                self.storage[boot_len:ROM_BANK_SIZE] = bank0_data[boot_len:]
+            else:
+                self.storage[0:ROM_BANK_SIZE] = bank0_data
+                
+            # Bank 1: 0x4000 - 0x7FFF
+            self.storage[ROM_BANK_SIZE : ROM_BANK_SIZE * 2] = value.rom[ROM_BANK_SIZE : ROM_BANK_SIZE * 2]
+            
         self._update_page_table()
 
     def _on_mbc_bank_change(self, start_addr: int, bank_num: int, data: bytes) -> None:
@@ -158,7 +171,9 @@ class Memory:
         self.video = video
 
     def set_boot_rom(self, boot_rom: bytearray) -> None:
+        # Save the current underlying cartridge area to the shadow buffer
         self.cartridge_boot_area = bytearray(self.storage[: len(boot_rom)])
+        # Apply the boot ROM overlay to main storage
         self.storage[: len(boot_rom)] = boot_rom
         self.boot_rom_disabled = False
 
@@ -276,6 +291,7 @@ class Memory:
             return
 
         if address == REG_BOOT and value and self.cartridge_boot_area is not None:
+            # Restore underlying cartridge ROM from the shadow area
             self.storage[: len(self.cartridge_boot_area)] = self.cartridge_boot_area
             self.cartridge_boot_area = None
             self.boot_rom_disabled = True
@@ -287,8 +303,7 @@ class Memory:
         """Read a single byte using the page table."""
         address &= WORD_MASK
 
-        # Optimization: storage should be mostly correct for ROM/RAM
-        # but boot ROM overlay is special
+        # Boot ROM overlay check (Hot path)
         if not self.boot_rom_disabled and address < BOOT_ROM_SIZE:
             if self.cartridge_boot_area is not None:
                 return self.storage[address]
