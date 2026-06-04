@@ -18,8 +18,34 @@ from constants import (
     REG_OBP1,
     REG_WY,
     REG_WX,
+    LCDC_DEFAULT,
+    STAT_DEFAULT,
+    BGP_DEFAULT,
+    OBP_DEFAULT,
+    STAT_MODE_MASK,
+    STAT_LYC_FLAG,
+    STAT_INTERRUPT_MASK,
+    LCDC_BG_ENABLE,
+    LCDC_OBJ_ENABLE,
+    LCDC_OBJ_SIZE,
+    LCDC_BG_TILE_MAP_SEL,
+    LCDC_TILE_DATA_SEL,
+    LCDC_WINDOW_ENABLE,
+    LCDC_WINDOW_TILE_MAP_SEL,
+    VRAM_TILE_DATA_1_OFFSET,
+    VRAM_TILE_MAP_0_OFFSET,
+    VRAM_TILE_MAP_1_OFFSET,
+    VRAM_TILE_DATA_INDEX_OFFSET,
+    SPRITE_PALETTE_SEL,
+    SPRITE_X_FLIP,
+    SPRITE_Y_FLIP,
+    SPRITE_PRIORITY,
+    SPRITE_16BIT_TILE_MASK,
+    VRAM_SIZE,
+    OAM_SIZE,
+    PALETTE_COLOR_MASK,
 )
-from gb_types import Address, Byte, Cycles
+from gb_types import Address, Byte, Cycles, BIT_0, BYTE_MASK
 
 
 class SpriteInfo(TypedDict):
@@ -37,8 +63,8 @@ class VideoChip:
 
     SCREEN_WIDTH: Final[int] = 160
     SCREEN_HEIGHT: Final[int] = 144
-    VRAM_SIZE: Final[int] = 0x2000
-    OAM_SIZE: Final[int] = 0xA0
+    VRAM_SIZE: Final[int] = VRAM_SIZE
+    OAM_SIZE: Final[int] = OAM_SIZE
 
     def __init__(self, clock: ClockDevice, memory: MemoryBus):
         """
@@ -48,18 +74,18 @@ class VideoChip:
             clock: The system clock for cycle-accurate timing.
             memory: The memory bus for reading tile data and OAM.
         """
-        self.LCDC: int = 0x91  # LCD Control Register
-        self.STAT: int = 0x85  # LCD Status Register
-        self.SCY: int = 0x00  # Scroll Y
-        self.SCX: int = 0x00  # Scroll X
-        self.LY: int = 0x00  # LCDC Y-Coordinate
-        self.LYC: int = 0x00  # LY Compare
-        self.BGP: int = 0xFC  # BG Palette Data
-        self.OBP0: int = 0xFF  # Object Palette 0 Data
-        self.OBP1: int = 0xFF  # Object Palette 1 Data
-        self.WY: int = 0x00  # Window Y Position
-        self.WX: int = 0x00  # Window X Position
-        self.DMA: int = 0x00  # OAM DMA Source Address
+        self.LCDC: int = LCDC_DEFAULT  # LCD Control Register
+        self.STAT: int = STAT_DEFAULT  # LCD Status Register
+        self.SCY: int = 0  # Scroll Y
+        self.SCX: int = 0  # Scroll X
+        self.LY: int = 0  # LCDC Y-Coordinate
+        self.LYC: int = 0  # LY Compare
+        self.BGP: int = BGP_DEFAULT  # BG Palette Data
+        self.OBP0: int = OBP_DEFAULT  # Object Palette 0 Data
+        self.OBP1: int = OBP_DEFAULT  # Object Palette 1 Data
+        self.WY: int = 0  # Window Y Position
+        self.WX: int = 0  # Window X Position
+        self.DMA: int = 0  # OAM DMA Source Address
 
         # VRAM and OAM
         self.vram: bytearray = bytearray(self.VRAM_SIZE)
@@ -149,7 +175,7 @@ class VideoChip:
 
         while True:
             # Current Mode
-            mode = self.STAT & 0x03
+            mode = self.STAT & STAT_MODE_MASK
 
             if mode == 2:  # OAM Search (80 cycles)
                 if self.mode_clock >= 80:
@@ -172,7 +198,7 @@ class VideoChip:
                     if self.LY == self.SCREEN_HEIGHT:
                         self.set_mode(1)
                         # Request V-Blank interrupt (bit 0)
-                        self.memory.request_interrupt(0x01)
+                        self.memory.request_interrupt(BIT_0)
                     else:
                         self.set_mode(2)
 
@@ -196,47 +222,53 @@ class VideoChip:
 
     def set_mode(self, mode: int) -> None:
         """Set the current PPU mode in the STAT register."""
-        self.STAT = (self.STAT & 0xFC) | (mode & 0x03)
+        self.STAT = (self.STAT & STAT_INTERRUPT_MASK) | (mode & STAT_MODE_MASK)
         # TODO: Trigger STAT interrupt if enabled
 
     def check_lyc(self) -> None:
         """Check if LY matches LYC and update STAT register."""
         if self.LY == self.LYC:
-            self.STAT |= 0x04  # Set LYC=LY flag
+            self.STAT |= STAT_LYC_FLAG  # Set LYC=LY flag
             # TODO: Trigger STAT interrupt if bit 6 is set
         else:
-            self.STAT &= ~0x04
+            self.STAT &= ~STAT_LYC_FLAG
 
     def render_scanline(self) -> None:
         """Render the current scanline (LY) to the frame buffer."""
         # Bit 0 of LCDC: BG Display Enable
-        if not (self.LCDC & 0x01):
+        if not (self.LCDC & LCDC_BG_ENABLE):
             self.frame_buffer[
                 self.LY * self.SCREEN_WIDTH : (self.LY + 1) * self.SCREEN_WIDTH
             ] = 0
         else:
             # BG and Window rendering logic...
             # (Keeping existing logic but adding type safety and documentation)
-            tile_data_base = VRAM_START if (self.LCDC & 0x10) else (VRAM_START + 0x0800)
-            unsigned_tiles = bool(self.LCDC & 0x10)
+            tile_data_base = (
+                VRAM_START if (self.LCDC & LCDC_TILE_DATA_SEL) else (VRAM_START + VRAM_TILE_DATA_1_OFFSET)
+            )
+            unsigned_tiles = bool(self.LCDC & LCDC_TILE_DATA_SEL)
             bg_tile_map_base = (
-                (VRAM_START + 0x1C00) if (self.LCDC & 0x08) else (VRAM_START + 0x1800)
+                (VRAM_START + VRAM_TILE_MAP_1_OFFSET)
+                if (self.LCDC & LCDC_BG_TILE_MAP_SEL)
+                else (VRAM_START + VRAM_TILE_MAP_0_OFFSET)
             )
 
-            window_enabled = (self.LCDC & 0x20) and (self.WY <= self.LY)
+            window_enabled = (self.LCDC & LCDC_WINDOW_ENABLE) and (self.WY <= self.LY)
             window_x = self.WX - 7
             window_tile_map_base = (
-                (VRAM_START + 0x1C00) if (self.LCDC & 0x40) else (VRAM_START + 0x1800)
+                (VRAM_START + VRAM_TILE_MAP_1_OFFSET)
+                if (self.LCDC & LCDC_WINDOW_TILE_MAP_SEL)
+                else (VRAM_START + VRAM_TILE_MAP_0_OFFSET)
             )
 
             x_indices = self.x_indices
             using_window = (window_enabled) & (x_indices >= window_x)
 
             x_pos = np.where(
-                using_window, x_indices - window_x, (x_indices + self.SCX) & 0xFF
+                using_window, x_indices - window_x, (x_indices + self.SCX) & BYTE_MASK
             )
             y_pos = np.where(
-                using_window, self.LY - self.WY, (self.LY + self.SCY) & 0xFF
+                using_window, self.LY - self.WY, (self.LY + self.SCY) & BYTE_MASK
             )
             tile_map_base = np.where(
                 using_window, window_tile_map_base, bg_tile_map_base
@@ -255,7 +287,9 @@ class VideoChip:
                 tile_data_addresses = tile_data_base + (tile_indices.astype(np.uint32) * 16)
             else:
                 signed_indices = tile_indices.astype(np.int8).astype(np.int32)
-                tile_data_addresses = (VRAM_START + 0x1000) + (signed_indices * 16)
+                tile_data_addresses = (VRAM_START + VRAM_TILE_DATA_INDEX_OFFSET) + (
+                    signed_indices * 16
+                )
 
             data_offsets = (
                 tile_data_addresses.astype(np.uint32) - VRAM_START + (tile_y * 2)
@@ -264,18 +298,18 @@ class VideoChip:
             byte2 = vram_np[data_offsets + 1]
 
             bits = 7 - tile_x
-            color_bit0 = (byte1 >> bits) & 0x01
-            color_bit1 = (byte2 >> bits) & 0x01
+            color_bit0 = (byte1 >> bits) & BIT_0
+            color_bit1 = (byte2 >> bits) & BIT_0
             color_indices = (color_bit1 << 1) | color_bit0
 
-            final_colors = (self.BGP >> (color_indices.astype(np.uint8) * 2)) & 0x03
+            final_colors = (self.BGP >> (color_indices.astype(np.uint8) * 2)) & PALETTE_COLOR_MASK
             self.frame_buffer[
                 self.LY * self.SCREEN_WIDTH : (self.LY + 1) * self.SCREEN_WIDTH
             ] = final_colors
 
         # Render Sprites (OBJ)
-        if self.LCDC & 0x02:
-            sprite_height = 16 if (self.LCDC & 0x04) else 8
+        if self.LCDC & LCDC_OBJ_ENABLE:
+            sprite_height = 16 if (self.LCDC & LCDC_OBJ_SIZE) else 8
 
             # 1. Extract all sprite data from OAM at once using NumPy
             # OAM is 40 entries, 4 bytes each: Y, X, Tile, Attr
@@ -309,13 +343,13 @@ class VideoChip:
                     tile_index = active_sprites[idx, 2]
                     attr = active_sprites[idx, 3]
 
-                    y_flip = bool(attr & 0x40)
-                    x_flip = bool(attr & 0x20)
-                    palette = self.OBP1 if (attr & 0x10) else self.OBP0
-                    priority = bool(attr & 0x80)
+                    y_flip = bool(attr & SPRITE_Y_FLIP)
+                    x_flip = bool(attr & SPRITE_X_FLIP)
+                    palette = self.OBP1 if (attr & SPRITE_PALETTE_SEL) else self.OBP0
+                    priority = bool(attr & SPRITE_PRIORITY)
 
                     if sprite_height == 16:
-                        tile_index &= 0xFE
+                        tile_index &= SPRITE_16BIT_TILE_MASK
 
                     line = self.LY - y_pos
                     if y_flip:
@@ -336,12 +370,12 @@ class VideoChip:
                                 continue
 
                             bit = bit_x if x_flip else (7 - bit_x)
-                            color_bit0 = (byte1 >> bit) & 0x01
-                            color_bit1 = (byte2 >> bit) & 0x01
+                            color_bit0 = (byte1 >> bit) & BIT_0
+                            color_bit1 = (byte2 >> bit) & BIT_0
                             color_index = (color_bit1 << 1) | color_bit0
 
                             if color_index != 0:
-                                final_color = (palette >> (color_index * 2)) & 0x03
+                                final_color = (palette >> (color_index * 2)) & PALETTE_COLOR_MASK
                                 self.frame_buffer[
                                     self.LY * self.SCREEN_WIDTH + pixel_x
                                 ] = final_color

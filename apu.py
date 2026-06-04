@@ -1,7 +1,27 @@
 from typing import List, Deque, Tuple, Optional, Final, ClassVar
 import numpy as np
 from collections import deque
-from gb_types import Sample, Cycles, Address, Byte
+from gb_types import (
+    Sample,
+    Cycles,
+    Address,
+    Byte,
+    BIT_0,
+    BIT_1,
+    BIT_2,
+    BIT_3,
+    BIT_4,
+    BIT_5,
+    BIT_6,
+    BIT_7,
+    BIT_14,
+    LOW_NIBBLE_MASK,
+    HIGH_NIBBLE_MASK,
+    BYTE_MASK,
+    UNMAPPED_BYTE,
+    AUDIO_LENGTH_MASK,
+    TIMER_CONTROL_MASK,
+)
 from constants import (
     REG_NR10,
     REG_NR11,
@@ -31,6 +51,7 @@ from constants import (
     AUDIO_LENGTH_ENABLE_BIT,
     APU_REG_SIZE,
     WAVE_RAM_SIZE,
+    GB_CLOCK_HZ,
 )
 
 
@@ -48,6 +69,10 @@ class PulseChannel:
     MAX_LENGTH: Final[int] = 64
     MAX_VOLUME: Final[int] = 15
     TIMER_FACTOR: Final[int] = 4
+    FREQUENCY_BASE: Final[int] = 2048
+
+    NRX1_DUTY_MASK: Final[int] = 0xC0
+    NRX4_FREQ_HI_MASK: Final[int] = 0x07
 
     def __init__(self) -> None:
         self.enabled: bool = False
@@ -75,7 +100,7 @@ class PulseChannel:
 
         self.timer -= cycles
         while self.timer <= 0:
-            self.timer += (2048 - self.frequency) * self.TIMER_FACTOR
+            self.timer += (self.FREQUENCY_BASE - self.frequency) * self.TIMER_FACTOR
             self.duty_step = (self.duty_step + 1) % 8
             self.output = (
                 self.volume if self.DUTY_CYCLES[self.duty][self.duty_step] else 0
@@ -111,20 +136,20 @@ class PulseChannel:
         self, freq_lo: int, freq_hi: int, nr_x1: int, nr_x2: int, nr_x4: int
     ) -> None:
         """Trigger (restart) the channel with new register values."""
-        self.frequency = ((freq_hi & 0x07) << 8) | freq_lo
-        self.duty = (nr_x1 & 0xC0) >> 6
-        self.enabled = True
+        self.frequency = ((freq_hi & self.NRX4_FREQ_HI_MASK) << 8) | freq_lo
+        self.duty = (nr_x1 & self.NRX1_DUTY_MASK) >> 6
 
         # Initial Volume and Envelope
-        self.initial_volume = (nr_x2 & 0xF0) >> 4
+        self.initial_volume = (nr_x2 & HIGH_NIBBLE_MASK) >> 4
         self.volume = self.initial_volume
-        self.envelope_direction = (nr_x2 >> 3) & 0x01
-        self.envelope_period = nr_x2 & 0x07
+        self.envelope_direction = (nr_x2 >> 3) & BIT_0
+        self.envelope_period = nr_x2 & TIMER_CONTROL_MASK
         self.envelope_timer = self.envelope_period
         self.envelope_enabled = True
 
+        self.enabled = True
         self.duty_step = 0
-        self.timer = (2048 - self.frequency) * self.TIMER_FACTOR
+        self.timer = (self.FREQUENCY_BASE - self.frequency) * self.TIMER_FACTOR
         self.output = self.volume if self.DUTY_CYCLES[self.duty][self.duty_step] else 0
 
         # Length counter
@@ -141,6 +166,10 @@ class WaveChannel:
 
     MAX_LENGTH: Final[int] = 256
     TIMER_FACTOR: Final[int] = 2
+    FREQUENCY_BASE: Final[int] = 2048
+
+    NR32_VOL_SHIFT_MASK: Final[int] = 0x60
+    NR34_FREQ_HI_MASK: Final[int] = 0x07
 
     def __init__(self):
         self.enabled: bool = False
@@ -160,15 +189,15 @@ class WaveChannel:
 
         self.timer -= cycles
         while self.timer <= 0:
-            self.timer += (2048 - self.frequency) * self.TIMER_FACTOR
+            self.timer += (self.FREQUENCY_BASE - self.frequency) * self.TIMER_FACTOR
             self.sample_index = (self.sample_index + 1) % 32
 
             byte_index = self.sample_index // 2
             byte = self.wave_ram[byte_index]
             if self.sample_index % 2 == 0:
-                sample = (byte >> 4) & 0x0F
+                sample = (byte >> 4) & LOW_NIBBLE_MASK
             else:
-                sample = byte & 0x0F
+                sample = byte & LOW_NIBBLE_MASK
 
             if self.volume_shift > 0:
                 self.output = sample >> (self.volume_shift - 1)
@@ -184,11 +213,11 @@ class WaveChannel:
 
     def trigger(self, freq_lo: int, freq_hi: int, nr32: int, nr34: int) -> None:
         """Trigger (restart) the wave channel."""
-        self.frequency = ((freq_hi & 0x07) << 8) | freq_lo
-        self.volume_shift = (nr32 & 0x60) >> 5
+        self.frequency = ((freq_hi & self.NR34_FREQ_HI_MASK) << 8) | freq_lo
+        self.volume_shift = (nr32 & self.NR32_VOL_SHIFT_MASK) >> 5
         self.enabled = True
         self.sample_index = 0
-        self.timer = (2048 - self.frequency) * self.TIMER_FACTOR
+        self.timer = (self.FREQUENCY_BASE - self.frequency) * self.TIMER_FACTOR
 
         if self.length_counter == 0:
             self.length_counter = self.MAX_LENGTH
@@ -196,7 +225,7 @@ class WaveChannel:
 
         # Initial sample
         byte = self.wave_ram[0]
-        sample = (byte >> 4) & 0x0F
+        sample = (byte >> 4) & LOW_NIBBLE_MASK
         if self.volume_shift > 0:
             self.output = sample >> (self.volume_shift - 1)
         else:
@@ -212,11 +241,12 @@ class NoiseChannel:
     MAX_LENGTH: Final[int] = 64
     MAX_VOLUME: Final[int] = 15
     TIMER_BASE: Final[int] = 128
+    LFSR_INITIAL: Final[int] = 0x7FFF
 
     def __init__(self):
         self.enabled: bool = False
         self.timer: int = 0
-        self.lfsr: int = 0x7FFF
+        self.lfsr: int = self.LFSR_INITIAL
         self.output: int = 0
         self.volume: int = 0
         self.length_counter: int = 0
@@ -237,9 +267,9 @@ class NoiseChannel:
             # Simplified noise timer
             self.timer += self.TIMER_BASE
 
-            res = (self.lfsr & 0x01) ^ ((self.lfsr & 0x02) >> 1)
+            res = (self.lfsr & BIT_0) ^ ((self.lfsr & BIT_1) >> 1)
             self.lfsr = (self.lfsr >> 1) | (res << 14)
-            self.output = self.volume if (self.lfsr & 0x01) == 0 else 0
+            self.output = self.volume if (self.lfsr & BIT_0) == 0 else 0
 
     def step_length(self) -> None:
         """Advance the length counter."""
@@ -270,9 +300,9 @@ class NoiseChannel:
     def trigger(self, nr42: int, nr44: int) -> None:
         """Trigger (restart) the noise channel."""
         self.enabled = True
-        self.volume = (nr42 & 0xF0) >> 4
-        self.envelope_direction = (nr42 >> 3) & 0x01
-        self.envelope_period = nr42 & 0x07
+        self.volume = (nr42 & HIGH_NIBBLE_MASK) >> 4
+        self.envelope_direction = (nr42 >> 3) & BIT_0
+        self.envelope_period = nr42 & TIMER_CONTROL_MASK
         self.envelope_timer = self.envelope_period
         self.envelope_enabled = True
 
@@ -287,8 +317,14 @@ class APU:
     """
 
     SAMPLE_RATE: ClassVar[int] = 44100
-    CPU_CLOCK_HZ: Final[int] = 4194304
+    CPU_CLOCK_HZ: Final[int] = GB_CLOCK_HZ
     SAMPLE_PERIOD: Final[float] = CPU_CLOCK_HZ / SAMPLE_RATE
+
+    NR52_READ_MASK: Final[int] = 0x7F
+    NR52_REG_COUNT: Final[int] = 0x16
+
+    NR50_LEFT_VOL_MASK: Final[int] = 0x70
+    NR50_RIGHT_VOL_MASK: Final[int] = 0x07
 
     def __init__(self) -> None:
         self.registers: bytearray = bytearray(APU_REG_SIZE)
@@ -311,14 +347,14 @@ class APU:
     def read_byte(self, address: Address) -> Byte:
         """Read an APU register or Wave RAM byte."""
         if not self.sound_enabled and address != REG_NR52:
-            return 0xFF
+            return UNMAPPED_BYTE
 
         offset = address - REG_NR10
         if 0 <= offset < APU_REG_SIZE:
             if REG_WAVE_RAM_START <= address <= REG_WAVE_RAM_END:
                 return self.ch3.wave_ram[address - REG_WAVE_RAM_START]
             return self.registers[offset]
-        return 0xFF
+        return UNMAPPED_BYTE
 
     def write_byte(self, address: Address, value: Byte) -> None:
         """Write to an APU register or Wave RAM byte."""
@@ -327,26 +363,34 @@ class APU:
             # Length registers can still be written to set length counter
             if address in [REG_NR11, REG_NR21, REG_NR31, REG_NR41]:
                 if address == REG_NR11:
-                    self.ch1.length_counter = self.ch1.MAX_LENGTH - (value & 0x3F)
+                    self.ch1.length_counter = self.ch1.MAX_LENGTH - (
+                        value & AUDIO_LENGTH_MASK
+                    )
                 elif address == REG_NR21:
-                    self.ch2.length_counter = self.ch2.MAX_LENGTH - (value & 0x3F)
+                    self.ch2.length_counter = self.ch2.MAX_LENGTH - (
+                        value & AUDIO_LENGTH_MASK
+                    )
                 elif address == REG_NR31:
                     self.ch3.length_counter = self.ch3.MAX_LENGTH - value
                 elif address == REG_NR41:
-                    self.ch4.length_counter = self.ch4.MAX_LENGTH - (value & 0x3F)
+                    self.ch4.length_counter = self.ch4.MAX_LENGTH - (
+                        value & AUDIO_LENGTH_MASK
+                    )
             return
 
         if address == REG_NR52:
-            new_sound_enabled = bool(value & 0x80)
+            new_sound_enabled = bool(value & AUDIO_TRIGGER_BIT)
             if not new_sound_enabled and self.sound_enabled:
-                for i in range(0x16):
+                for i in range(self.NR52_REG_COUNT):
                     self.registers[i] = 0
                 self.ch1.enabled = False
                 self.ch2.enabled = False
                 self.ch3.enabled = False
                 self.ch4.enabled = False
             self.sound_enabled = new_sound_enabled
-            self.registers[offset] = (self.registers[offset] & 0x7F) | (value & 0x80)
+            self.registers[offset] = (self.registers[offset] & self.NR52_READ_MASK) | (
+                value & AUDIO_TRIGGER_BIT
+            )
             return
 
         if 0 <= offset < APU_REG_SIZE:
@@ -354,7 +398,9 @@ class APU:
 
             # Channel 1
             if address == REG_NR11:
-                self.ch1.length_counter = self.ch1.MAX_LENGTH - (value & 0x3F)
+                self.ch1.length_counter = self.ch1.MAX_LENGTH - (
+                    value & AUDIO_LENGTH_MASK
+                )
             elif address == REG_NR14 and (value & AUDIO_TRIGGER_BIT):
                 self.ch1.trigger(
                     self.registers[REG_NR13 - REG_NR10],
@@ -366,7 +412,9 @@ class APU:
 
             # Channel 2
             elif address == REG_NR21:
-                self.ch2.length_counter = self.ch2.MAX_LENGTH - (value & 0x3F)
+                self.ch2.length_counter = self.ch2.MAX_LENGTH - (
+                    value & AUDIO_LENGTH_MASK
+                )
             elif address == REG_NR24 and (value & AUDIO_TRIGGER_BIT):
                 self.ch2.trigger(
                     self.registers[REG_NR23 - REG_NR10],
@@ -391,7 +439,9 @@ class APU:
 
             # Channel 4
             elif address == REG_NR41:
-                self.ch4.length_counter = self.ch4.MAX_LENGTH - (value & 0x3F)
+                self.ch4.length_counter = self.ch4.MAX_LENGTH - (
+                    value & AUDIO_LENGTH_MASK
+                )
             elif address == REG_NR44 and (value & AUDIO_TRIGGER_BIT):
                 self.ch4.trigger(self.registers[REG_NR42 - REG_NR10], value)
 
@@ -435,8 +485,8 @@ class APU:
         nr50 = self.registers[REG_NR50 - REG_NR10]
         nr51 = self.registers[REG_NR51 - REG_NR10]
 
-        l_vol = (nr50 & 0x70) >> 4
-        r_vol = nr50 & 0x07
+        l_vol = (nr50 & self.NR50_LEFT_VOL_MASK) >> 4
+        r_vol = nr50 & self.NR50_RIGHT_VOL_MASK
 
         c1 = self.ch1.output
         c2 = self.ch2.output
@@ -446,22 +496,22 @@ class APU:
         left = 0
         right = 0
 
-        if nr51 & 0x80:
+        if nr51 & BIT_7:
             left += c4
-        if nr51 & 0x40:
+        if nr51 & BIT_6:
             left += c3
-        if nr51 & 0x20:
+        if nr51 & BIT_5:
             left += c2
-        if nr51 & 0x10:
+        if nr51 & BIT_4:
             left += c1
 
-        if nr51 & 0x08:
+        if nr51 & BIT_3:
             right += c4
-        if nr51 & 0x04:
+        if nr51 & BIT_2:
             right += c3
-        if nr51 & 0x02:
+        if nr51 & BIT_1:
             right += c2
-        if nr51 & 0x01:
+        if nr51 & BIT_0:
             right += c1
 
         # Output is max 15 * 4 = 60

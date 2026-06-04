@@ -23,6 +23,13 @@ from gb_types import (
     REG_HL,
     Address,
     Byte,
+    BYTE_MASK,
+    WORD_MASK,
+    LOW_NIBBLE_MASK,
+    HIGH_NIBBLE_MASK,
+    HALF_CARRY_MASK_16,
+    SIGN_BIT_8,
+    BYTE_VALUE_COUNT,
 )
 from constants import (
     REG_DIV,
@@ -31,6 +38,7 @@ from constants import (
     WRAM_END,
     HRAM_START,
     HRAM_END,
+    REG_JOYP,
 )
 
 
@@ -41,6 +49,8 @@ class CPU(CPUOpcodes):
 
     EMPTY_OPERANDS: Final[Tuple] = ()
     FLAG_Z, FLAG_N, FLAG_H, FLAG_C = FLAG_Z, FLAG_N, FLAG_H, FLAG_C
+    OPCODE_COUNT = 256
+    HALT_CYCLES = 4
 
     @overload
     def __init__(
@@ -88,7 +98,9 @@ class CPU(CPUOpcodes):
             actual_ram = ram
 
         self.clock: ClockDevice = (
-            actual_clock if actual_clock is not None else SystemClock(clock_speed_hz=GB_CLOCK_HZ)
+            actual_clock
+            if actual_clock is not None
+            else SystemClock(clock_speed_hz=GB_CLOCK_HZ)
         )
         self.ram: MemoryBus = actual_ram  # type: ignore (We expect ram to be provided)
         self.video = video
@@ -111,9 +123,9 @@ class CPU(CPUOpcodes):
         self._dispatch_table = self._build_dispatch_table()
 
     def _build_dispatch_table(self):
-        table: List[Any] = [None] * 256
+        table: List[Any] = [None] * self.OPCODE_COUNT
         instr_set = self.instruction_set()
-        for opcode in range(256):
+        for opcode in range(self.OPCODE_COUNT):
             if opcode in instr_set:
                 method = instr_set[opcode]
                 table[opcode] = getattr(self, method.__name__)  # type: ignore
@@ -153,7 +165,7 @@ class CPU(CPUOpcodes):
                     executed += 1
                 else:
                     if self.halted:
-                        cyc = 4
+                        cyc = self.HALT_CYCLES
                     else:
                         opcode = mem[reg.PC]
                         cyc = dispatch[opcode]()
@@ -221,18 +233,18 @@ class CPU(CPUOpcodes):
     def write_register(self, reg, val):
         self.registers[reg] = val
         if reg in ("AF", REG_F):
-            self.registers.data[REG_F] &= 0xF0
+            self.registers.data[REG_F] &= HIGH_NIBBLE_MASK
 
     # --- Hardware Helpers ---
     def _read_memory_byte(self, address: Address) -> Byte:
-        address &= 0xFFFF
+        address &= WORD_MASK
         if (WRAM_START <= address <= WRAM_END) or (HRAM_START <= address <= HRAM_END):
             return self.memory[address]
         return self.ram.read_byte(address)
 
     def _write_memory_byte(self, address: Address, value: Byte) -> None:
-        address &= 0xFFFF
-        value &= 0xFF
+        address &= WORD_MASK
+        value &= BYTE_MASK
         if (WRAM_START <= address <= WRAM_END) or (HRAM_START <= address <= HRAM_END):
             self.memory[address] = value
         else:
@@ -249,7 +261,7 @@ class CPU(CPUOpcodes):
         f = self.registers.data[REG_F] & FLAG_C
         if res == 0:
             f |= FLAG_Z
-        if (v & 0x0F) == 0x0F:
+        if (v & LOW_NIBBLE_MASK) == LOW_NIBBLE_MASK:
             f |= FLAG_H
         self.registers.data[REG_F] = f
 
@@ -257,41 +269,41 @@ class CPU(CPUOpcodes):
         f = (self.registers.data[REG_F] & FLAG_C) | FLAG_N
         if res == 0:
             f |= FLAG_Z
-        if (v & 0x0F) == 0x00:
+        if (v & LOW_NIBBLE_MASK) == 0:
             f |= FLAG_H
         self.registers.data[REG_F] = f
 
     def _set_add_flags(self, left, right, res, is16=False):
         f = 0
-        if (res & (0xFF if not is16 else 0xFFFF)) == 0:
+        if (res & (BYTE_MASK if not is16 else WORD_MASK)) == 0:
             f |= FLAG_Z
         if not is16:
-            if (left & 0x0F) + (right & 0x0F) > 0x0F:
+            if (left & LOW_NIBBLE_MASK) + (right & LOW_NIBBLE_MASK) > LOW_NIBBLE_MASK:
                 f |= FLAG_H
-            if res > 0xFF:
+            if res > BYTE_MASK:
                 f |= FLAG_C
         else:
-            if (left & 0x0FFF) + (right & 0x0FFF) > 0x0FFF:
+            if (left & HALF_CARRY_MASK_16) + (right & HALF_CARRY_MASK_16) > HALF_CARRY_MASK_16:
                 f |= FLAG_H
-            if res > 0xFFFF:
+            if res > WORD_MASK:
                 f |= FLAG_C
         self.registers.data[REG_F] = f
 
     def _set_adc_flags(self, left, right, carry, res):
         f = 0
-        if (res & 0xFF) == 0:
+        if (res & BYTE_MASK) == 0:
             f |= FLAG_Z
-        if (left & 0x0F) + (right & 0x0F) + carry > 0x0F:
+        if (left & LOW_NIBBLE_MASK) + (right & LOW_NIBBLE_MASK) + carry > LOW_NIBBLE_MASK:
             f |= FLAG_H
-        if res > 0xFF:
+        if res > BYTE_MASK:
             f |= FLAG_C
         self.registers.data[REG_F] = f
 
     def _set_sub_flags(self, left, right, res):
         f = FLAG_N
-        if (res & 0xFF) == 0:
+        if (res & BYTE_MASK) == 0:
             f |= FLAG_Z
-        if (left & 0x0F) < (right & 0x0F):
+        if (left & LOW_NIBBLE_MASK) < (right & LOW_NIBBLE_MASK):
             f |= FLAG_H
         if left < right:
             f |= FLAG_C
@@ -299,9 +311,9 @@ class CPU(CPUOpcodes):
 
     def _set_sbc_flags(self, left, right, carry, res):
         f = FLAG_N
-        if (res & 0xFF) == 0:
+        if (res & BYTE_MASK) == 0:
             f |= FLAG_Z
-        if (left & 0x0F) < (right & 0x0F) + carry:
+        if (left & LOW_NIBBLE_MASK) < (right & LOW_NIBBLE_MASK) + carry:
             f |= FLAG_H
         if left < (right + carry):
             f |= FLAG_C
@@ -309,18 +321,18 @@ class CPU(CPUOpcodes):
 
     def _set_add_hl_flags(self, left: int, right: int, res: int):
         f = self.registers.data[REG_F] & FLAG_Z
-        if ((left & 0x0FFF) + (right & 0x0FFF)) > 0x0FFF:
+        if ((left & HALF_CARRY_MASK_16) + (right & HALF_CARRY_MASK_16)) > HALF_CARRY_MASK_16:
             f |= FLAG_H
-        if res > 0xFFFF:
+        if res > WORD_MASK:
             f |= FLAG_C
         self.registers.data[REG_F] = f
 
     def _set_sp_e8_flags(self, sp: int, e8: int):
-        uo = e8 & 0xFF
+        uo = e8 & BYTE_MASK
         f = 0
-        if ((sp & 0x0F) + (uo & 0x0F)) > 0x0F:
+        if ((sp & LOW_NIBBLE_MASK) + (uo & LOW_NIBBLE_MASK)) > LOW_NIBBLE_MASK:
             f |= FLAG_H
-        if ((sp & 0xFF) + uo) > 0xFF:
+        if ((sp & BYTE_MASK) + uo) > BYTE_MASK:
             f |= FLAG_C
         self.registers.data[REG_F] = f
 
@@ -339,21 +351,21 @@ class CPU(CPUOpcodes):
         self.registers.data[REG_F] = f
 
     def push_stack(self, value: int):
-        sp = (self.registers[REG_SP] - 1) & 0xFFFF
-        self._write_memory_byte(sp, (value >> 8) & 0xFF)
-        self.registers[REG_SP] = sp = (sp - 1) & 0xFFFF
-        self._write_memory_byte(sp, value & 0xFF)
+        sp = (self.registers[REG_SP] - 1) & WORD_MASK
+        self._write_memory_byte(sp, (value >> 8) & BYTE_MASK)
+        self.registers[REG_SP] = sp = (sp - 1) & WORD_MASK
+        self._write_memory_byte(sp, value & BYTE_MASK)
 
     def pop_stack(self) -> int:
         sp = self.registers[REG_SP]
         val_l = self._read_memory_byte(sp)
-        sp = (sp + 1) & 0xFFFF
+        sp = (sp + 1) & WORD_MASK
         h = self._read_memory_byte(sp)
-        self.registers[REG_SP] = (sp + 1) & 0xFFFF
+        self.registers[REG_SP] = (sp + 1) & WORD_MASK
         return (h << 8) | val_l
 
     def _signed_e8(self, value: Byte) -> int:
-        return value - 0x100 if value >= 0x80 else value
+        return value - BYTE_VALUE_COUNT if value >= SIGN_BIT_8 else value
 
     # --- Legacy Aliases for Tests ---
     _inc = lambda self, r: self._inc_reg(r, len(r) == 1 or r == "AF")
@@ -365,35 +377,45 @@ class CPU(CPUOpcodes):
     _rlc_reg = lambda self, r: self._rlc_cb_helper(r)
     _bit_n__reg = lambda self, b, v: self._set_bit_flags(self.read_register(v), b)
     _bit_n__mem = lambda self, b, a: self._set_bit_flags(self.ram.read_byte(a), b)
-    _ld_mem_reg = lambda self, ar, r: self._write_memory_byte(self.read_register(ar), self.read_register(r))
-    _ld_memffxx_reg_reg = lambda self, r1, r2: self._write_memory_byte(0xFF00 + self.read_register(r1), self.read_register(r2))
-    _ld_memffxx_int_reg = lambda self, i, r: self._write_memory_byte(0xFF00 + i, self.read_register(r))
-    _ld_reg_mem = lambda self, r, ar: self.write_register(r, self._read_memory_byte(self.read_register(ar)))
+    _ld_mem_reg = (
+        lambda self, ar, r: self._write_memory_byte(
+            self.read_register(ar), self.read_register(r)
+        )
+    )
+    _ld_memffxx_reg_reg = lambda self, r1, r2: self._write_memory_byte(
+        REG_JOYP + self.read_register(r1), self.read_register(r2)
+    )
+    _ld_memffxx_int_reg = lambda self, i, r: self._write_memory_byte(
+        REG_JOYP + i, self.read_register(r)
+    )
+    _ld_reg_mem = lambda self, r, ar: self.write_register(
+        r, self._read_memory_byte(self.read_register(ar))
+    )
     _write_storage_byte = lambda self, a, v: self._write_memory_byte(a, v)
 
     def _rl_cb_helper(self, r):
         v = self.read_register(r)
         c = 1 if self.get_flag("c") else 0
-        res = ((v << 1) | c) & 0xFF
+        res = ((v << 1) | c) & BYTE_MASK
         self.write_register(r, res)
-        self._set_cb_result_flags(res, bool(v & 0x80))
+        self._set_cb_result_flags(res, bool(v & SIGN_BIT_8))
 
     def _rlc_cb_helper(self, r):
         v = self.read_register(r)
-        res = ((v << 1) | (v >> 7)) & 0xFF
+        res = ((v << 1) | (v >> 7)) & BYTE_MASK
         self.write_register(r, res)
-        self._set_cb_result_flags(res, bool(v & 0x80))
+        self._set_cb_result_flags(res, bool(v & SIGN_BIT_8))
 
     def _inc_reg(self, right, is8=True):
         v = self.read_register(right)
-        res = (v + 1) & (0xFF if is8 else 0xFFFF)
+        res = (v + 1) & (BYTE_MASK if is8 else WORD_MASK)
         self.write_register(right, res)
         if is8:
             self._set_inc_flags(v, res)
 
     def _dec_reg(self, right, is8=True):
         v = self.read_register(right)
-        res = (v - 1) & (0xFF if is8 else 0xFFFF)
+        res = (v - 1) & (BYTE_MASK if is8 else WORD_MASK)
         self.write_register(right, res)
         if is8:
             self._set_dec_flags(v, res)
@@ -401,7 +423,7 @@ class CPU(CPUOpcodes):
     def _add(self, r1, r2):
         a, b = self.read_register(r1), self.read_register(r2)
         res = a + b
-        self.write_register(r1, res & 0xFF)
+        self.write_register(r1, res & BYTE_MASK)
         self._set_add_flags(a, b, res)
 
     def _adc(self, r1, r2):
@@ -411,13 +433,13 @@ class CPU(CPUOpcodes):
             self.get_flag("c"),
         )
         res = a + b + c
-        self.write_register(r1, res & 0xFF)
+        self.write_register(r1, res & BYTE_MASK)
         self._set_adc_flags(a, b, c, res)
 
     def _sub_reg(self, r1, r2):
         a, b = self.read_register(r1), self.read_register(r2)
         res = a - b
-        self.write_register(r1, res & 0xFF)
+        self.write_register(r1, res & BYTE_MASK)
         self._set_sub_flags(a, b, res)
 
     def _sbc(self, r1, r2):
@@ -427,7 +449,7 @@ class CPU(CPUOpcodes):
             self.get_flag("c"),
         )
         res = a - b - c
-        self.write_register(r1, res & 0xFF)
+        self.write_register(r1, res & BYTE_MASK)
         self._set_sbc_flags(a, b, c, res)
 
     def _xor_reg(self, r1, r2):
@@ -452,27 +474,27 @@ class CPU(CPUOpcodes):
     def _add_reg_int(self, r1: Any, v: Byte):
         a = self.read_register(r1)
         res = a + v
-        self.write_register(r1, res & 0xFF)
+        self.write_register(r1, res & BYTE_MASK)
         self._set_add_flags(a, v, res)
 
     def _adc_reg_int(self, r1: Any, v: Byte):
         a, c = self.read_register(r1), self.get_flag("c")
         res = a + v + c
-        self.write_register(r1, res & 0xFF)
+        self.write_register(r1, res & BYTE_MASK)
         self._set_adc_flags(a, v, c, res)
 
     def _sub_int(self, a: Address, b: Byte, carry: bool = False) -> int:
         val = self.read_register(a)
         c = 1 if carry else 0
         res = val - b - c
-        self.write_register(a, res & 0xFF)
+        self.write_register(a, res & BYTE_MASK)
         self._set_sbc_flags(val, b, c, res)
         return res
 
     def _sbc_reg_int(self, r1: Any, v: Byte):
         a, c = self.read_register(r1), self.get_flag("c")
         res = a - v - c
-        self.write_register(r1, res & 0xFF)
+        self.write_register(r1, res & BYTE_MASK)
         self._set_sbc_flags(a, v, c, res)
 
     def _xor_int(self, a: Address, b: Byte) -> int:
@@ -500,7 +522,7 @@ class CPU(CPUOpcodes):
     def _add_reg_mem(self, r1: Any, r2: Any):
         a, b = self.read_register(r1), self._read_memory_byte(self.read_register(r2))
         res = a + b
-        self.write_register(r1, res & 0xFF)
+        self.write_register(r1, res & BYTE_MASK)
         self._set_add_flags(a, b, res)
 
     def _adc_reg_mem(self, r1: Any, r2: Any):
@@ -510,13 +532,13 @@ class CPU(CPUOpcodes):
             self.get_flag("c"),
         )
         res = a + b + c
-        self.write_register(r1, res & 0xFF)
+        self.write_register(r1, res & BYTE_MASK)
         self._set_adc_flags(a, b, c, res)
 
     def _sub_reg_mem(self, r1: Any, r2: Any):
         a, b = self.read_register(r1), self._read_memory_byte(self.read_register(r2))
         res = a - b
-        self.write_register(r1, res & 0xFF)
+        self.write_register(r1, res & BYTE_MASK)
         self._set_sub_flags(a, b, res)
 
     def _sbc_reg_mem(self, r1: Any, r2: Any):
@@ -526,7 +548,7 @@ class CPU(CPUOpcodes):
             self.get_flag("c"),
         )
         res = a - b - c
-        self.write_register(r1, res & 0xFF)
+        self.write_register(r1, res & BYTE_MASK)
         self._set_sbc_flags(a, b, c, res)
 
     def _xor_reg_mem(self, r1: Any, r2: Any):
@@ -549,10 +571,12 @@ class CPU(CPUOpcodes):
         self._set_sub_flags(a, b, a - b)
 
     def _set_logic_flags(self, res):
-        self.registers.data[REG_F] = FLAG_Z if (res & 0xFF) == 0 else 0
+        self.registers.data[REG_F] = FLAG_Z if (res & BYTE_MASK) == 0 else 0
 
     def _set_and_flags(self, res):
-        self.registers.data[REG_F] = (FLAG_Z if (res & 0xFF) == 0 else 0) | FLAG_H
+        self.registers.data[REG_F] = (
+            FLAG_Z if (res & BYTE_MASK) == 0 else 0
+        ) | FLAG_H
 
     def unknown_instruction(self, data=None):
         pc = self.registers.PC

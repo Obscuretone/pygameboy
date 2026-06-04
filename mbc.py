@@ -9,6 +9,7 @@ from gb_types import (
     BIT_6,
     BIT_8,
     HIGH_NIBBLE_MASK,
+    BYTE_MASK,
 )
 from constants import (
     ROM_BANK_SIZE,
@@ -70,10 +71,15 @@ class MBC1(MBC):
 
     ROM_BANK_LOW_MASK: Final[int] = 0x1F
     ROM_BANK_HIGH_MASK: Final[int] = BIT_5 | BIT_6
+    ROM_BANK_SELECT_MASK: Final[int] = 0x60
     RAM_BANK_MASK: Final[int] = 0x03
     MODE_MASK: Final[int] = 0x01
 
-    def __init__(self, rom_data: ROMData, ram_size: int = 0x8000):  # Default 32KB RAM
+    DEFAULT_RAM_SIZE: Final[int] = 0x8000
+
+    def __init__(
+        self, rom_data: ROMData, ram_size: int = DEFAULT_RAM_SIZE
+    ):  # Default 32KB RAM
         super().__init__(rom_data, ram_size)
         self.rom_bank: int = 1
         self.ram_bank: int = 0
@@ -97,7 +103,7 @@ class MBC1(MBC):
             bank = value & self.ROM_BANK_LOW_MASK
             if bank == 0:
                 bank = 1
-            self.rom_bank = (self.rom_bank & self.ROM_BANK_HIGH_MASK) | bank
+            self.rom_bank = (self.rom_bank & self.ROM_BANK_SELECT_MASK) | bank
         elif address <= MBC_RAM_BANK_SEL_END:
             # RAM Bank Number or Upper ROM Bank bits
             self.ram_bank = value & self.RAM_BANK_MASK
@@ -130,12 +136,18 @@ class MBC3(MBC):
     """
 
     ROM_BANK_MASK: Final[int] = 0x7F
+    RAM_BANK_SELECT_MASK: Final[int] = 0x03
+    RTC_REGISTER_START: Final[int] = 0x08
+    RTC_REGISTER_END: Final[int] = 0x0C
+    RTC_REGISTER_COUNT: Final[int] = 5
 
-    def __init__(self, rom_data: ROMData, ram_size: int = 0x8000):
+    DEFAULT_RAM_SIZE: Final[int] = 0x8000
+
+    def __init__(self, rom_data: ROMData, ram_size: int = DEFAULT_RAM_SIZE):
         super().__init__(rom_data, ram_size)
         self.rom_bank: int = 1
         self.ram_bank: int = 0
-        self.rtc_registers: List[int] = [0] * 5
+        self.rtc_registers: List[int] = [0] * self.RTC_REGISTER_COUNT
         self.latch_state: int = 0
 
     def read_rom(self, address: int) -> int:
@@ -165,21 +177,21 @@ class MBC3(MBC):
     def read_ram(self, address: int) -> int:
         if not self.ram_enabled:
             return UNMAPPED_BYTE
-        if 0x00 <= self.ram_bank <= 0x03:
+        if 0 <= self.ram_bank <= self.RAM_BANK_SELECT_MASK:
             real_address = (self.ram_bank * RAM_BANK_SIZE) + (address - ERAM_START)
             return self.ram[real_address % len(self.ram)]
-        elif 0x08 <= self.ram_bank <= 0x0C:
-            return self.rtc_registers[self.ram_bank - 0x08]
+        elif self.RTC_REGISTER_START <= self.ram_bank <= self.RTC_REGISTER_END:
+            return self.rtc_registers[self.ram_bank - self.RTC_REGISTER_START]
         return UNMAPPED_BYTE
 
     def write_ram(self, address: int, value: int) -> None:
         if not self.ram_enabled:
             return
-        if 0x00 <= self.ram_bank <= 0x03:
+        if 0 <= self.ram_bank <= self.RAM_BANK_SELECT_MASK:
             real_address = (self.ram_bank * RAM_BANK_SIZE) + (address - ERAM_START)
             self.ram[real_address % len(self.ram)] = value
-        elif 0x08 <= self.ram_bank <= 0x0C:
-            self.rtc_registers[self.ram_bank - 0x08] = value
+        elif self.RTC_REGISTER_START <= self.ram_bank <= self.RTC_REGISTER_END:
+            self.rtc_registers[self.ram_bank - self.RTC_REGISTER_START] = value
 
 
 class MBC5(MBC):
@@ -189,8 +201,14 @@ class MBC5(MBC):
     """
 
     RAM_BANK_MASK: Final[int] = 0x0F
+    ROM_BANK_LOW_BITS_MASK: Final[int] = BYTE_MASK
+    ROM_BANK_HIGH_BIT_MASK: Final[int] = BIT_8
 
-    def __init__(self, rom_data: ROMData, ram_size: int = 0x20000):  # Default 128KB RAM
+    DEFAULT_RAM_SIZE: Final[int] = 0x20000
+
+    def __init__(
+        self, rom_data: ROMData, ram_size: int = DEFAULT_RAM_SIZE
+    ):  # Default 128KB RAM
         super().__init__(rom_data, ram_size)
         self.rom_bank: int = 1
         self.ram_bank: int = 0
@@ -208,10 +226,12 @@ class MBC5(MBC):
             self.ram_enabled = (value & LOW_NIBBLE_MASK) == self.RAM_ENABLE_VAL
         elif address <= MBC5_ROM_BANK_LOW_END:
             # Low 8 bits of ROM Bank
-            self.rom_bank = (self.rom_bank & 0x100) | value
+            self.rom_bank = (self.rom_bank & self.ROM_BANK_HIGH_BIT_MASK) | value
         elif address <= MBC_ROM_BANK_SEL_END:
             # 9th bit of ROM Bank
-            self.rom_bank = (self.rom_bank & 0xFF) | ((value & BIT_0) << 8)
+            self.rom_bank = (self.rom_bank & self.ROM_BANK_LOW_BITS_MASK) | (
+                (value & BIT_0) << 8
+            )
         elif address <= MBC_RAM_BANK_SEL_END:
             self.ram_bank = value & self.RAM_BANK_MASK
 

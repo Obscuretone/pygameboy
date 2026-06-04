@@ -37,6 +37,23 @@ BIT_13: Final[int] = 0x2000
 BIT_14: Final[int] = 0x4000
 BIT_15: Final[int] = 0x8000
 
+# Logic and Flag helper constants
+HALF_CARRY_MASK_16: Final[int] = 0x0FFF
+SIGN_BIT_8: Final[int] = BIT_7
+BYTE_VALUE_COUNT: Final[int] = 0x0100
+WORD_VALUE_COUNT: Final[int] = 0x10000
+
+# DAA constants
+DAA_LOW_THRESHOLD: Final[int] = 0x09
+DAA_HIGH_THRESHOLD: Final[int] = 0x99
+DAA_LOW_ADJUST: Final[int] = 0x06
+DAA_HIGH_ADJUST: Final[int] = 0x60
+
+# Common Hardware Bitmasks
+TIMER_CONTROL_MASK: Final[int] = 0x07
+INTERRUPT_MASK: Final[int] = 0x1F
+AUDIO_LENGTH_MASK: Final[int] = 0x3F
+
 # Data types
 MemoryData: TypeAlias = Union[bytearray, np.ndarray]
 ROMData: TypeAlias = Union[bytes, bytearray]

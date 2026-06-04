@@ -12,7 +12,16 @@ from protocols import (
 from apu import APU
 from serial_cable import Serial
 from joypad import Joypad
-from gb_types import MemoryData, Address, Byte
+from gb_types import (
+    MemoryData,
+    Address,
+    Byte,
+    UNMAPPED_BYTE,
+    BYTE_MASK,
+    WORD_MASK,
+    WORD_VALUE_COUNT,
+    INTERRUPT_MASK,
+)
 from constants import (
     ECHO_OFFSET,
     BOOT_ROM_SIZE,
@@ -54,7 +63,7 @@ class Memory:
     Memory is divided into 256 pages of 256 bytes each.
     """
 
-    PAGE_SIZE: Final[int] = 0x100
+    PAGE_SIZE: Final[int] = 256
     NUM_PAGES: Final[int] = 256
     storage: MemoryData
 
@@ -87,17 +96,16 @@ class Memory:
         # 3. Memory storage
         if backend == "numpy":
             self.storage = (
-                np.zeros(0x10000, dtype=np.uint8)
+                np.zeros(WORD_VALUE_COUNT, dtype=np.uint8)
                 if actual_data is None
                 else np.array(actual_data, dtype=np.uint8)
             )
         elif backend == "bytearray":
             self.storage = (
-                bytearray(0x10000)
+                bytearray(WORD_VALUE_COUNT)
                 if actual_data is None
                 else bytearray(actual_data)  # type: ignore
             )
-
         else:
             raise ValueError(f"Unknown memory backend: {backend}")
 
@@ -199,7 +207,7 @@ class Memory:
         self.storage[address] = value
 
     def _read_unmapped(self, address: Address) -> Byte:
-        return 0xFF
+        return UNMAPPED_BYTE
 
     def _write_unmapped(self, address: Address, value: Byte) -> None:
         pass
@@ -215,7 +223,7 @@ class Memory:
             return (
                 self._video.read_byte(address) if self._video else self.storage[address]
             )
-        return 0x00  # Unusable area
+        return 0  # Unusable area
 
     def _write_oam_area(self, address: Address, value: Byte) -> None:
         if address <= OAM_END:
@@ -293,7 +301,7 @@ class Memory:
 
     def read_byte(self, address: Address) -> Byte:
         """Read a single byte using the page table."""
-        address &= 0xFFFF
+        address &= WORD_MASK
 
         # Boot ROM overlay check (Hot path)
         if not self.boot_rom_disabled and address < BOOT_ROM_SIZE:
@@ -304,9 +312,9 @@ class Memory:
 
     def write_byte(self, address: Address, value: Byte) -> None:
         """Write a single byte using the page table."""
-        address &= 0xFFFF
-        self.write_pages[address >> 8](address, value & 0xFF)
+        address &= WORD_MASK
+        self.write_pages[address >> 8](address, value & BYTE_MASK)
 
     def request_interrupt(self, mask: Byte) -> None:
         """Request a hardware interrupt."""
-        self.storage[REG_IF] |= mask & 0x1F
+        self.storage[REG_IF] |= mask & INTERRUPT_MASK
