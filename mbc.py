@@ -1,5 +1,6 @@
-from typing import Union, List, Optional, Final, TypedDict
+from typing import Union, List, Optional, Final
 from gb_types import ROMData, RAMData
+from constants import ROM_BANK_SIZE, RAM_BANK_SIZE, ERAM_START, ROM_END
 
 class MBC:
     """
@@ -22,13 +23,13 @@ class MBC:
         """Read a byte from the external RAM area."""
         if not self.ram_enabled:
             return 0xFF
-        return self.ram[address - 0xA000]
+        return self.ram[address - ERAM_START]
 
     def write_ram(self, address: int, value: int) -> None:
         """Write a byte to the external RAM area."""
         if not self.ram_enabled:
             return
-        self.ram[address - 0xA000] = value
+        self.ram[address - ERAM_START] = value
 
 
 class MBC0(MBC):
@@ -41,9 +42,6 @@ class MBC1(MBC):
     """
     MBC1 Implementation.
     """
-    ROM_BANK_SIZE: Final[int] = 0x4000
-    RAM_BANK_SIZE: Final[int] = 0x2000
-
     def __init__(self, rom_data: ROMData, ram_size: int = 0x8000): # Default 32KB RAM
         super().__init__(rom_data, ram_size)
         self.rom_bank: int = 1
@@ -51,11 +49,11 @@ class MBC1(MBC):
         self.mode: int = 0  # 0: ROM Banking, 1: RAM Banking
 
     def read_rom(self, address: int) -> int:
-        if address <= 0x3FFF:
+        if address < ROM_BANK_SIZE:
             return self.rom[address]
-        elif address <= 0x7FFF:
+        elif address <= ROM_END:
             bank = self.rom_bank
-            real_address = (bank * self.ROM_BANK_SIZE) + (address - 0x4000)
+            real_address = (bank * ROM_BANK_SIZE) + (address - ROM_BANK_SIZE)
             return self.rom[real_address % len(self.rom)]
         return 0xFF
 
@@ -81,14 +79,14 @@ class MBC1(MBC):
         if not self.ram_enabled:
             return 0xFF
         bank = self.ram_bank if self.mode == 1 else 0
-        real_address = (bank * self.RAM_BANK_SIZE) + (address - 0xA000)
+        real_address = (bank * RAM_BANK_SIZE) + (address - ERAM_START)
         return self.ram[real_address % len(self.ram)]
 
     def write_ram(self, address: int, value: int) -> None:
         if not self.ram_enabled:
             return
         bank = self.ram_bank if self.mode == 1 else 0
-        real_address = (bank * self.RAM_BANK_SIZE) + (address - 0xA000)
+        real_address = (bank * RAM_BANK_SIZE) + (address - ERAM_START)
         self.ram[real_address % len(self.ram)] = value
 
 class MBC3(MBC):
@@ -96,9 +94,6 @@ class MBC3(MBC):
     MBC3 Implementation.
     Supports up to 2MB ROM and 32KB RAM, plus Real-Time Clock (RTC).
     """
-    ROM_BANK_SIZE: Final[int] = 0x4000
-    RAM_BANK_SIZE: Final[int] = 0x2000
-
     def __init__(self, rom_data: ROMData, ram_size: int = 0x8000):
         super().__init__(rom_data, ram_size)
         self.rom_bank: int = 1
@@ -107,10 +102,10 @@ class MBC3(MBC):
         self.latch_state: int = 0
 
     def read_rom(self, address: int) -> int:
-        if address <= 0x3FFF:
+        if address < ROM_BANK_SIZE:
             return self.rom[address]
-        elif address <= 0x7FFF:
-            real_address = (self.rom_bank * self.ROM_BANK_SIZE) + (address - 0x4000)
+        elif address <= ROM_END:
+            real_address = (self.rom_bank * ROM_BANK_SIZE) + (address - ROM_BANK_SIZE)
             return self.rom[real_address % len(self.rom)]
         return 0xFF
 
@@ -134,7 +129,7 @@ class MBC3(MBC):
         if not self.ram_enabled:
             return 0xFF
         if 0x00 <= self.ram_bank <= 0x03:
-            real_address = (self.ram_bank * self.RAM_BANK_SIZE) + (address - 0xA000)
+            real_address = (self.ram_bank * RAM_BANK_SIZE) + (address - ERAM_START)
             return self.ram[real_address % len(self.ram)]
         elif 0x08 <= self.ram_bank <= 0x0C:
             return self.rtc_registers[self.ram_bank - 0x08]
@@ -144,7 +139,7 @@ class MBC3(MBC):
         if not self.ram_enabled:
             return
         if 0x00 <= self.ram_bank <= 0x03:
-            real_address = (self.ram_bank * self.RAM_BANK_SIZE) + (address - 0xA000)
+            real_address = (self.ram_bank * RAM_BANK_SIZE) + (address - ERAM_START)
             self.ram[real_address % len(self.ram)] = value
         elif 0x08 <= self.ram_bank <= 0x0C:
             self.rtc_registers[self.ram_bank - 0x08] = value
@@ -154,19 +149,16 @@ class MBC5(MBC):
     MBC5 Implementation.
     Supports up to 8MB ROM and 128KB RAM.
     """
-    ROM_BANK_SIZE: Final[int] = 0x4000
-    RAM_BANK_SIZE: Final[int] = 0x2000
-
     def __init__(self, rom_data: ROMData, ram_size: int = 0x20000): # Default 128KB RAM
         super().__init__(rom_data, ram_size)
         self.rom_bank: int = 1
         self.ram_bank: int = 0
 
     def read_rom(self, address: int) -> int:
-        if address <= 0x3FFF:
+        if address < ROM_BANK_SIZE:
             return self.rom[address]
-        elif address <= 0x7FFF:
-            real_address = (self.rom_bank * self.ROM_BANK_SIZE) + (address - 0x4000)
+        elif address <= ROM_END:
+            real_address = (self.rom_bank * ROM_BANK_SIZE) + (address - ROM_BANK_SIZE)
             return self.rom[real_address % len(self.rom)]
         return 0xFF
 
@@ -185,13 +177,13 @@ class MBC5(MBC):
     def read_ram(self, address: int) -> int:
         if not self.ram_enabled:
             return 0xFF
-        real_address = (self.ram_bank * self.RAM_BANK_SIZE) + (address - 0xA000)
+        real_address = (self.ram_bank * RAM_BANK_SIZE) + (address - ERAM_START)
         return self.ram[real_address % len(self.ram)]
 
     def write_ram(self, address: int, value: int) -> None:
         if not self.ram_enabled:
             return
-        real_address = (self.ram_bank * self.RAM_BANK_SIZE) + (address - 0xA000)
+        real_address = (self.ram_bank * RAM_BANK_SIZE) + (address - ERAM_START)
         self.ram[real_address % len(self.ram)] = value
 
 class MBC2(MBC):
@@ -199,7 +191,6 @@ class MBC2(MBC):
     MBC2 Implementation.
     Includes built-in 512 x 4 bits of RAM.
     """
-    ROM_BANK_SIZE: Final[int] = 0x4000
     RAM_SIZE: Final[int] = 512
 
     def __init__(self, rom_data: ROMData):
@@ -208,15 +199,15 @@ class MBC2(MBC):
         self.rom_bank: int = 1
 
     def read_rom(self, address: int) -> int:
-        if address <= 0x3FFF:
+        if address < ROM_BANK_SIZE:
             return self.rom[address]
-        elif address <= 0x7FFF:
-            real_address = (self.rom_bank * self.ROM_BANK_SIZE) + (address - 0x4000)
+        elif address <= ROM_END:
+            real_address = (self.rom_bank * ROM_BANK_SIZE) + (address - ROM_BANK_SIZE)
             return self.rom[real_address % len(self.rom)]
         return 0xFF
 
     def write_rom(self, address: int, value: int) -> None:
-        if address <= 0x3FFF:
+        if address < ROM_BANK_SIZE:
             if (address & 0x0100) == 0:
                 # RAM Enable (Bit 8 is 0)
                 self.ram_enabled = (value & 0x0F) == 0x0A
@@ -231,9 +222,9 @@ class MBC2(MBC):
         if not self.ram_enabled:
             return 0xFF
         # MBC2 RAM is only 512 bytes, and only the lower 4 bits are usable
-        return self.ram[(address - 0xA000) % self.RAM_SIZE] | 0xF0
+        return self.ram[(address - ERAM_START) % self.RAM_SIZE] | 0xF0
 
     def write_ram(self, address: int, value: int) -> None:
         if not self.ram_enabled:
             return
-        self.ram[(address - 0xA000) % self.RAM_SIZE] = value & 0x0F
+        self.ram[(address - ERAM_START) % self.RAM_SIZE] = value & 0x0F

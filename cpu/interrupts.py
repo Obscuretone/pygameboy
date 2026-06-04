@@ -1,12 +1,18 @@
 from typing import Any, Final, List, Optional
 from gb_types import Byte, Address, Word
 from protocols import ClockDevice
+from constants import (
+    REG_IF, IE_REG,
+    VEC_VBLANK, VEC_STAT, VEC_TIMER, VEC_SERIAL, VEC_JOYPAD
+)
 
 class InterruptManager:
     """
     Manages GameBoy hardware interrupts.
     """
-    VECTORS: Final[List[Address]] = [0x40, 0x48, 0x50, 0x58, 0x60]
+    VECTORS: Final[List[Address]] = [
+        VEC_VBLANK, VEC_STAT, VEC_TIMER, VEC_SERIAL, VEC_JOYPAD
+    ]
     
     VBLANK: Final[int] = 0x01
     STAT: Final[int] = 0x02
@@ -22,8 +28,8 @@ class InterruptManager:
 
     def request(self, mask: int) -> None:
         """Request an interrupt by setting a bit in IF ($FF0F)."""
-        if_val = self.memory.read_byte(0xFF0F)
-        self.memory.write_byte(0xFF0F, if_val | (mask & 0x1F))
+        if_val = self.memory.read_byte(REG_IF)
+        self.memory.write_byte(REG_IF, if_val | (mask & 0x1F))
 
     def update_ime_delay(self) -> None:
         """Handle the 1-instruction delay for EI."""
@@ -35,7 +41,7 @@ class InterruptManager:
 
     def get_pending(self) -> int:
         """Get currently requested and enabled interrupts."""
-        return self.memory.read_byte(0xFF0F) & self.memory.read_byte(0xFFFF) & 0x1F
+        return self.memory.read_byte(REG_IF) & self.memory.read_byte(IE_REG) & 0x1F
 
     def service(self, cpu: Any) -> int:
         """
@@ -57,8 +63,8 @@ class InterruptManager:
                 self.ime_enable_delay = 0
                 
                 # Clear IF bit
-                if_val = self.memory.read_byte(0xFF0F)
-                self.memory.write_byte(0xFF0F, if_val & ~mask)
+                if_val = self.memory.read_byte(REG_IF)
+                self.memory.write_byte(REG_IF, if_val & ~mask)
                 
                 # Push PC to stack
                 pc = cpu.registers.PC

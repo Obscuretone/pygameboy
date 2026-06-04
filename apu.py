@@ -2,6 +2,14 @@ from typing import List, Deque, Tuple, Optional, Final
 import numpy as np
 from collections import deque
 from gb_types import Sample, Cycles
+from constants import (
+    REG_NR10, REG_NR11, REG_NR12, REG_NR13, REG_NR14,
+    REG_NR21, REG_NR22, REG_NR23, REG_NR24,
+    REG_NR30, REG_NR31, REG_NR32, REG_NR33, REG_NR34,
+    REG_NR41, REG_NR42, REG_NR43, REG_NR44,
+    REG_NR50, REG_NR51, REG_NR52,
+    REG_WAVE_RAM_START, REG_WAVE_RAM_END
+)
 
 class PulseChannel:
     """
@@ -248,29 +256,29 @@ class APU:
 
     def read_byte(self, address: int) -> int:
         """Read an APU register or Wave RAM byte."""
-        if not self.sound_enabled and address != 0xFF26:
+        if not self.sound_enabled and address != REG_NR52:
             return 0xFF
         
-        offset = address - 0xFF10
+        offset = address - REG_NR10
         if 0 <= offset < 0x30:
-            if 0x20 <= offset <= 0x2F:
-                return self.ch3.wave_ram[offset - 0x20]
+            if REG_WAVE_RAM_START <= address <= REG_WAVE_RAM_END:
+                return self.ch3.wave_ram[address - REG_WAVE_RAM_START]
             return self.registers[offset]
         return 0xFF
 
     def write_byte(self, address: int, value: int) -> None:
         """Write to an APU register or Wave RAM byte."""
-        offset = address - 0xFF10
-        if not self.sound_enabled and address != 0xFF26:
+        offset = address - REG_NR10
+        if not self.sound_enabled and address != REG_NR52:
             # Length registers can still be written to set length counter
-            if address in [0xFF11, 0xFF16, 0xFF1B, 0xFF20]:
-                if address == 0xFF11: self.ch1.length_counter = 64 - (value & 0x3F)
-                elif address == 0xFF16: self.ch2.length_counter = 64 - (value & 0x3F)
-                elif address == 0xFF1B: self.ch3.length_counter = 256 - value
-                elif address == 0xFF20: self.ch4.length_counter = 64 - (value & 0x3F)
+            if address in [REG_NR11, REG_NR21, REG_NR31, REG_NR41]:
+                if address == REG_NR11: self.ch1.length_counter = 64 - (value & 0x3F)
+                elif address == REG_NR21: self.ch2.length_counter = 64 - (value & 0x3F)
+                elif address == REG_NR31: self.ch3.length_counter = 256 - value
+                elif address == REG_NR41: self.ch4.length_counter = 64 - (value & 0x3F)
             return
                 
-        if address == 0xFF26:
+        if address == REG_NR52:
             new_sound_enabled = bool(value & 0x80)
             if not new_sound_enabled and self.sound_enabled:
                 for i in range(0x16):
@@ -287,26 +295,26 @@ class APU:
             self.registers[offset] = value
             
             # Channel 1
-            if address == 0xFF11: self.ch1.length_counter = 64 - (value & 0x3F)
-            elif address == 0xFF14 and (value & 0x80):
-                self.ch1.trigger(self.registers[0x03], value, self.registers[0x01], self.registers[0x02], value)
+            if address == REG_NR11: self.ch1.length_counter = 64 - (value & 0x3F)
+            elif address == REG_NR14 and (value & 0x80):
+                self.ch1.trigger(self.registers[REG_NR13 - REG_NR10], value, self.registers[REG_NR11 - REG_NR10], self.registers[REG_NR12 - REG_NR10], value)
             
             # Channel 2
-            elif address == 0xFF16: self.ch2.length_counter = 64 - (value & 0x3F)
-            elif address == 0xFF19 and (value & 0x80):
-                self.ch2.trigger(self.registers[0x08], value, self.registers[0x06], self.registers[0x07], value)
+            elif address == REG_NR21: self.ch2.length_counter = 64 - (value & 0x3F)
+            elif address == REG_NR24 and (value & 0x80):
+                self.ch2.trigger(self.registers[REG_NR23 - REG_NR10], value, self.registers[REG_NR21 - REG_NR10], self.registers[REG_NR22 - REG_NR10], value)
             
             # Channel 3
-            elif address == 0xFF1B: self.ch3.length_counter = 256 - value
-            elif address == 0xFF1E and (value & 0x80):
-                self.ch3.trigger(self.registers[0x0D], value, self.registers[0x0C], value)
-            elif 0xFF30 <= address <= 0xFF3F:
-                self.ch3.wave_ram[address - 0xFF30] = value
+            elif address == REG_NR31: self.ch3.length_counter = 256 - value
+            elif address == REG_NR34 and (value & 0x80):
+                self.ch3.trigger(self.registers[REG_NR33 - REG_NR10], value, self.registers[REG_NR32 - REG_NR10], value)
+            elif REG_WAVE_RAM_START <= address <= REG_WAVE_RAM_END:
+                self.ch3.wave_ram[address - REG_WAVE_RAM_START] = value
                 
             # Channel 4
-            elif address == 0xFF20: self.ch4.length_counter = 64 - (value & 0x3F)
-            elif address == 0xFF23 and (value & 0x80):
-                self.ch4.trigger(self.registers[0x12], value)
+            elif address == REG_NR41: self.ch4.length_counter = 64 - (value & 0x3F)
+            elif address == REG_NR44 and (value & 0x80):
+                self.ch4.trigger(self.registers[REG_NR42 - REG_NR10], value)
 
     def step(self, cycles: int) -> None:
         """Advance the APU state by the specified number of cycles."""
@@ -330,16 +338,6 @@ class APU:
 
     def step_frame_sequencer(self) -> None:
         """Advance the APU frame sequencer (512Hz)."""
-        # Frame Sequencer steps every 512Hz
-        # Step 0: Length
-        # Step 1: 
-        # Step 2: Length, Sweep
-        # Step 3: 
-        # Step 4: Length
-        # Step 5: 
-        # Step 6: Length, Sweep
-        # Step 7: Vol Envelope
-        
         if self.frame_sequencer_step % 2 == 0:
             self.ch1.step_length()
             self.ch2.step_length()
@@ -351,14 +349,12 @@ class APU:
             self.ch2.step_envelope()
             self.ch4.step_envelope()
             
-        # Sweep implementation would go here for Step 2 and 6
-            
         self.frame_sequencer_step = (self.frame_sequencer_step + 1) % 8
 
     def sample(self) -> None:
         """Generate a stereo sample and add it to the buffer."""
-        nr50 = self.registers[0x14]
-        nr51 = self.registers[0x15]
+        nr50 = self.registers[REG_NR50 - REG_NR10]
+        nr51 = self.registers[REG_NR51 - REG_NR10]
         
         l_vol = (nr50 & 0x70) >> 4
         r_vol = (nr50 & 0x07)

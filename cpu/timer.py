@@ -1,5 +1,6 @@
 from typing import Any, Final, Tuple
 from gb_types import Cycles
+from constants import REG_DIV, REG_TIMA, REG_TMA, REG_TAC
 
 class Timer:
     """
@@ -23,11 +24,11 @@ class Timer:
         while self.divider_cycles >= 256:
             self.divider_cycles -= 256
             # Use raw memory to bypass bus-triggered reset
-            div = self.memory.memory[0xFF04]
-            self.memory.memory[0xFF04] = (div + 1) & 0xFF
+            div = self.memory.memory[REG_DIV]
+            self.memory.memory[REG_DIV] = (div + 1) & 0xFF
 
         # 2. TIMA Register
-        tac = self.memory.read_byte(0xFF07)
+        tac = self.memory.read_byte(REG_TAC)
         if not (tac & 0x04): # Timer Stop bit
             return
 
@@ -36,19 +37,19 @@ class Timer:
         
         while self.timer_cycles >= period:
             self.timer_cycles -= period
-            tima = self.memory.read_byte(0xFF05)
+            tima = self.memory.read_byte(REG_TIMA)
             if tima == 0xFF:
                 # Overflow: reload from TMA and request interrupt
-                tma = self.memory.read_byte(0xFF06)
-                self.memory.memory[0xFF05] = tma
+                tma = self.memory.read_byte(REG_TMA)
+                self.memory.memory[REG_TIMA] = tma
                 self.interrupt_manager.request(0x04) # Timer Interrupt
             else:
-                self.memory.memory[0xFF05] = (tima + 1) & 0xFF
+                self.memory.memory[REG_TIMA] = (tima + 1) & 0xFF
 
     def reset_div(self) -> None:
         """Called when DIV is written to (always resets to 0)."""
         self.divider_cycles = 0
-        self.memory.write_byte(0xFF04, 0)
+        self.memory.write_byte(REG_DIV, 0)
 
     def reset_tima(self) -> None:
         """Called when TAC is written to."""

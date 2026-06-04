@@ -1,6 +1,11 @@
 from typing import Any, List, Dict, Optional, TypedDict, Final
 import numpy as np
 from protocols import ClockDevice
+from constants import (
+    VRAM_START, VRAM_END, OAM_START, OAM_END,
+    REG_LCDC, REG_STAT, REG_SCY, REG_SCX, REG_LY, REG_LYC,
+    REG_DMA, REG_BGP, REG_OBP0, REG_OBP1, REG_WY, REG_WX
+)
 
 class SpriteInfo(TypedDict):
     x: int
@@ -52,67 +57,67 @@ class VideoChip:
 
     def read_byte(self, address: int) -> int:
         """Read a video register or memory byte."""
-        if 0x8000 <= address <= 0x9FFF:
-            return self.vram[address - 0x8000]
-        elif 0xFE00 <= address <= 0xFE9F:
-            return self.oam[address - 0xFE00]
-        elif address == 0xFF40:
+        if VRAM_START <= address <= VRAM_END:
+            return self.vram[address - VRAM_START]
+        elif OAM_START <= address <= OAM_END:
+            return self.oam[address - OAM_START]
+        elif address == REG_LCDC:
             return self.LCDC
-        elif address == 0xFF41:
+        elif address == REG_STAT:
             return self.STAT
-        elif address == 0xFF42:
+        elif address == REG_SCY:
             return self.SCY
-        elif address == 0xFF43:
+        elif address == REG_SCX:
             return self.SCX
-        elif address == 0xFF44:
+        elif address == REG_LY:
             return self.LY
-        elif address == 0xFF45:
+        elif address == REG_LYC:
             return self.LYC
-        elif address == 0xFF46:
+        elif address == REG_DMA:
             return self.DMA
-        elif address == 0xFF47:
+        elif address == REG_BGP:
             return self.BGP
-        elif address == 0xFF48:
+        elif address == REG_OBP0:
             return self.OBP0
-        elif address == 0xFF49:
+        elif address == REG_OBP1:
             return self.OBP1
-        elif address == 0xFF4A:
+        elif address == REG_WY:
             return self.WY
-        elif address == 0xFF4B:
+        elif address == REG_WX:
             return self.WX
         else:
             raise ValueError(f"Unknown video register address: {hex(address)}")
 
     def write_byte(self, address: int, value: int) -> None:
         """Write to a video register or memory byte."""
-        if 0x8000 <= address <= 0x9FFF:
-            self.vram[address - 0x8000] = value
-        elif 0xFE00 <= address <= 0xFE9F:
-            self.oam[address - 0xFE00] = value
-        elif address == 0xFF40:
+        if VRAM_START <= address <= VRAM_END:
+            self.vram[address - VRAM_START] = value
+        elif OAM_START <= address <= OAM_END:
+            self.oam[address - OAM_START] = value
+        elif address == REG_LCDC:
             self.LCDC = value
-        elif address == 0xFF41:
+        elif address == REG_STAT:
             self.STAT = value
-        elif address == 0xFF42:
+        elif address == REG_SCY:
             self.SCY = value
-        elif address == 0xFF43:
+        elif address == REG_SCX:
             self.SCX = value
-        elif address == 0xFF44:
+        elif address == REG_LY:
             self.LY = value
-        elif address == 0xFF45:
+        elif address == REG_LYC:
             self.LYC = value
-        elif address == 0xFF46:
+        elif address == REG_DMA:
             self.DMA = value
             self.perform_dma(value)
-        elif address == 0xFF47:
+        elif address == REG_BGP:
             self.BGP = value
-        elif address == 0xFF48:
+        elif address == REG_OBP0:
             self.OBP0 = value
-        elif address == 0xFF49:
+        elif address == REG_OBP1:
             self.OBP1 = value
-        elif address == 0xFF4A:
+        elif address == REG_WY:
             self.WY = value
-        elif address == 0xFF4B:
+        elif address == REG_WX:
             self.WX = value
         else:
             raise ValueError(f"Unknown video register address: {hex(address)}")
@@ -144,7 +149,7 @@ class VideoChip:
                     self.mode_clock -= 204
                     self.LY += 1
                     
-                    if self.LY == 144:
+                    if self.LY == self.SCREEN_HEIGHT:
                         self.set_mode(1)
                         # Request V-Blank interrupt (bit 0)
                         self.memory.request_interrupt(0x01)
@@ -183,17 +188,17 @@ class VideoChip:
         """Render the current scanline (LY) to the frame buffer."""
         # Bit 0 of LCDC: BG Display Enable
         if not (self.LCDC & 0x01):
-            self.frame_buffer[self.LY * 160 : (self.LY + 1) * 160] = 0
+            self.frame_buffer[self.LY * self.SCREEN_WIDTH : (self.LY + 1) * self.SCREEN_WIDTH] = 0
         else:
             # BG and Window rendering logic...
             # (Keeping existing logic but adding type safety and documentation)
-            tile_data_base = 0x8000 if (self.LCDC & 0x10) else 0x8800
+            tile_data_base = VRAM_START if (self.LCDC & 0x10) else (VRAM_START + 0x0800)
             unsigned_tiles = bool(self.LCDC & 0x10)
-            bg_tile_map_base = 0x9C00 if (self.LCDC & 0x08) else 0x9800
+            bg_tile_map_base = (VRAM_START + 0x1C00) if (self.LCDC & 0x08) else (VRAM_START + 0x1800)
             
             window_enabled = (self.LCDC & 0x20) and (self.WY <= self.LY)
             window_x = self.WX - 7
-            window_tile_map_base = 0x9C00 if (self.LCDC & 0x40) else 0x9800
+            window_tile_map_base = (VRAM_START + 0x1C00) if (self.LCDC & 0x40) else (VRAM_START + 0x1800)
 
             x_indices = self.x_indices
             using_window = (window_enabled) & (x_indices >= window_x)
@@ -209,15 +214,15 @@ class VideoChip:
 
             tile_map_addresses = tile_map_base + (tile_row * 32) + tile_col
             vram_np = self.vram_np
-            tile_indices = vram_np[tile_map_addresses - 0x8000]
+            tile_indices = vram_np[tile_map_addresses - VRAM_START]
 
             if unsigned_tiles:
                 tile_data_addresses = tile_data_base + (tile_indices.astype(np.uint32) * 16)
             else:
                 signed_indices = tile_indices.astype(np.int8).astype(np.int32)
-                tile_data_addresses = 0x9000 + (signed_indices * 16)
+                tile_data_addresses = (VRAM_START + 0x1000) + (signed_indices * 16)
 
-            data_offsets = tile_data_addresses.astype(np.uint32) - 0x8000 + (tile_y * 2)
+            data_offsets = tile_data_addresses.astype(np.uint32) - VRAM_START + (tile_y * 2)
             byte1 = vram_np[data_offsets]
             byte2 = vram_np[data_offsets + 1]
 
@@ -227,7 +232,7 @@ class VideoChip:
             color_indices = (color_bit1 << 1) | color_bit0
 
             final_colors = (self.BGP >> (color_indices.astype(np.uint8) * 2)) & 0x03
-            self.frame_buffer[self.LY * 160 : (self.LY + 1) * 160] = final_colors
+            self.frame_buffer[self.LY * self.SCREEN_WIDTH : (self.LY + 1) * self.SCREEN_WIDTH] = final_colors
 
         # Render Sprites (OBJ)
         if self.LCDC & 0x02:
@@ -277,14 +282,14 @@ class VideoChip:
                     if y_flip:
                         line = sprite_height - 1 - line
 
-                    tile_data_address = 0x8000 + (int(tile_index) * 16) + (int(line) * 2)
-                    byte1 = self.vram[tile_data_address - 0x8000]
-                    byte2 = self.vram[tile_data_address - 0x8000 + 1]
+                    tile_data_address = VRAM_START + (int(tile_index) * 16) + (int(line) * 2)
+                    byte1 = self.vram[tile_data_address - VRAM_START]
+                    byte2 = self.vram[tile_data_address - VRAM_START + 1]
 
                     for bit_x in range(8):
                         pixel_x = x_pos + bit_x
-                        if 0 <= pixel_x < 160:
-                            if priority and self.frame_buffer[self.LY * 160 + pixel_x] != 0:
+                        if 0 <= pixel_x < self.SCREEN_WIDTH:
+                            if priority and self.frame_buffer[self.LY * self.SCREEN_WIDTH + pixel_x] != 0:
                                 continue
 
                             bit = bit_x if x_flip else (7 - bit_x)
@@ -294,7 +299,7 @@ class VideoChip:
 
                             if color_index != 0:
                                 final_color = (palette >> (color_index * 2)) & 0x03
-                                self.frame_buffer[self.LY * 160 + pixel_x] = final_color
+                                self.frame_buffer[self.LY * self.SCREEN_WIDTH + pixel_x] = final_color
 
     def perform_dma(self, value: int) -> None:
         """Perform OAM DMA transfer from source address to OAM."""
