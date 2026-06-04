@@ -222,7 +222,7 @@ class VideoChip:
             elif mode == MODE_HBLANK:
                 if self.mode_clock >= CYCLES_HBLANK:
                     self.mode_clock -= CYCLES_HBLANK
-                    self.storage[REG_LY] += 1
+                    self.storage[REG_LY] = (self.storage[REG_LY] + 1) & 0xFF
                     if self.storage[REG_LY] == self.SCREEN_HEIGHT:
                         self.set_mode(MODE_VBLANK)
                         self.memory.request_interrupt(INT_VBLANK_BIT)
