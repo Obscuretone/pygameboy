@@ -14,49 +14,35 @@ from gb_types import Address, Byte, UNMAPPED_BYTE
 class Serial:
     """
     Implements the GameBoy's serial communication port.
-
-    Often used by test ROMs (like Blargg's) to output debug information.
+    Uses direct access to central memory storage for speed.
     """
 
     SB_DEFAULT = 0x00
     SC_DEFAULT = 0x7E
 
-    def __init__(self, memory: MemoryBus):
-        """
-        Initialize the Serial port.
-
-        Args:
-            memory: The memory bus for requesting interrupts.
-        """
-        self.memory: MemoryBus = memory
-        self.SB: int = self.SB_DEFAULT  # Serial Transfer Data
-        self.SC: int = self.SC_DEFAULT  # Serial Transfer Control
+    def __init__(self, memory: Any):
+        self.memory: Any = memory
+        # Initial register values in storage
+        memory.storage[REG_SB] = self.SB_DEFAULT
+        memory.storage[REG_SC] = self.SC_DEFAULT
 
     def read_byte(self, address: Address) -> Byte:
-        """Read a serial register byte."""
-        if address == REG_SB:
-            return self.SB
-        elif address == REG_SC:
-            return self.SC
-        return UNMAPPED_BYTE
+        return self.memory.storage[address]
 
     def write_byte(self, address: Address, value: Byte) -> None:
-        """Write to a serial register and potentially start a transfer."""
+        """Handle writes to serial registers."""
         if address == REG_SB:
-            self.SB = value
+            self.memory.storage[REG_SB] = value
         elif address == REG_SC:
-            self.SC = value
+            self.memory.storage[REG_SC] = value
             # Bit 7 marks the start of a transfer
-            # Bit 0 indicates shift clock (0=External, 1=Internal)
             if (value & SERIAL_TRANSFER_MASK) == SERIAL_TRANSFER_MASK:
-                # In a real Gameboy, this takes time and shifts bits in/out.
-                # For emulation, test ROMs like Blargg's use this to print debug text.
-                # We immediately "finish" the transfer by printing the character.
-                char = chr(self.SB)
-                sys.stdout.write(char)
+                # Immediate "finish" for debugging
+                sb_val = self.memory.storage[REG_SB]
+                sys.stdout.write(chr(sb_val))
                 sys.stdout.flush()
 
-                # Clear the transfer flag (bit 7)
-                self.SC &= ~SERIAL_START_BIT
-                # Request a Serial Interrupt
+                # Clear bit 7 in storage so CPU reads back finished state
+                self.memory.storage[REG_SC] &= ~SERIAL_START_BIT
+                # Request interrupt
                 self.memory.request_interrupt(SERIAL_INTERRUPT_BIT)
