@@ -3,6 +3,8 @@ from pygameboy.video import VideoChip
 from pygameboy.clock import SystemClock
 
 class MockMemory:
+    storage = bytearray(0x10000)
+
     def __init__(self):
         self.interrupts = 0
     def request_interrupt(self, mask):

@@ -15,7 +15,7 @@ from constants import (
 
 class InterruptManager:
     """
-    Manages GameBoy hardware interrupts.
+    Manages GameBoy hardware interrupts using direct memory access.
     """
 
     VECTORS: Final[List[Address]] = [
@@ -26,20 +26,17 @@ class InterruptManager:
         VEC_JOYPAD,
     ]
 
-    def __init__(self, memory: MemoryBus):
-        self.memory: MemoryBus = memory
-        self.storage: Any = getattr(memory, "storage", None)
+    def __init__(self, memory: Any):
+        self.memory: Any = memory
+        # In Flat Memory, memory.storage is the source of truth
+        self.storage: bytearray = memory.storage
         self.ime: bool = False
         self.pending_ime_enable: bool = False
         self.ime_enable_delay: int = 0
 
     def request(self, mask: Byte) -> None:
         """Request an interrupt by setting a bit in IF ($FF0F)."""
-        if self.storage is not None:
-            self.storage[REG_IF] |= mask & INTERRUPT_ALL_MASK
-        else:
-            if_val = self.memory.read_byte(REG_IF)
-            self.memory.write_byte(REG_IF, if_val | (mask & INTERRUPT_ALL_MASK))
+        self.storage[REG_IF] |= mask & INTERRUPT_ALL_MASK
 
     def update_ime_delay(self) -> None:
         """Handle the 1-instruction delay for EI."""
@@ -51,19 +48,14 @@ class InterruptManager:
 
     def get_pending(self) -> Byte:
         """Get currently requested and enabled interrupts."""
-        if self.storage is not None:
-            return self.storage[REG_IF] & self.storage[IE_REG] & INTERRUPT_ALL_MASK
-        return self.memory.read_byte(REG_IF) & self.memory.read_byte(IE_REG) & INTERRUPT_ALL_MASK
+        return self.storage[REG_IF] & self.storage[IE_REG] & INTERRUPT_ALL_MASK
 
     def service(self, cpu: Any) -> int:
         """
         Check and service pending interrupts.
-        Returns cycles taken (20 if serviced, 0 otherwise).
         """
-        if self.storage is not None:
-            requested = self.storage[REG_IF] & self.storage[IE_REG] & INTERRUPT_ALL_MASK
-        else:
-            requested = self.get_pending()
+        # Optimized check: use local storage reference
+        requested = self.storage[REG_IF] & self.storage[IE_REG] & INTERRUPT_ALL_MASK
 
         if requested:
             cpu.halted = False
@@ -79,18 +71,14 @@ class InterruptManager:
                 self.ime_enable_delay = 0
 
                 # Clear IF bit
-                if self.storage is not None:
-                    self.storage[REG_IF] &= (mask ^ BYTE_MASK)
-                else:
-                    if_val = self.memory.read_byte(REG_IF)
-                    self.memory.write_byte(REG_IF, if_val & (mask ^ BYTE_MASK))
+                self.storage[REG_IF] &= (mask ^ BYTE_MASK)
 
                 # Push PC to stack
                 pc = cpu.registers.PC
                 sp = (cpu.registers.SP - 1) & WORD_MASK
-                cpu._write_memory_byte(sp, (pc >> 8) & BYTE_MASK)
+                self.storage[sp] = (pc >> 8) & BYTE_MASK
                 sp = (sp - 1) & WORD_MASK
-                cpu._write_memory_byte(sp, pc & BYTE_MASK)
+                self.storage[sp] = pc & BYTE_MASK
                 cpu.registers.SP = sp
 
                 # Jump to vector
