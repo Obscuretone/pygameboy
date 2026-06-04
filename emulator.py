@@ -160,7 +160,9 @@ def main() -> None:
 
     cpu = CPU(clock, ram, video, apu, args.verbose)
 
-    # If no boot ROM, initialize CPU to post-boot state
+    # Initialize CPU state
+    # If no boot ROM is present, we must skip to 0x100 and initialize registers
+    # to their expected post-boot state, otherwise the game won't start.
     if not bootloader:
         cpu.registers.PC = 0x0100
         cpu.registers.SP = 0xFFFE
@@ -168,8 +170,11 @@ def main() -> None:
         cpu.registers["BC"] = 0x0013
         cpu.registers["DE"] = 0x00D8
         cpu.registers["HL"] = 0x014D
-        # Disable boot ROM register
+        # Explicitly disable boot ROM overlay
         ram.write_byte(REG_BOOT, 1)
+    else:
+        # Start at 0x0000 to run the Nintendo boot sequence
+        cpu.registers.PC = 0x0000
 
     # Audio setup
     last_audio_sample = [0.0, 0.0]
