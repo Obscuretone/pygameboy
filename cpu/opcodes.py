@@ -3981,7 +3981,7 @@ class CPUOpcodes:
             if reg_id == REG_HL:
                 cycles = 12
         elif category == 2:
-            set_val(get_val() & ~(1 << bit))
+            set_val(get_val() & ((1 << bit) ^ BYTE_MASK))
         elif category == 3:
             set_val(get_val() | (1 << bit))
         self.registers[REG_PC] += 2
