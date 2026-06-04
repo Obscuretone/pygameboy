@@ -21,6 +21,10 @@ from gb_types import (
     WORD_MASK,
     LOW_NIBBLE_MASK,
     HIGH_NIBBLE_MASK,
+    DAA_LOW_THRESHOLD,
+    DAA_HIGH_THRESHOLD,
+    DAA_LOW_ADJUST,
+    DAA_HIGH_ADJUST,
     BIT_0,
     BIT_1,
     BIT_2,
@@ -810,17 +814,17 @@ class CPUOpcodes:
         adj = 0
         c = self.get_flag("c")
         if not self.get_flag("n"):
-            if self.get_flag("h") or (v  & LOW_NIBBLE_MASK) > 9:
-                adj |= 0x06
-            if self.get_flag("c") or v > 0x99:
-                adj |= 0x60
+            if self.get_flag("h") or (v & LOW_NIBBLE_MASK) > DAA_LOW_THRESHOLD:
+                adj |= DAA_LOW_ADJUST
+            if self.get_flag("c") or v > DAA_HIGH_THRESHOLD:
+                adj |= DAA_HIGH_ADJUST
                 c = True
             v = (v + adj) & BYTE_MASK
         else:
             if self.get_flag("h"):
-                adj |= 0x06
+                adj |= DAA_LOW_ADJUST
             if self.get_flag("c"):
-                adj |= 0x60
+                adj |= DAA_HIGH_ADJUST
             v = (v - adj) & BYTE_MASK
         self.registers[REG_A] = v
         self.set_flag("z", v == 0)

@@ -5,6 +5,7 @@ from constants import (
     JOYPAD_DIRECTION_SELECT_BIT,
     JOYPAD_BUTTON_SELECT_BIT,
     JOYPAD_INTERRUPT_BIT,
+    JOYPAD_KEYS_MASK,
 )
 
 
@@ -19,6 +20,8 @@ class Joypad:
     The $FF00 register is used to select which group to read.
     """
 
+    INITIAL_KEYS_STATE = JOYPAD_KEYS_MASK
+
     def __init__(self, memory: Optional[MemoryBus] = None):
         """
         Initialize the Joypad system.
@@ -28,8 +31,8 @@ class Joypad:
         """
         self.memory: Optional[MemoryBus] = memory
         # bits 0-3: Right/A, Left/B, Up/Select, Down/Start (0=pressed, 1=not pressed)
-        self.direction_keys: int = 0x0F
-        self.button_keys: int = 0x0F
+        self.direction_keys: int = self.INITIAL_KEYS_STATE
+        self.button_keys: int = self.INITIAL_KEYS_STATE
         # bits 4, 5 (0=selected, 1=not selected)
         self.selection: int = JOYPAD_DIRECTION_SELECT_BIT | JOYPAD_BUTTON_SELECT_BIT
 
@@ -37,7 +40,7 @@ class Joypad:
         """
         Read the $FF00 register.
         """
-        res = self.selection | 0x0F
+        res = self.selection | JOYPAD_KEYS_MASK
         if not (self.selection & JOYPAD_DIRECTION_SELECT_BIT):  # Direction keys selected
             res &= self.direction_keys
         if not (self.selection & JOYPAD_BUTTON_SELECT_BIT):  # Button keys selected
