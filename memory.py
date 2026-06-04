@@ -149,21 +149,26 @@ class Memory:
             setattr(value, "on_ram_bank_change", self._on_mbc_ram_bank_change)
             
             # Sync Initial ROM Banks
+            # Cartridge Bank 0 always at 0x0000-0x3FFF
             bank0_data = value.rom[0:ROM_BANK_SIZE]
             if not self.boot_rom_disabled and self.cartridge_boot_area is not None:
-                boot_len = len(self.cartridge_boot_area)
-                self.cartridge_boot_area[:] = bank0_data[:boot_len]
-                self.storage[boot_len:ROM_BANK_SIZE] = bank0_data[boot_len:]
+                # Boot ROM is currently active in self.storage[:256]
+                # Update the shadow area so it's ready when boot ROM is disabled
+                self.cartridge_boot_area[:] = bank0_data[:BOOT_ROM_SIZE]
+                # Update the rest of bank 0 in storage
+                self.storage[BOOT_ROM_SIZE:ROM_BANK_SIZE] = bank0_data[BOOT_ROM_SIZE:ROM_BANK_SIZE]
             else:
+                # No boot ROM active, update all of bank 0 in storage
                 self.storage[0:ROM_BANK_SIZE] = bank0_data
             
+            # Sync initial Bank 1
             limit = min(len(value.rom), ROM_BANK_SIZE * 2)
             if limit > ROM_BANK_SIZE:
                 self.storage[ROM_BANK_SIZE:limit] = value.rom[ROM_BANK_SIZE:limit]
             
             # Sync Initial RAM Bank if enabled
             if value.ram_enabled:
-                self.storage[ERAM_START : ERAM_END + 1] = value.ram[0:0x2000]
+                self.storage[ERAM_START : ERAM_END + 1] = value.ram[0:RAM_BANK_SIZE]
             else:
                 for i in range(ERAM_START, ERAM_END + 1):
                     self.storage[i] = UNMAPPED_BYTE
@@ -185,7 +190,10 @@ class Memory:
         self.video = video
 
     def set_boot_rom(self, boot_rom: bytearray) -> None:
+        """Load a boot ROM and prepare for overlay."""
+        # Save current cartridge area to shadow
         self.cartridge_boot_area = bytearray(self.storage[: len(boot_rom)])
+        # Apply boot ROM to main storage
         self.storage[: len(boot_rom)] = boot_rom
         self.boot_rom_disabled = False
 

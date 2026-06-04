@@ -112,13 +112,6 @@ def main() -> None:
         print(f"Error: ROM file '{args.rom}' not found.")
         return
 
-    bootloader = bytearray(256)
-    if os.path.exists("DMG_ROM.bin"):
-        with open("DMG_ROM.bin", "rb") as f:
-            bootloader = bytearray(f.read())
-    else:
-        print("Warning: DMG_ROM.bin not found, bootloader will be empty.")
-
     with open(args.rom, "rb") as f:
         rom = bytearray(f.read())
 
@@ -131,14 +124,20 @@ def main() -> None:
     clock.reset()
 
     # Initial memory setup
-    mem_data = bytearray(0x10000)
-    mem_data[: len(rom)] = rom
-    mem_data[: len(bootloader)] = bootloader
+    ram = Memory(clock)
 
-    ram = Memory(clock, mem_data, backend="bytearray")
-    ram.cartridge_boot_area = rom[: len(bootloader)]
+    # Load boot ROM data
+    boot_rom_data = None
+    if os.path.exists("DMG_ROM.bin"):
+        with open("DMG_ROM.bin", "rb") as f:
+            boot_rom_data = bytearray(f.read())
+            if len(boot_rom_data) == 256:
+                ram.set_boot_rom(boot_rom_data)
+            else:
+                print(f"Warning: DMG_ROM.bin has invalid size {len(boot_rom_data)}, skipping.")
+                boot_rom_data = None
 
-    # Detect MBC Type
+    # Detect MBC Type and attach to ram
     mbc_type = rom[CART_TYPE_ADDR]
     if mbc_type == MBC_TYPE_ROM_ONLY:
         ram.mbc = MBC0(rom)
@@ -161,20 +160,20 @@ def main() -> None:
     cpu = CPU(clock, ram, video, apu, args.verbose)
 
     # Initialize CPU state
-    # If no boot ROM is present, we must skip to 0x100 and initialize registers
-    # to their expected post-boot state, otherwise the game won't start.
-    if not bootloader:
+    if not boot_rom_data:
+        # Standard post-boot register values
         cpu.registers.PC = 0x0100
         cpu.registers.SP = 0xFFFE
         cpu.registers["AF"] = 0x01B0
         cpu.registers["BC"] = 0x0013
         cpu.registers["DE"] = 0x00D8
         cpu.registers["HL"] = 0x014D
-        # Explicitly disable boot ROM overlay
-        ram.write_byte(REG_BOOT, 1)
+        # Explicitly disable boot ROM
+        ram.write_byte(0xFF50, 1)
     else:
         # Start at 0x0000 to run the Nintendo boot sequence
         cpu.registers.PC = 0x0000
+        print("Starting boot sequence...")
 
     # Audio setup
     last_audio_sample = [0.0, 0.0]
