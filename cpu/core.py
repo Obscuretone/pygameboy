@@ -153,6 +153,7 @@ class CPU(CPUOpcodes):
                     if self.halted:
                         cyc = halt_cycles
                     else:
+                        reg.PC &= 0xFFFF
                         cyc = dispatch[mem[reg.PC]]()
 
                 # Instruction or Interrupt serviced
@@ -161,12 +162,12 @@ class CPU(CPUOpcodes):
 
                 # 3. Synchronous Updates
                 clock.cycles_elapsed += cyc
+                t_step(cyc)
 
                 v_accumulated += cyc
                 if v_accumulated >= V_STEP_THRESHOLD:
                     if v_step:
                         v_step(v_accumulated)
-                    t_step(v_accumulated)
                     v_accumulated = 0
                 if a_step:
                     apu_accumulated += cyc

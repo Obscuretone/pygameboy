@@ -3186,7 +3186,9 @@ class CPUOpcodes:
         cycles = 12
         bytes = 1
         """
-        self.registers.data[2] = (self.pop_stack()) >> 8; self.registers.data[3] = (self.pop_stack()) & 0xFF
+        val = self.pop_stack()
+        self.registers.data[2] = val >> 8
+        self.registers.data[3] = val & 0xFF
         self.registers.PC += 1
         return 12
 
@@ -3466,7 +3468,9 @@ class CPUOpcodes:
         cycles = 12
         bytes = 1
         """
-        self.registers.data[4] = (self.pop_stack()) >> 8; self.registers.data[5] = (self.pop_stack()) & 0xFF
+        val = self.pop_stack()
+        self.registers.data[4] = val >> 8
+        self.registers.data[5] = val & 0xFF
         self.registers.PC += 1
         return 12
 
@@ -3583,7 +3587,9 @@ class CPUOpcodes:
 
     def _pop_hl(self):
         """Opcode 0xE1 (POP 'HL',)"""
-        self.registers.data[6] = (self.pop_stack()) >> 8; self.registers.data[7] = (self.pop_stack()) & 0xFF
+        val = self.pop_stack()
+        self.registers.data[6] = val >> 8
+        self.registers.data[7] = val & 0xFF
         self.registers.PC += 1
         return 12
 
@@ -3661,7 +3667,9 @@ class CPUOpcodes:
 
     def _pop_af(self):
         """Opcode 0xF1 (POP 'AF',)"""
-        self.registers["AF"] = self.pop_stack()
+        val = self.pop_stack()
+        self.registers.data[0] = val >> 8
+        self.registers.data[1] = val & 0xF0
         self.registers.PC += 1
         return 12
 
