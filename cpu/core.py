@@ -21,6 +21,16 @@ from gb_types import (
     REG_L,
     REG_PC,
     REG_HL,
+    Address,
+    Byte,
+)
+from constants import (
+    REG_DIV,
+    GB_CLOCK_HZ,
+    WRAM_START,
+    WRAM_END,
+    HRAM_START,
+    HRAM_END,
 )
 
 
@@ -78,7 +88,7 @@ class CPU(CPUOpcodes):
             actual_ram = ram
 
         self.clock: ClockDevice = (
-            actual_clock if actual_clock is not None else SystemClock(clock_speed_hz=4194304)
+            actual_clock if actual_clock is not None else SystemClock(clock_speed_hz=GB_CLOCK_HZ)
         )
         self.ram: MemoryBus = actual_ram  # type: ignore (We expect ram to be provided)
         self.video = video
@@ -214,28 +224,28 @@ class CPU(CPUOpcodes):
             self.registers.data[REG_F] &= 0xF0
 
     # --- Hardware Helpers ---
-    def _read_memory_byte(self, address: int) -> int:
+    def _read_memory_byte(self, address: Address) -> Byte:
         address &= 0xFFFF
-        if (0xC000 <= address <= 0xDFFF) or (0xFF80 <= address <= 0xFFFE):
+        if (WRAM_START <= address <= WRAM_END) or (HRAM_START <= address <= HRAM_END):
             return self.memory[address]
         return self.ram.read_byte(address)
 
-    def _write_memory_byte(self, address: int, value: int) -> None:
+    def _write_memory_byte(self, address: Address, value: Byte) -> None:
         address &= 0xFFFF
         value &= 0xFF
-        if (0xC000 <= address <= 0xDFFF) or (0xFF80 <= address <= 0xFFFE):
+        if (WRAM_START <= address <= WRAM_END) or (HRAM_START <= address <= HRAM_END):
             self.memory[address] = value
         else:
             self.ram.write_byte(address, value)
-        if address == 0xFF04:
+        if address == REG_DIV:
             self.timer.reset_div()
 
-    def _read_memory_word(self, address: int) -> int:
+    def _read_memory_word(self, address: Address) -> int:
         return self._read_memory_byte(address) | (
             self._read_memory_byte(address + 1) << 8
         )
 
-    def _set_inc_flags(self, v: int, res: int):
+    def _set_inc_flags(self, v: Byte, res: Byte):
         f = self.registers.data[REG_F] & FLAG_C
         if res == 0:
             f |= FLAG_Z
@@ -243,7 +253,7 @@ class CPU(CPUOpcodes):
             f |= FLAG_H
         self.registers.data[REG_F] = f
 
-    def _set_dec_flags(self, v: int, res: int):
+    def _set_dec_flags(self, v: Byte, res: Byte):
         f = (self.registers.data[REG_F] & FLAG_C) | FLAG_N
         if res == 0:
             f |= FLAG_Z
@@ -314,13 +324,13 @@ class CPU(CPUOpcodes):
             f |= FLAG_C
         self.registers.data[REG_F] = f
 
-    def _set_bit_flags(self, val: int, bit: int):
+    def _set_bit_flags(self, val: Byte, bit: int):
         f = (self.registers.data[REG_F] & FLAG_C) | FLAG_H
         if not (val & (1 << bit)):
             f |= FLAG_Z
         self.registers.data[REG_F] = f
 
-    def _set_cb_result_flags(self, res: int, carry: bool):
+    def _set_cb_result_flags(self, res: Byte, carry: bool):
         f = 0
         if res == 0:
             f |= FLAG_Z
@@ -342,7 +352,7 @@ class CPU(CPUOpcodes):
         self.registers[REG_SP] = (sp + 1) & 0xFFFF
         return (h << 8) | val_l
 
-    def _signed_e8(self, value: int) -> int:
+    def _signed_e8(self, value: Byte) -> int:
         return value - 0x100 if value >= 0x80 else value
 
     # --- Legacy Aliases for Tests ---
@@ -439,19 +449,19 @@ class CPU(CPUOpcodes):
         a, b = self.read_register(r1), self.read_register(r2)
         self._set_sub_flags(a, b, a - b)
 
-    def _add_reg_int(self, r1: Any, v: int):
+    def _add_reg_int(self, r1: Any, v: Byte):
         a = self.read_register(r1)
         res = a + v
         self.write_register(r1, res & 0xFF)
         self._set_add_flags(a, v, res)
 
-    def _adc_reg_int(self, r1: Any, v: int):
+    def _adc_reg_int(self, r1: Any, v: Byte):
         a, c = self.read_register(r1), self.get_flag("c")
         res = a + v + c
         self.write_register(r1, res & 0xFF)
         self._set_adc_flags(a, v, c, res)
 
-    def _sub_int(self, a: int, b: int, carry: bool = False) -> int:
+    def _sub_int(self, a: Address, b: Byte, carry: bool = False) -> int:
         val = self.read_register(a)
         c = 1 if carry else 0
         res = val - b - c
@@ -459,31 +469,31 @@ class CPU(CPUOpcodes):
         self._set_sbc_flags(val, b, c, res)
         return res
 
-    def _sbc_reg_int(self, r1: Any, v: int):
+    def _sbc_reg_int(self, r1: Any, v: Byte):
         a, c = self.read_register(r1), self.get_flag("c")
         res = a - v - c
         self.write_register(r1, res & 0xFF)
         self._set_sbc_flags(a, v, c, res)
 
-    def _xor_int(self, a: int, b: int) -> int:
+    def _xor_int(self, a: Address, b: Byte) -> int:
         res = self.read_register(a) ^ b
         self.write_register(a, res)
         self.registers.data[REG_F] = FLAG_Z if res == 0 else 0
         return res
 
-    def _and_int(self, a: int, b: int) -> int:
+    def _and_int(self, a: Address, b: Byte) -> int:
         res = self.read_register(a) & b
         self.write_register(a, res)
         self.registers.data[REG_F] = (FLAG_Z if res == 0 else 0) | FLAG_H
         return res
 
-    def _or_int(self, a: int, b: int) -> int:
+    def _or_int(self, a: Address, b: Byte) -> int:
         res = self.read_register(a) | b
         self.write_register(a, res)
         self.registers.data[REG_F] = FLAG_Z if res == 0 else 0
         return res
 
-    def _cp_int(self, a: int, b: int) -> None:
+    def _cp_int(self, a: Address, b: Byte) -> None:
         val = self.read_register(a)
         self._set_sub_flags(val, b, val - b)
 
