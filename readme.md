@@ -11,6 +11,17 @@ A GameBoy (DMG-01) emulator written in Python using Pygame and NumPy.
 - **Input**: Configurable keyboard mapping via Pygame.
 - **Bootloader**: Support for original DMG boot ROM (`DMG_ROM.bin`).
 
+
+## Achieving Real-time Emulation in Python
+
+Writing an emulator in Python is notoriously difficult due to the global interpreter lock (GIL), dictionary overhead, and dynamic typing constraints. Achieving an unthrottled 60 FPS (~4.19 MHz effective CPU throughput) in pure CPython required aggressive, non-idiomatic optimizations to flatten the execution pipeline:
+
+- **Bypassing Python Properties:** Python's `@property` getters map to internal function calls. At millions of CPU loops per second, this is a massive bottleneck. The 16-bit virtual registers (`AF`, `BC`, `DE`, `HL`) were ripped out of the dictionary-based register file and converted into raw array indices (`self.registers.data[2] << 8 | ...`) directly inside the opcode bodies via AST/Regex compilation.
+- **Flat Memory & Zero-Cost Dispatch:** Memory reads/writes bypass standard `read_byte()` encapsulation. The memory bus uses active shadowing to force MBC roms, video RAM, and work RAM into a single unified `bytearray` (`self.memory`). The CPU instruction fetch loop evaluates directly via `dispatch[mem[reg.PC]]()` without allocating local variables.
+- **Vectorized PPU with NumPy:** The Gameboy PPU must render 144 scanlines 60 times a second. Standard iterative Pygame blitting is far too slow. The PPU buffers raw Gameboy palette indices directly into NumPy arrays during H-Blank, and relies on vectorized boolean masks and NumPy slicing (`frame_buffer[mask] = (pal >> ...) & 3`) to evaluate sprite priority, window overlays, and pixel values in bulk.
+- **Direct Pygame Surfarray Blits:** Generating independent Pygame `Surface` pixels is too expensive. The final NumPy array is broadcast through a 4-color palette matrix (`rgb_data = GB_PALETTE[raw_indices]`) and blitted natively via `pygame.surfarray.blit_array()` in C.
+- **Audio-Synchronous Hardware Clocking:** Traditional emulators use OS sleep commands (`time.sleep()`) to sync video frames. OS scheduling drifts, causing audio threads to starve and crackle. This emulator's main Pygame loop is slaved to the APU's ring buffer—it intentionally stalls CPU execution when the audio latency exceeds exactly 2048 samples (~46ms), forcing the physical sound card to dictate the emulator's exact hardware timing perfectly.
+
 ## Installation
 
 ### Prerequisites
@@ -105,7 +116,6 @@ python emulator.py path/to/your/rom.gb
 - [ ] Support for MBC3 Real-Time Clock (RTC).
 - [ ] GameBoy Color (CGB) support.
 - [ ] Save state support.
-- [ ] Optimize APU sample buffering.
 
 ## License
 
