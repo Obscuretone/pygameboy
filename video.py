@@ -44,6 +44,17 @@ from constants import (
     VRAM_SIZE,
     OAM_SIZE,
     PALETTE_COLOR_MASK,
+    MODE_0_CYCLES,
+    MODE_1_CYCLES,
+    MODE_2_CYCLES,
+    MODE_3_CYCLES,
+    VBLANK_LINE_LIMIT,
+    TILE_SIZE_BYTES,
+    SPRITE_COUNT,
+    SPRITE_SIZE_BYTES,
+    MAX_SPRITES_PER_SCANLINE,
+    TILE_MAP_WIDTH,
+    OAM_DMA_TRANSFER_SIZE,
 )
 from gb_types import Address, Byte, Cycles, BIT_0, BYTE_MASK
 
@@ -177,22 +188,22 @@ class VideoChip:
             # Current Mode
             mode = self.STAT & STAT_MODE_MASK
 
-            if mode == 2:  # OAM Search (80 cycles)
-                if self.mode_clock >= 80:
-                    self.mode_clock -= 80
+            if mode == 2:  # OAM Search
+                if self.mode_clock >= MODE_2_CYCLES:
+                    self.mode_clock -= MODE_2_CYCLES
                     self.set_mode(3)
                 else:
                     break
-            elif mode == 3:  # Pixel Transfer (172 cycles)
-                if self.mode_clock >= 172:
-                    self.mode_clock -= 172
+            elif mode == 3:  # Pixel Transfer
+                if self.mode_clock >= MODE_3_CYCLES:
+                    self.mode_clock -= MODE_3_CYCLES
                     self.set_mode(0)
                     self.render_scanline()
                 else:
                     break
-            elif mode == 0:  # H-Blank (204 cycles)
-                if self.mode_clock >= 204:
-                    self.mode_clock -= 204
+            elif mode == 0:  # H-Blank
+                if self.mode_clock >= MODE_0_CYCLES:
+                    self.mode_clock -= MODE_0_CYCLES
                     self.LY += 1
 
                     if self.LY == self.SCREEN_HEIGHT:
@@ -205,12 +216,12 @@ class VideoChip:
                     self.check_lyc()
                 else:
                     break
-            elif mode == 1:  # V-Blank (456 cycles)
-                if self.mode_clock >= 456:
-                    self.mode_clock -= 456
+            elif mode == 1:  # V-Blank
+                if self.mode_clock >= MODE_1_CYCLES:
+                    self.mode_clock -= MODE_1_CYCLES
                     self.LY += 1
 
-                    if self.LY > 153:
+                    if self.LY > VBLANK_LINE_LIMIT:
                         self.LY = 0
                         self.set_mode(2)
 
@@ -279,16 +290,16 @@ class VideoChip:
             tile_y = y_pos % 8
             tile_x = x_pos % 8
 
-            tile_map_addresses = tile_map_base + (tile_row * 32) + tile_col
+            tile_map_addresses = tile_map_base + (tile_row * TILE_MAP_WIDTH) + tile_col
             vram_np = self.vram_np
             tile_indices = vram_np[tile_map_addresses - VRAM_START]
 
             if unsigned_tiles:
-                tile_data_addresses = tile_data_base + (tile_indices.astype(np.uint32) * 16)
+                tile_data_addresses = tile_data_base + (tile_indices.astype(np.uint32) * TILE_SIZE_BYTES)
             else:
                 signed_indices = tile_indices.astype(np.int8).astype(np.int32)
                 tile_data_addresses = (VRAM_START + VRAM_TILE_DATA_INDEX_OFFSET) + (
-                    signed_indices * 16
+                    signed_indices * TILE_SIZE_BYTES
                 )
 
             data_offsets = (
@@ -313,7 +324,7 @@ class VideoChip:
 
             # 1. Extract all sprite data from OAM at once using NumPy
             # OAM is 40 entries, 4 bytes each: Y, X, Tile, Attr
-            oam_array = np.frombuffer(self.oam, dtype=np.uint8).reshape(40, 4)
+            oam_array = np.frombuffer(self.oam, dtype=np.uint8).reshape(SPRITE_COUNT, SPRITE_SIZE_BYTES)
             sprite_ys = oam_array[:, 0].astype(np.int16) - 16
 
             # 2. Find sprites on current scanline (LY)
@@ -323,8 +334,8 @@ class VideoChip:
 
             if len(indices) > 0:
                 # GameBoy hardware limit: max 10 sprites per scanline
-                if len(indices) > 10:
-                    indices = indices[:10]
+                if len(indices) > MAX_SPRITES_PER_SCANLINE:
+                    indices = indices[:MAX_SPRITES_PER_SCANLINE]
 
                 # 3. Collect active sprite data
                 active_sprites = oam_array[indices]
@@ -355,7 +366,7 @@ class VideoChip:
                     if y_flip:
                         line = sprite_height - 1 - line
 
-                    tile_data_address = VRAM_START + (int(tile_index) * 16) + (int(line) * 2)
+                    tile_data_address = VRAM_START + (int(tile_index) * TILE_SIZE_BYTES) + (int(line) * 2)
                     byte1 = self.vram[tile_data_address - VRAM_START]
                     byte2 = self.vram[tile_data_address - VRAM_START + 1]
 
@@ -383,6 +394,6 @@ class VideoChip:
     def perform_dma(self, value: Byte) -> None:
         """Perform OAM DMA transfer from source address to OAM."""
         source_base = value << 8
-        for i in range(160):
+        for i in range(OAM_DMA_TRANSFER_SIZE):
             byte = self.memory.read_byte(source_base + i)
             self.oam[i] = byte
