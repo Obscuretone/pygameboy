@@ -1,6 +1,5 @@
 from typing import Union, Tuple, Dict, Final
 from gb_types import (
-    Word,
     REG_A,
     REG_F,
     REG_B,
@@ -19,7 +18,7 @@ class RegisterFile:
     Manages the GameBoy's internal registers.
     """
 
-    __slots__ = ("data", "_pc", "_sp")
+    __slots__ = ("data", "PC", "SP")
 
     A: Final[int] = REG_A
     F: Final[int] = REG_F
@@ -50,24 +49,8 @@ class RegisterFile:
     def __init__(self) -> None:
         """Initialize registers with zeros."""
         self.data: bytearray = bytearray(8)
-        self._pc: Word = 0
-        self._sp: Word = 0
-
-    @property
-    def PC(self) -> int:
-        return self._pc
-
-    @PC.setter
-    def PC(self, value: int) -> None:
-        self._pc = value & 0xFFFF
-
-    @property
-    def SP(self) -> int:
-        return self._sp
-
-    @SP.setter
-    def SP(self, value: int) -> None:
-        self._sp = value & 0xFFFF
+        self.PC: int = 0
+        self.SP: int = 0
 
     @property
     def shape(self) -> Tuple[int, ...]:

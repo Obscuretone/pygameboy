@@ -63,6 +63,7 @@ class VideoChip:
 
     def __init__(self, clock: ClockDevice, memory: Any):
         self.memory: Any = memory
+        self.storage = memory.storage
 
         # Shared views into central storage
         self.vram_np = np.frombuffer(
@@ -71,6 +72,10 @@ class VideoChip:
         self.oam_np = np.frombuffer(
             memory.storage, offset=OAM_START, count=OAM_SIZE, dtype=np.uint8
         )
+        self.oam_view = self.oam_np.reshape((40, 4))
+        self.y_pos = np.zeros(160, dtype=np.uint16)
+        self.tile_map_base = np.zeros(160, dtype=np.uint16)
+        self.x_pos = np.zeros(160, dtype=np.uint16)
 
         self.x_indices: np.ndarray = np.arange(self.SCREEN_WIDTH)
         self.mode_clock: int = 0
@@ -80,6 +85,7 @@ class VideoChip:
         self.frame_buffer: np.ndarray = np.zeros(
             self.SCREEN_WIDTH * self.SCREEN_HEIGHT, dtype=np.uint8
         )
+        self.bg_color_indices: np.ndarray = np.zeros(self.SCREEN_WIDTH * self.SCREEN_HEIGHT, dtype=np.uint8)
 
         # Sync Initial Register state in storage
         memory.storage[REG_LCDC] = LCDC_DEFAULT
@@ -192,13 +198,13 @@ class VideoChip:
         pass
 
     def step(self, cycles: Cycles) -> None:
-        if not (self.LCDC & 0x80):
+        if not (self.storage[REG_LCDC] & 0x80):
             return
 
         self.mode_clock += cycles
 
         while True:
-            mode = self.STAT & STAT_MODE_MASK
+            mode = self.storage[REG_STAT] & STAT_MODE_MASK
 
             if mode == MODE_OAM_SEARCH:
                 if self.mode_clock >= CYCLES_OAM_SEARCH:
@@ -216,8 +222,8 @@ class VideoChip:
             elif mode == MODE_HBLANK:
                 if self.mode_clock >= CYCLES_HBLANK:
                     self.mode_clock -= CYCLES_HBLANK
-                    self.LY += 1
-                    if self.LY == self.SCREEN_HEIGHT:
+                    self.storage[REG_LY] += 1
+                    if self.storage[REG_LY] == self.SCREEN_HEIGHT:
                         self.set_mode(MODE_VBLANK)
                         self.memory.request_interrupt(INT_VBLANK_BIT)
                     else:
@@ -228,9 +234,9 @@ class VideoChip:
             elif mode == MODE_VBLANK:
                 if self.mode_clock >= CYCLES_VBLANK:
                     self.mode_clock -= CYCLES_VBLANK
-                    self.LY += 1
-                    if self.LY > VBLANK_LINE_LIMIT:
-                        self.LY = 0
+                    self.storage[REG_LY] += 1
+                    if self.storage[REG_LY] > VBLANK_LINE_LIMIT:
+                        self.storage[REG_LY] = 0
                         self.window_line = 0
                         self.set_mode(MODE_OAM_SEARCH)
                     self.check_lyc()
@@ -240,20 +246,20 @@ class VideoChip:
                 break
 
     def set_mode(self, mode: int) -> None:
-        self.memory.storage[REG_STAT] = (self.STAT & ~STAT_MODE_MASK) | (
+        self.memory.storage[REG_STAT] = (self.storage[REG_STAT] & ~STAT_MODE_MASK) | (
             mode & STAT_MODE_MASK
         )
         self.update_stat_interrupt()
 
     def check_lyc(self) -> None:
-        if self.LY == self.LYC:
+        if self.storage[REG_LY] == self.storage[REG_LYC]:
             self.memory.storage[REG_STAT] |= STAT_LYC_FLAG
         else:
             self.memory.storage[REG_STAT] &= ~STAT_LYC_FLAG
         self.update_stat_interrupt()
 
     def update_stat_interrupt(self) -> None:
-        stat = self.STAT
+        stat = self.storage[REG_STAT]
         mode = stat & STAT_MODE_MASK
         signal = False
         if (stat & 0x40) and (stat & STAT_LYC_FLAG):
@@ -270,46 +276,53 @@ class VideoChip:
         self.stat_irq_signal = signal
 
     def render_scanline(self) -> None:
-        if self.LY >= self.SCREEN_HEIGHT:
+        if self.storage[REG_LY] >= self.SCREEN_HEIGHT:
             return
 
-        line_start = self.LY * self.SCREEN_WIDTH
+        line_start = self.storage[REG_LY] * self.SCREEN_WIDTH
         line_end = line_start + self.SCREEN_WIDTH
 
-        if not (self.LCDC & LCDC_BG_ENABLE):
+        if not (self.storage[REG_LCDC] & LCDC_BG_ENABLE):
             self.frame_buffer[line_start:line_end] = 0
-            if not hasattr(self, "bg_color_indices"):
-                self.bg_color_indices = np.zeros(
-                    self.SCREEN_WIDTH * self.SCREEN_HEIGHT, dtype=np.uint8
-                )
             self.bg_color_indices[line_start:line_end] = 0
         else:
             tile_data_base = (
                 VRAM_START
-                if (self.LCDC & LCDC_TILE_DATA_SEL)
+                if (self.storage[REG_LCDC] & LCDC_TILE_DATA_SEL)
                 else (VRAM_START + VRAM_TILE_DATA_INDEX_OFFSET)
             )
-            unsigned_tiles = bool(self.LCDC & LCDC_TILE_DATA_SEL)
-            window_enabled = (self.LCDC & LCDC_WINDOW_ENABLE) and (self.WY <= self.LY)
-            window_x = self.WX - 7
-            using_window = (window_enabled) & (self.x_indices >= window_x)
-
-            x_pos = np.where(
-                using_window,
-                self.x_indices - window_x,
-                (self.x_indices + self.SCX) & 0xFF,
-            )
-            y_pos = np.where(
-                using_window, self.window_line, (self.LY + self.SCY) & 0xFF
-            )
-
+            unsigned_tiles = bool(self.storage[REG_LCDC] & LCDC_TILE_DATA_SEL)
+            window_enabled = (self.storage[REG_LCDC] & LCDC_WINDOW_ENABLE) and (self.storage[REG_WY] <= self.storage[REG_LY])
+            window_x = self.storage[REG_WX] - 7
+            
+            # Using pre-allocated arrays
+            x_pos = self.x_pos
+            y_pos = self.y_pos
+            tile_map_base = self.tile_map_base
+            
+            x_pos[:] = (self.x_indices + self.storage[REG_SCX]) & 0xFF
+            y_pos[:] = (self.storage[REG_LY] + self.storage[REG_SCY]) & 0xFF
+            
             map1 = VRAM_START + VRAM_TILE_MAP_1_OFFSET
             map0 = VRAM_START + VRAM_TILE_MAP_0_OFFSET
-            tile_map_base = np.where(
-                using_window,
-                map1 if (self.LCDC & LCDC_WINDOW_TILE_MAP_SEL) else map0,
-                map1 if (self.LCDC & LCDC_BG_TILE_MAP_SEL) else map0,
-            )
+            
+            bg_map = map1 if (self.storage[REG_LCDC] & LCDC_BG_TILE_MAP_SEL) else map0
+            tile_map_base[:] = bg_map
+            
+            using_window = False
+            if window_enabled and window_x < 160:
+                wx_start = max(0, window_x)
+                if wx_start < 160:
+                    using_window = True
+                    length = 160 - wx_start
+                    if window_x < 0:
+                        x_pos[0:] = np.arange(-window_x, 160 - window_x)
+                    else:
+                        x_pos[wx_start:] = np.arange(length)
+                        
+                    y_pos[wx_start:] = self.window_line
+                    win_map = map1 if (self.storage[REG_LCDC] & LCDC_WINDOW_TILE_MAP_SEL) else map0
+                    tile_map_base[wx_start:] = win_map
 
             tile_row = (y_pos >> 3) & 31
             tile_col = (x_pos >> 3) & 31
@@ -335,25 +348,19 @@ class VideoChip:
             bits = 7 - (x_pos & 7)
             color_indices = (((byte2 >> bits) & 1) << 1) | ((byte1 >> bits) & 1)
             self.frame_buffer[line_start:line_end] = (
-                self.BGP >> (color_indices * 2)
+                self.storage[REG_BGP] >> (color_indices * 2)
             ) & 3
 
-            if not hasattr(self, "bg_color_indices"):
-                self.bg_color_indices = np.zeros(
-                    self.SCREEN_WIDTH * self.SCREEN_HEIGHT, dtype=np.uint8
-                )
             self.bg_color_indices[line_start:line_end] = color_indices
 
-            if np.any(using_window):
+            if using_window:
                 self.window_line += 1
 
-        if self.LCDC & LCDC_OBJ_ENABLE:
-            oam_array = np.frombuffer(
-                self.memory.storage, offset=OAM_START, count=OAM_SIZE, dtype=np.uint8
-            ).reshape(40, 4)
+        if self.storage[REG_LCDC] & LCDC_OBJ_ENABLE:
+            oam_array = self.oam_view
             sprite_ys = oam_array[:, 0].astype(np.int16) - 16
-            h = 16 if (self.LCDC & 0x04) else 8
-            on = (sprite_ys <= self.LY) & (self.LY < sprite_ys + h)
+            h = 16 if (self.storage[REG_LCDC] & 0x04) else 8
+            on = (sprite_ys <= self.storage[REG_LY]) & (self.storage[REG_LY] < sprite_ys + h)
             indices = np.where(on)[0]
 
             if len(indices) > 0:
@@ -371,10 +378,10 @@ class VideoChip:
                         active[idx, 2],
                         active[idx, 3],
                     )
-                    pal = self.OBP1 if (attr & 0x10) else self.OBP0
+                    pal = self.storage[REG_OBP1] if (attr & 0x10) else self.storage[REG_OBP0]
                     if h == 16:
                         tile &= 0xFE
-                    line = self.LY - y
+                    line = self.storage[REG_LY] - y
                     if attr & 0x40:
                         line = h - 1 - line
                     addr = VRAM_START + (int(tile) << 4) + (int(line) << 1)

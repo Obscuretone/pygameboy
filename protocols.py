@@ -1,5 +1,5 @@
-from typing import Protocol, runtime_checkable, Any, Deque, ClassVar
-from gb_types import Sample, Address, Byte, Cycles
+from typing import Protocol, runtime_checkable, Any, ClassVar
+from gb_types import Address, Byte, Cycles
 
 
 @runtime_checkable
