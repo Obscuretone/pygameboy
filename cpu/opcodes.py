@@ -3526,7 +3526,7 @@ class CPUOpcodes:
         bytes = 1
         """
         self.push_stack((self.registers[REG_PC] + 1)  & WORD_MASK)
-        self.registers[REG_PC] = BIT_3
+        self.registers[REG_PC] = 0x08
         return 16
 
     # 0xD0 - 0xDF
@@ -3622,7 +3622,7 @@ class CPUOpcodes:
     def _rst_10(self, data=None):
         """Opcode 0xD7 (RST '$10',)"""
         self.push_stack((self.registers[REG_PC] + 1)  & WORD_MASK)
-        self.registers[REG_PC] = BIT_4
+        self.registers[REG_PC] = 0x10
         return 16
 
     def _ret_c(self, data=None):
@@ -3724,7 +3724,7 @@ class CPUOpcodes:
     def _rst_20(self, data=None):
         """Opcode 0xE7 (RST '$20',)"""
         self.push_stack((self.registers[REG_PC] + 1)  & WORD_MASK)
-        self.registers[REG_PC] = BIT_5
+        self.registers[REG_PC] = 0x20
         return 16
 
     def _add_sp_e8(self, data=None):
