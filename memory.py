@@ -1,4 +1,4 @@
-from typing import Optional, Union, Any
+from typing import Optional, Union, Any, List, Callable, Final
 import numpy as np
 from protocols import (
     MemoryBankController,
@@ -13,21 +13,28 @@ from serial_cable import Serial
 from joypad import Joypad
 from gb_types import MemoryData
 
+# Type for page handlers
+ReadHandler = Callable[[int], int]
+WriteHandler = Callable[[int, int], None]
+
 class Memory:
     """
-    Handles the GameBoy's 64KB address space and memory-mapped I/O.
+    Handles the GameBoy's 64KB address space using a table-based dispatch system.
+    
+    Memory is divided into 256 pages of 256 bytes each.
     """
+    PAGE_SIZE: Final[int] = 0x100
+    NUM_PAGES: Final[int] = 256
 
     def __init__(self, clock: Optional[ClockDevice] = None, data: Optional[MemoryData] = None, backend: str = "bytearray"):
         """
         Initialize the memory system.
-
-        Args:
-            clock: The system clock for timing-related I/O (e.g., LY register).
-            data: Initial memory data (e.g., ROM + Bootloader).
-            backend: The storage backend to use ('numpy' or 'bytearray').
         """
-        # Handle cases where data is passed as the first argument (legacy/tests)
+        # 1. Initialize Page Tables FIRST (essential for component safety)
+        self.read_pages: List[ReadHandler] = [self._read_unmapped] * self.NUM_PAGES
+        self.write_pages: List[WriteHandler] = [self._write_unmapped] * self.NUM_PAGES
+
+        # 2. Basic properties
         if data is None and clock is not None and not hasattr(clock, "update"):
             data = clock
             clock = None
@@ -35,7 +42,7 @@ class Memory:
         self.clock: Optional[ClockDevice] = clock
         self.backend: str = backend
         
-        # Initialize memory with zeroes if data is not provided
+        # 3. Memory storage
         if backend == "numpy":
             self.memory: np.ndarray = (
                 np.zeros(0x10000, dtype=np.uint8)
@@ -49,160 +56,173 @@ class Memory:
             
         self.cartridge_boot_area: Optional[bytearray] = None
         self.boot_rom_disabled: bool = False
-        self.video: Optional[VideoDevice] = None
+        
+        # 4. Hardware Components
+        self._video: Optional[VideoDevice] = None
+        self._mbc: Optional[MemoryBankController] = None
+        
+        # 5. Initialize subsystems (they may access memory during init)
         self.joypad: InputDevice = Joypad(self)
-        self.mbc: Optional[MemoryBankController] = None
         self.serial: SerialDevice = Serial(self)
         self.apu: AudioDevice = APU()
-
-    def read_byte(self, address: int) -> int:
-        """
-        Read a single byte from the specified address.
-
-        Args:
-            address: The 16-bit address to read from.
-
-        Returns:
-            The byte value at the specified address.
-        """
-        address &= 0xFFFF
         
-        if (
-            not self.boot_rom_disabled
-            and self.cartridge_boot_area is not None
-            and address < len(self.cartridge_boot_area)
-        ):
-            return self.memory[address]
+        # 6. Build initial page table
+        self._update_page_table()
 
-        # 1. ROM (Highest frequency)
-        if address <= 0x7FFF:
-            return self.mbc.read_rom(address) if self.mbc else self.memory[address]
-            
-        # 2. WRAM & HRAM (High frequency)
-        if (0xC000 <= address <= 0xDFFF) or (0xFF80 <= address <= 0xFFFE) or address == 0xFFFF:
-            return self.memory[address]
-            
-        # 3. External RAM
-        if 0xA000 <= address <= 0xBFFF:
-            return self.mbc.read_ram(address) if self.mbc else self.memory[address]
-            
-        # 4. VRAM & OAM & Video Registers
-        if self.video:
-            if 0x8000 <= address <= 0x9FFF or 0xFE00 <= address <= 0xFE9F:
-                return self.video.read_byte(address)
-            if 0xFF40 <= address <= 0xFF4B:
-                return self.video.read_byte(address)
-        elif 0x8000 <= address <= 0x9FFF or 0xFE00 <= address <= 0xFE9F:
-            return self.memory[address]
-            
-        # LY clock fallback if video disabled
-        if address == 0xFF44 and self.clock is not None and not self.video:
-            return (self.clock.get_cycles_elapsed() // 456) % 154
-            
-        # 5. IO Registers
-        if address == 0xFF00:
-            return self.joypad.read()
-        if address in [0xFF01, 0xFF02]:
-            return self.serial.read_byte(address)
-        if 0xFF10 <= address <= 0xFF3F:
-            return self.apu.read_byte(address)
-            
-        # 6. Echo RAM & Unusable
-        if 0xE000 <= address <= 0xFDFF:
-            return self.memory[address - 0x2000]
-        if 0xFEA0 <= address <= 0xFEFF:
-            return 0x00
-            
+    @property
+    def mbc(self) -> Optional[MemoryBankController]:
+        return self._mbc
+
+    @mbc.setter
+    def mbc(self, value: Optional[MemoryBankController]) -> None:
+        self._mbc = value
+        self._update_page_table()
+
+    @property
+    def video(self) -> Optional[VideoDevice]:
+        return self._video
+
+    @video.setter
+    def video(self, value: Optional[VideoDevice]) -> None:
+        self._video = value
+        self._update_page_table()
+
+    def _update_page_table(self) -> None:
+        """Configure the page tables based on current hardware mapping."""
+        
+        # 1. Default RAM access for most of the address space
+        for i in range(self.NUM_PAGES):
+            self.read_pages[i] = self._read_ram_direct
+            self.write_pages[i] = self._write_ram_direct
+
+        # 2. ROM (0x0000 - 0x7FFF) -> Pages 0 to 127
+        for i in range(128):
+            if self._mbc:
+                self.read_pages[i] = self._mbc.read_rom
+                self.write_pages[i] = self._mbc.write_rom
+            else:
+                self.read_pages[i] = self._read_ram_direct
+                self.write_pages[i] = self._write_ram_direct
+
+        # 3. External RAM (0xA000 - 0xBFFF) -> Pages 160 to 191
+        for i in range(160, 192):
+            if self._mbc:
+                self.read_pages[i] = self._mbc.read_ram
+                self.write_pages[i] = self._mbc.write_ram
+
+        # 4. VRAM (0x8000 - 0x9FFF) -> Pages 128 to 159
+        for i in range(128, 160):
+            if self._video:
+                self.read_pages[i] = self._video.read_byte
+                self.write_pages[i] = self._video.write_byte
+
+        # 5. OAM (0xFE00 - 0xFE9F) -> Page 254 (partial)
+        self.read_pages[0xFE] = self._read_oam_area
+        self.write_pages[0xFE] = self._write_oam_area
+
+        # 6. I/O and HRAM (0xFF00 - 0xFFFF) -> Page 255
+        self.read_pages[0xFF] = self._read_io_hram
+        self.write_pages[0xFF] = self._write_io_hram
+
+        # 7. Echo RAM (0xE000 - 0xFDFF) -> Pages 224 to 253
+        for i in range(224, 254):
+            self.read_pages[i] = self._read_echo_ram
+            self.write_pages[i] = self._write_echo_ram
+
+    def _read_ram_direct(self, address: int) -> int:
         return self.memory[address]
 
-    def write_byte(self, address: int, value: int) -> None:
-        """
-        Write a single byte to the specified address.
+    def _write_ram_direct(self, address: int, value: int) -> None:
+        self.memory[address] = value
 
-        Args:
-            address: The 16-bit address to write to.
-            value: The byte value to write.
-        """
-        address &= 0xFFFF
-        value &= 0xFF
+    def _read_unmapped(self, address: int) -> int:
+        return 0xFF
+
+    def _write_unmapped(self, address: int, value: int) -> None:
+        pass
+
+    def _read_echo_ram(self, address: int) -> int:
+        return self.memory[address - 0x2000]
+
+    def _write_echo_ram(self, address: int, value: int) -> None:
+        self.memory[address - 0x2000] = value
+
+    def _read_oam_area(self, address: int) -> int:
+        if address <= 0xFE9F:
+            return self._video.read_byte(address) if self._video else self.memory[address]
+        return 0x00 # Unusable area
+
+    def _write_oam_area(self, address: int, value: int) -> None:
+        if address <= 0xFE9F:
+            if self._video: self._video.write_byte(address, value)
+            else: self.memory[address] = value
+
+    def _read_io_hram(self, address: int) -> int:
+        # High-frequency IO and HRAM
+        if address >= 0xFF80: # HRAM + IE
+            return self.memory[address]
         
-        # 1. WRAM & HRAM
-        if (0xC000 <= address <= 0xDFFF) or (0xFF80 <= address <= 0xFFFE):
-            self.memory[address] = value
-            return
+        # LY clock fallback if video disabled (essential for tests and headless mode)
+        if address == 0xFF44 and self.clock is not None and not self._video:
+            return (self.clock.get_cycles_elapsed() // 456) % 154
+
+        # Video Registers
+        if 0xFF40 <= address <= 0xFF4B:
+            return self._video.read_byte(address) if self._video else self.memory[address]
             
-        # 2. ROM (MBC Banking)
-        if address <= 0x7FFF:
-            if self.mbc: 
-                self.mbc.write_rom(address, value)
-                return
-            else:
-                self.memory[address] = value
-                return
-            
-        # 3. External RAM
-        if 0xA000 <= address <= 0xBFFF:
-            if self.mbc: 
-                self.mbc.write_ram(address, value)
-                return
-            else:
-                self.memory[address] = value
-                return
-            
-        # 4. VRAM & OAM & Video Registers
-        if self.video:
-            if 0x8000 <= address <= 0x9FFF or 0xFE00 <= address <= 0xFE9F:
-                self.video.write_byte(address, value)
-                return
-            if 0xFF40 <= address <= 0xFF4B:
-                self.video.write_byte(address, value)
-                return
-        elif 0x8000 <= address <= 0x9FFF or 0xFE00 <= address <= 0xFE9F:
-            self.memory[address] = value
-            return
-            
-        # 5. IO Registers
-        if address == 0xFF00:
-            self.joypad.write(value)
-            return
-        if address in [0xFF01, 0xFF02]:
-            self.serial.write_byte(address, value)
-            return
-        if 0xFF10 <= address <= 0xFF3F:
-            self.apu.write_byte(address, value)
-            return
-            
-        # Timer / Interrupt Registers
-        if address == 0xFF04: # DIV
-            self.memory[address] = 0
-            return
-        if address == 0xFF07: # TAC
-            self.memory[address] = value & 0x07
-            return
-        if address == 0xFF0F or address == 0xFFFF: # IF / IE
-            self.memory[address] = value
-            return
+        # IO Registers
+        if address == 0xFF00: return self.joypad.read()
+        if address in [0xFF01, 0xFF02]: return self.serial.read_byte(address)
+        if 0xFF10 <= address <= 0xFF3F: return self.apu.read_byte(address)
         
-        # 6. Echo RAM & Unusable
-        if 0xE000 <= address <= 0xFDFF:
-            self.memory[address - 0x2000] = value
+        return self.memory[address]
+
+    def _write_io_hram(self, address: int, value: int) -> None:
+        # High-frequency IO and HRAM
+        if address >= 0xFF80: # HRAM + IE
+            self.memory[address] = value
             return
-        if 0xFEA0 <= address <= 0xFEFF:
+
+        # Video Registers
+        if 0xFF40 <= address <= 0xFF4B:
+            if self._video: self._video.write_byte(address, value)
+            else: self.memory[address] = value
             return
             
+        # IO Registers
+        if address == 0xFF00: self.joypad.write(value); return
+        if address in [0xFF01, 0xFF02]: self.serial.write_byte(address, value); return
+        if 0xFF10 <= address <= 0xFF3F: self.apu.write_byte(address, value); return
+            
+        # Timer / Interrupt Registers (Delegated to CPU usually, but kept here for bus writes)
+        if address == 0xFF04: self.memory[address] = 0; return # DIV reset
+        if address == 0xFF07: self.memory[address] = value & 0x07; return # TAC
+        
         # Boot ROM Disable
         if address == 0xFF50 and value and self.cartridge_boot_area is not None:
             self.memory[: len(self.cartridge_boot_area)] = self.cartridge_boot_area
             self.cartridge_boot_area = None
             self.boot_rom_disabled = True
+            self._update_page_table() # Re-map ROM bank 0
             
         self.memory[address] = value
 
-    def request_interrupt(self, mask: int) -> None:
-        """
-        Request a hardware interrupt by setting the corresponding bit in the IF register ($FF0F).
+    def read_byte(self, address: int) -> int:
+        """Read a single byte using the page table."""
+        address &= 0xFFFF
+        
+        # Boot ROM overlay check (Hot path)
+        if not self.boot_rom_disabled and address < 0x100:
+            if self.cartridge_boot_area is not None:
+                return self.memory[address]
 
-        Args:
-            mask: The interrupt mask bit to set (e.g., 0x01 for V-Blank).
-        """
-        self.memory[0xFF0F] = int(self.memory[0xFF0F]) | (mask & 0x1F)
+        return self.read_pages[address >> 8](address)
+
+    def write_byte(self, address: int, value: int) -> None:
+        """Write a single byte using the page table."""
+        address &= 0xFFFF
+        self.write_pages[address >> 8](address, value & 0xFF)
+
+    def request_interrupt(self, mask: int) -> None:
+        """Request a hardware interrupt."""
+        self.memory[0xFF0F] |= (mask & 0x1F)

@@ -3,23 +3,38 @@ import time
 import numpy as np
 from collections import defaultdict
 import sys
-import cProfile
 from clock import SystemClock
 from .registers import RegisterFile
 from .opcodes import CPUOpcodes
+from .interrupts import InterruptManager
+from .timer import Timer
 from protocols import VideoDevice, AudioDevice, ClockDevice
-from gb_types import Address, Byte, Word, Cycles
+from gb_types import Address, Byte, Word, Cycles, FLAG_Z, FLAG_N, FLAG_H, FLAG_C
 
+FLAG_MASKS: Final[Dict[str, int]] = {"z": 0x80, "n": 0x40, "h": 0x20, "c": 0x10}
+CONDITION_ALWAYS = 0
+CONDITION_NZ = 1
+CONDITION_Z = 2
+CONDITION_NC = 3
+CONDITION_C = 4
 class CPU(CPUOpcodes):
     """
     Implements the GameBoy LR35902 CPU.
     """
     EMPTY_OPERANDS: Final[Tuple] = ()
+    FLAG_MASKS = FLAG_MASKS
+    CONDITION_ALWAYS = CONDITION_ALWAYS
+    CONDITION_NZ = CONDITION_NZ
+    CONDITION_Z = CONDITION_Z
+    CONDITION_NC = CONDITION_NC
+    CONDITION_C = CONDITION_C
     FLAG_MASKS: Final[Dict[str, int]] = {"z": 0x80, "n": 0x40, "h": 0x20, "c": 0x10}
-    INTERRUPT_VECTORS: Final[Tuple[int, ...]] = (0x40, 0x48, 0x50, 0x58, 0x60)
-    INTERRUPT_TIMER: Final[int] = 0x04
-    TIMER_PERIODS: Final[Tuple[int, ...]] = (1024, 16, 64, 256)
     APU_STEP_BATCH_CYCLES: Final[int] = 64
+    CONDITION_ALWAYS = 0
+    CONDITION_NZ = 1
+    CONDITION_Z = 2
+    CONDITION_NC = 3
+    CONDITION_C = 4
     FAST_INC_OPS = {
         0x04: RegisterFile.B,
         0x0C: RegisterFile.C,
@@ -304,14 +319,49 @@ class CPU(CPUOpcodes):
 
         self.registers = RegisterFile()
 
-        self.flags: Dict[str, bool] = {"z": False, "n": False, "h": False, "c": False}
-        self.interrupt_master_enable: bool = False
-        self.enable_interrupts_pending: bool = False
-        self.enable_interrupts_delay: int = 0
+        # SRP Subsystems
+        self.interrupts = InterruptManager(self.ram)
+        self.timer = Timer(self.ram, self.interrupts)
+
         self.halted: bool = False
         self.stopped: bool = False
-        self.divider_cycles: int = 0
-        self.timer_cycles: int = 0
+
+    # --- Properties for backward compatibility and SRP delegation ---
+    @property
+    def interrupt_master_enable(self) -> bool: return self.interrupts.ime
+    @interrupt_master_enable.setter
+    def interrupt_master_enable(self, value: bool) -> None: self.interrupts.ime = value
+    @property
+    def enable_interrupts_pending(self) -> bool: return self.interrupts.pending_ime_enable
+    @enable_interrupts_pending.setter
+    def enable_interrupts_pending(self, value: bool) -> None: self.interrupts.pending_ime_enable = value
+    @property
+    def enable_interrupts_delay(self) -> int: return self.interrupts.ime_enable_delay
+    @enable_interrupts_delay.setter
+    def enable_interrupts_delay(self, value: int) -> None: self.interrupts.ime_enable_delay = value
+
+    # --- Flag Management (Direct Bitwise) ---
+    @property
+    def divider_cycles(self) -> int: return self.timer.divider_cycles
+    @divider_cycles.setter
+    def divider_cycles(self, value: int) -> None: self.timer.divider_cycles = value
+
+    @property
+    def timer_cycles(self) -> int: return self.timer.timer_cycles
+    @timer_cycles.setter
+    def timer_cycles(self, value: int) -> None: self.timer.timer_cycles = value
+
+    def set_flag(self, flag: str, value: bool = True) -> None:
+        if flag not in ("z", "n", "h", "c"): raise ValueError(f"Unknown flag: {flag}")
+        mask = {"z": FLAG_Z, "n": FLAG_N, "h": FLAG_H, "c": FLAG_C}[flag]
+        if value: self.registers.data[RegisterFile.F] |= mask
+        else: self.registers.data[RegisterFile.F] &= ~mask
+
+    def get_flag(self, flag: str) -> bool:
+        mask = {"z": FLAG_Z, "n": FLAG_N, "h": FLAG_H, "c": FLAG_C}[flag]
+        return bool(self.registers.data[RegisterFile.F] & mask)
+
+    def clear_flag(self, flag: str) -> None: self.set_flag(flag, False)
 
     def _build_instruction_table(self):
         table = [None] * 256
@@ -409,112 +459,112 @@ class CPU(CPUOpcodes):
 
     def _sync_flags_from_register(self):
         flag_register = self.registers["F"]
-        for flag, mask in CPU.FLAG_MASKS.items():
-            self.flags[flag] = bool(flag_register & mask)
+        for flag, mask in FLAG_MASKS.items():
+            self.set_flag(flag, bool(flag_register & mask))
 
     def _write_flag(self, flag, value):
         flag_state = bool(value)
-        self.flags[flag] = flag_state
+        self.set_flag(flag, flag_state)
         flag_register = self.registers.data[RegisterFile.F]
         if value:
-            flag_register |= CPU.FLAG_MASKS[flag]
+            flag_register |= FLAG_MASKS[flag]
         else:
-            flag_register &= ~CPU.FLAG_MASKS[flag]
+            flag_register &= ~FLAG_MASKS[flag]
         self.registers.data[RegisterFile.F] = flag_register & 0xF0
 
     def _set_inc_flags(self, value, result):
         z = result == 0
         h = (value & 0x0F) == 0x0F
-        self.flags["z"] = z
-        self.flags["n"] = False
-        self.flags["h"] = h
-        flag_register = self.registers.data[RegisterFile.F] & CPU.FLAG_MASKS["c"]
+        self.set_flag("z", z)
+        self.set_flag("n", False)
+        self.set_flag("h", h)
+        flag_register = self.registers.data[RegisterFile.F] & FLAG_MASKS["c"]
         if z:
-            flag_register |= CPU.FLAG_MASKS["z"]
+            flag_register |= FLAG_MASKS["z"]
         if h:
-            flag_register |= CPU.FLAG_MASKS["h"]
+            flag_register |= FLAG_MASKS["h"]
         self.registers.data[RegisterFile.F] = flag_register
 
     def _set_dec_flags(self, value, result):
         z = result == 0
         h = (value & 0x0F) == 0x00
-        self.flags["z"] = z
-        self.flags["n"] = True
-        self.flags["h"] = h
-        flag_register = self.registers.data[RegisterFile.F] & CPU.FLAG_MASKS["c"]
-        flag_register |= CPU.FLAG_MASKS["n"]
+        self.set_flag("z", z)
+        self.set_flag("n", True)
+        self.set_flag("h", h)
+        flag_register = self.registers.data[RegisterFile.F] & FLAG_MASKS["c"]
+        flag_register |= FLAG_MASKS["n"]
         if z:
-            flag_register |= CPU.FLAG_MASKS["z"]
+            flag_register |= FLAG_MASKS["z"]
         if h:
-            flag_register |= CPU.FLAG_MASKS["h"]
+            flag_register |= FLAG_MASKS["h"]
         self.registers.data[RegisterFile.F] = flag_register
 
     def _set_add_flags(self, left, right, result):
         z = (result & 0xFF) == 0
         h = ((left & 0x0F) + (right & 0x0F)) > 0x0F
         c = result > 0xFF
-        self.flags["z"] = z
-        self.flags["n"] = False
-        self.flags["h"] = h
-        self.flags["c"] = c
+        self.set_flag("z", z)
+        self.set_flag("n", False)
+        self.set_flag("h", h)
+        self.set_flag("c", c)
         flag_register = 0
         if z:
-            flag_register |= CPU.FLAG_MASKS["z"]
+            flag_register |= FLAG_MASKS["z"]
         if h:
-            flag_register |= CPU.FLAG_MASKS["h"]
+            flag_register |= FLAG_MASKS["h"]
         if c:
-            flag_register |= CPU.FLAG_MASKS["c"]
+            flag_register |= FLAG_MASKS["c"]
         self.registers.data[RegisterFile.F] = flag_register
 
     def _set_adc_flags(self, left, right, carry, result):
         z = (result & 0xFF) == 0
         h = ((left & 0x0F) + (right & 0x0F) + carry) > 0x0F
         c = result > 0xFF
-        self.flags["z"] = z
-        self.flags["n"] = False
-        self.flags["h"] = h
-        self.flags["c"] = c
+        self.set_flag("z", z)
+        self.set_flag("n", False)
+        self.set_flag("h", h)
+        self.set_flag("c", c)
         flag_register = 0
         if z:
-            flag_register |= CPU.FLAG_MASKS["z"]
+            flag_register |= FLAG_MASKS["z"]
         if h:
-            flag_register |= CPU.FLAG_MASKS["h"]
+            flag_register |= FLAG_MASKS["h"]
         if c:
-            flag_register |= CPU.FLAG_MASKS["c"]
+            flag_register |= FLAG_MASKS["c"]
         self.registers.data[RegisterFile.F] = flag_register
 
     def _set_sub_flags(self, left, right, result):
         z = (result & 0xFF) == 0
         h = (left & 0x0F) < (right & 0x0F)
         c = left < right
-        self.flags["z"] = z
-        self.flags["n"] = True
-        self.flags["h"] = h
-        self.flags["c"] = c
-        flag_register = CPU.FLAG_MASKS["n"]
+        self.set_flag("z", z)
+        self.set_flag("n", True)
+        self.set_flag("h", h)
+        self.set_flag("c", c)
+        flag_register = FLAG_MASKS["n"]
         if z:
-            flag_register |= CPU.FLAG_MASKS["z"]
+            flag_register |= FLAG_MASKS["z"]
         if h:
-            flag_register |= CPU.FLAG_MASKS["h"]
+            flag_register |= FLAG_MASKS["h"]
         if c:
-            flag_register |= CPU.FLAG_MASKS["c"]
+            flag_register |= FLAG_MASKS["c"]
         self.registers.data[RegisterFile.F] = flag_register
 
     def _set_sbc_flags(self, left, right, carry, result):
         z = (result & 0xFF) == 0
         h = (left & 0x0F) < ((right & 0x0F) + carry)
         c = left < (right + carry)
-        self.flags["z"] = z
-        self.flags["n"] = True
-        self.flags["h"] = h
-        self.flags["c"] = c
-        flag_register = CPU.FLAG_MASKS["n"]
+        self.set_flag("z", z)
+        self.set_flag("n", True)
+        self.set_flag("h", h)
+        self.set_flag("c", c)
+        flag_register = FLAG_MASKS["n"]
         if z:
-            flag_register |= CPU.FLAG_MASKS["z"]
+            flag_register |= FLAG_MASKS["z"]
         if h:
-            flag_register |= CPU.FLAG_MASKS["h"]
+            flag_register |= FLAG_MASKS["h"]
         if c:
-            flag_register |= CPU.FLAG_MASKS["c"]
+            flag_register |= FLAG_MASKS["c"]
         self.registers.data[RegisterFile.F] = flag_register
 
     def _read_pair(self, registers):
@@ -528,35 +578,35 @@ class CPU(CPUOpcodes):
     def _set_add_hl_flags(self, left, right, result):
         h = ((left & 0x0FFF) + (right & 0x0FFF)) > 0x0FFF
         c = result > 0xFFFF
-        self.flags["n"] = False
-        self.flags["h"] = h
-        self.flags["c"] = c
-        flag_register = self.registers.data[RegisterFile.F] & CPU.FLAG_MASKS["z"]
+        self.set_flag("n", False)
+        self.set_flag("h", h)
+        self.set_flag("c", c)
+        flag_register = self.registers.data[RegisterFile.F] & FLAG_MASKS["z"]
         if h:
-            flag_register |= CPU.FLAG_MASKS["h"]
+            flag_register |= FLAG_MASKS["h"]
         if c:
-            flag_register |= CPU.FLAG_MASKS["c"]
+            flag_register |= FLAG_MASKS["c"]
         self.registers.data[RegisterFile.F] = flag_register
 
     def _set_sp_e8_flags(self, value, offset):
         unsigned_offset = offset & 0xFF
         h = ((value & 0x0F) + (unsigned_offset & 0x0F)) > 0x0F
         c = ((value & 0xFF) + unsigned_offset) > 0xFF
-        self.flags["z"] = False
-        self.flags["n"] = False
-        self.flags["h"] = h
-        self.flags["c"] = c
+        self.set_flag("z", False)
+        self.set_flag("n", False)
+        self.set_flag("h", h)
+        self.set_flag("c", c)
         flag_register = 0
         if h:
-            flag_register |= CPU.FLAG_MASKS["h"]
+            flag_register |= FLAG_MASKS["h"]
         if c:
-            flag_register |= CPU.FLAG_MASKS["c"]
+            flag_register |= FLAG_MASKS["c"]
         self.registers.data[RegisterFile.F] = flag_register
 
     def _write_flags_from_states(self):
         flag_register = 0
-        for flag, mask in CPU.FLAG_MASKS.items():
-            if self.flags[flag]:
+        for flag, mask in FLAG_MASKS.items():
+            if self.get_flag(flag):
                 flag_register |= mask
         self.registers.data[RegisterFile.F] = flag_register
 
@@ -577,9 +627,9 @@ class CPU(CPUOpcodes):
             return
         # Special registers that trigger resets
         if address == 0xFF04:
-            self.divider_cycles = 0
+            self.timer.reset_div()
         if address == 0xFF07:
-            self.timer_cycles = 0
+            self.timer.reset_tima()
         # Fallback to full memory bus
         self.ram.write_byte(address, value)
 
@@ -641,55 +691,55 @@ class CPU(CPUOpcodes):
 
     def _set_xor_flags(self, result):
         z = result == 0
-        self.flags["z"] = z
-        self.flags["n"] = False
-        self.flags["h"] = False
-        self.flags["c"] = False
-        self.registers.data[RegisterFile.F] = CPU.FLAG_MASKS["z"] if z else 0
+        self.set_flag("z", z)
+        self.set_flag("n", False)
+        self.set_flag("h", False)
+        self.set_flag("c", False)
+        self.registers.data[RegisterFile.F] = FLAG_MASKS["z"] if z else 0
 
     def _set_and_flags(self, result):
         z = result == 0
-        self.flags["z"] = z
-        self.flags["n"] = False
-        self.flags["h"] = True
-        self.flags["c"] = False
-        flag_register = CPU.FLAG_MASKS["h"]
+        self.set_flag("z", z)
+        self.set_flag("n", False)
+        self.set_flag("h", True)
+        self.set_flag("c", False)
+        flag_register = FLAG_MASKS["h"]
         if z:
-            flag_register |= CPU.FLAG_MASKS["z"]
+            flag_register |= FLAG_MASKS["z"]
         self.registers.data[RegisterFile.F] = flag_register
 
     def _set_or_flags(self, result):
         z = result == 0
-        self.flags["z"] = z
-        self.flags["n"] = False
-        self.flags["h"] = False
-        self.flags["c"] = False
-        self.registers.data[RegisterFile.F] = CPU.FLAG_MASKS["z"] if z else 0
+        self.set_flag("z", z)
+        self.set_flag("n", False)
+        self.set_flag("h", False)
+        self.set_flag("c", False)
+        self.registers.data[RegisterFile.F] = FLAG_MASKS["z"] if z else 0
 
     def _set_cb_result_flags(self, result, carry=False):
         z = result == 0
         c = bool(carry)
-        self.flags["z"] = z
-        self.flags["n"] = False
-        self.flags["h"] = False
-        self.flags["c"] = c
+        self.set_flag("z", z)
+        self.set_flag("n", False)
+        self.set_flag("h", False)
+        self.set_flag("c", c)
         flag_register = 0
         if z:
-            flag_register |= CPU.FLAG_MASKS["z"]
+            flag_register |= FLAG_MASKS["z"]
         if c:
-            flag_register |= CPU.FLAG_MASKS["c"]
+            flag_register |= FLAG_MASKS["c"]
         self.registers.data[RegisterFile.F] = flag_register
 
     def _set_bit_flags(self, value, bit):
         z = (value & (1 << bit)) == 0
-        self.flags["z"] = z
-        self.flags["n"] = False
-        self.flags["h"] = True
-        flag_register = CPU.FLAG_MASKS["h"]
+        self.set_flag("z", z)
+        self.set_flag("n", False)
+        self.set_flag("h", True)
+        flag_register = FLAG_MASKS["h"]
         if z:
-            flag_register |= CPU.FLAG_MASKS["z"]
-        if self.flags["c"]:
-            flag_register |= CPU.FLAG_MASKS["c"]
+            flag_register |= FLAG_MASKS["z"]
+        if self.get_flag("c"):
+            flag_register |= FLAG_MASKS["c"]
         self.registers.data[RegisterFile.F] = flag_register
 
     @staticmethod
@@ -857,48 +907,13 @@ class CPU(CPUOpcodes):
         """
         self._write_flag("c", value)
 
-    def _write_unknown_flag(self, flag, state=True):
-        raise ValueError(
-            f"Attempted to write state " + str(state) + "to unknown flag" + str(flag)
-        )
+    def clear_flag(self, flag: str) -> None:
+        self.set_flag(flag, False)
 
-    flag_write_functions_ = {
-        "z": (_write_flag_z),
-        "n": (_write_flag_n),
-        "h": (_write_flag_h),
-        "c": (_write_flag_c),
-    }
+    def get_flag(self, flag: str) -> bool:
+        mask = {"z": FLAG_Z, "n": FLAG_N, "h": FLAG_H, "c": FLAG_C}[flag]
+        return bool(self.registers.data[RegisterFile.F] & mask)
 
-    def set_flag(self, flag, state=True):
-        """
-        Set the specified flag to 1.
-
-        Args:
-            flag (str): The flag to set ('z', 'n', 'h', 'c').
-        """
-        method = self.flag_write_functions_.get(flag, self._write_unknown_flag)
-        method(self, state)
-
-    def clear_flag(self, flag):
-        """
-        Clear the specified flag to 0.
-
-        Args:
-            flag (str): The flag to clear ('z', 'n', 'h', 'c').
-        """
-        method = self.flag_write_functions_.get(flag, self._write_unknown_flag)
-        method(self, 0)
-
-    def get_flag(self, flag):
-        """
-        Get the current state of a flag
-
-        Returns:
-            bool: A dictionary with flag names as keys and their states as values (True for set, False for clear).
-        """
-
-        if flag not in self.flags: raise ValueError(f"Unknown flag: {flag}")
-        return self.flags[flag]
 
     #     _    _      _                   ______                _   _
     #    | |  | |    | |                 |  ____|              | | (_)
@@ -1265,15 +1280,15 @@ class CPU(CPUOpcodes):
                 result = (value >> 1) | (0x80 if carry else 0)
             elif opcode == 0x17:
                 carry = (value & 0x80) != 0
-                result = ((value << 1) | (1 if self.flags["c"] else 0)) & 0xFF
+                result = ((value << 1) | (1 if self.get_flag("c") else 0)) & 0xFF
             else:
                 carry = (value & 0x01) != 0
-                result = (value >> 1) | (0x80 if self.flags["c"] else 0)
+                result = (value >> 1) | (0x80 if self.get_flag("c") else 0)
             self.registers.data[RegisterFile.A] = result
-            self.flags["z"] = False
-            self.flags["n"] = False
-            self.flags["h"] = False
-            self.flags["c"] = carry
+            self.set_flag("z", False)
+            self.set_flag("n", False)
+            self.set_flag("h", False)
+            self.set_flag("c", carry)
             self._write_flags_from_states()
             self.registers["PC"] = pc + 1
             return opcode, 4
@@ -1281,24 +1296,24 @@ class CPU(CPUOpcodes):
         if opcode == 0x27:
             value = self.registers.data[RegisterFile.A]
             adjustment = 0
-            carry = self.flags["c"]
-            if not self.flags["n"]:
-                if self.flags["h"] or (value & 0x0F) > 9:
+            carry = self.get_flag("c")
+            if not self.get_flag("n"):
+                if self.get_flag("h") or (value & 0x0F) > 9:
                     adjustment |= 0x06
-                if self.flags["c"] or value > 0x99:
+                if self.get_flag("c") or value > 0x99:
                     adjustment |= 0x60
                     carry = True
                 value = (value + adjustment) & 0xFF
             else:
-                if self.flags["h"]:
+                if self.get_flag("h"):
                     adjustment |= 0x06
-                if self.flags["c"]:
+                if self.get_flag("c"):
                     adjustment |= 0x60
                 value = (value - adjustment) & 0xFF
             self.registers.data[RegisterFile.A] = value
-            self.flags["z"] = value == 0
-            self.flags["h"] = False
-            self.flags["c"] = carry
+            self.set_flag("z", value == 0)
+            self.set_flag("h", False)
+            self.set_flag("c", carry)
             self._write_flags_from_states()
             self.registers["PC"] = pc + 1
             return opcode, 4
@@ -1307,8 +1322,8 @@ class CPU(CPUOpcodes):
             self.registers.data[RegisterFile.A] = (
                 self.registers.data[RegisterFile.A] ^ 0xFF
             )
-            self.flags["n"] = True
-            self.flags["h"] = True
+            self.set_flag("n", True)
+            self.set_flag("h", True)
             self._write_flags_from_states()
             self.registers["PC"] = pc + 1
             return opcode, 4
@@ -1339,10 +1354,10 @@ class CPU(CPUOpcodes):
                     result = (value >> 1) | (0x80 if carry else 0)
                 elif operation == 2:
                     carry = (value & 0x80) != 0
-                    result = ((value << 1) | (1 if self.flags["c"] else 0)) & 0xFF
+                    result = ((value << 1) | (1 if self.get_flag("c") else 0)) & 0xFF
                 elif operation == 3:
                     carry = (value & 0x01) != 0
-                    result = (value >> 1) | (0x80 if self.flags["c"] else 0)
+                    result = (value >> 1) | (0x80 if self.get_flag("c") else 0)
                 elif operation == 4:
                     carry = (value & 0x80) != 0
                     result = (value << 1) & 0xFF
@@ -1394,14 +1409,14 @@ class CPU(CPUOpcodes):
         jump_condition = self.fast_jr_ops[opcode]
         if jump_condition != -1:
             should_jump = True
-            if jump_condition == CPU.CONDITION_NZ:
-                should_jump = not self.flags["z"]
-            elif jump_condition == CPU.CONDITION_Z:
-                should_jump = self.flags["z"]
-            elif jump_condition == CPU.CONDITION_NC:
-                should_jump = not self.flags["c"]
-            elif jump_condition == CPU.CONDITION_C:
-                should_jump = self.flags["c"]
+            if jump_condition == CONDITION_NZ:
+                should_jump = not self.get_flag("z")
+            elif jump_condition == CONDITION_Z:
+                should_jump = self.get_flag("z")
+            elif jump_condition == CONDITION_NC:
+                should_jump = not self.get_flag("c")
+            elif jump_condition == CONDITION_C:
+                should_jump = self.get_flag("c")
 
             if should_jump:
                 offset = CPU._signed_e8(self.memory[(pc + 1) & 0xFFFF])
@@ -1415,14 +1430,14 @@ class CPU(CPUOpcodes):
             jump_condition = self.fast_jp_ops[opcode]
             if jump_condition != -1:
                 should_jump = True
-                if jump_condition == CPU.CONDITION_NZ:
-                    should_jump = not self.flags["z"]
-                elif jump_condition == CPU.CONDITION_Z:
-                    should_jump = self.flags["z"]
-                elif jump_condition == CPU.CONDITION_NC:
-                    should_jump = not self.flags["c"]
-                elif jump_condition == CPU.CONDITION_C:
-                    should_jump = self.flags["c"]
+                if jump_condition == CONDITION_NZ:
+                    should_jump = not self.get_flag("z")
+                elif jump_condition == CONDITION_Z:
+                    should_jump = self.get_flag("z")
+                elif jump_condition == CONDITION_NC:
+                    should_jump = not self.get_flag("c")
+                elif jump_condition == CONDITION_C:
+                    should_jump = self.get_flag("c")
 
                 if should_jump:
                     low = self.memory[(pc + 1) & 0xFFFF]
@@ -1440,14 +1455,14 @@ class CPU(CPUOpcodes):
             call_condition = self.fast_call_ops[opcode]
             if call_condition != -1:
                 should_call = True
-                if call_condition == CPU.CONDITION_NZ:
-                    should_call = not self.flags["z"]
-                elif call_condition == CPU.CONDITION_Z:
-                    should_call = self.flags["z"]
-                elif call_condition == CPU.CONDITION_NC:
-                    should_call = not self.flags["c"]
-                elif call_condition == CPU.CONDITION_C:
-                    should_call = self.flags["c"]
+                if call_condition == CONDITION_NZ:
+                    should_call = not self.get_flag("z")
+                elif call_condition == CONDITION_Z:
+                    should_call = self.get_flag("z")
+                elif call_condition == CONDITION_NC:
+                    should_call = not self.get_flag("c")
+                elif call_condition == CONDITION_C:
+                    should_call = self.get_flag("c")
 
                 if should_call:
                     low = self.memory[(pc + 1) & 0xFFFF]
@@ -1467,14 +1482,14 @@ class CPU(CPUOpcodes):
             ret_condition = self.fast_ret_ops[opcode]
             if ret_condition != -1:
                 should_return = True
-                if ret_condition == CPU.CONDITION_NZ:
-                    should_return = not self.flags["z"]
-                elif ret_condition == CPU.CONDITION_Z:
-                    should_return = self.flags["z"]
-                elif ret_condition == CPU.CONDITION_NC:
-                    should_return = not self.flags["c"]
-                elif ret_condition == CPU.CONDITION_C:
-                    should_return = self.flags["c"]
+                if ret_condition == CONDITION_NZ:
+                    should_return = not self.get_flag("z")
+                elif ret_condition == CONDITION_Z:
+                    should_return = self.get_flag("z")
+                elif ret_condition == CONDITION_NC:
+                    should_return = not self.get_flag("c")
+                elif ret_condition == CONDITION_C:
+                    should_return = self.get_flag("c")
 
                 if should_return:
                     sp = self.registers["SP"]
@@ -1484,7 +1499,7 @@ class CPU(CPUOpcodes):
                     sp = (sp + 1) & 0xFFFF
                     self.registers["SP"] = sp
                     self.registers["PC"] = (high << 8) | low
-                    cycles = 16 if ret_condition == CPU.CONDITION_ALWAYS else 20
+                    cycles = 16 if ret_condition == CONDITION_ALWAYS else 20
                     return opcode, cycles
 
                 self.registers["PC"] = pc + 1
@@ -1547,7 +1562,7 @@ class CPU(CPUOpcodes):
                     self.registers.data[RegisterFile.A] = result & 0xFF
                     self._set_add_flags(left, right, result)
                 elif opcode == 0xCE:
-                    carry = 1 if self.flags["c"] else 0
+                    carry = 1 if self.get_flag("c") else 0
                     result = left + right + carry
                     self.registers.data[RegisterFile.A] = result & 0xFF
                     self._set_adc_flags(left, right, carry, result)
@@ -1556,7 +1571,7 @@ class CPU(CPUOpcodes):
                     self.registers.data[RegisterFile.A] = result & 0xFF
                     self._set_sub_flags(left, right, result)
                 elif opcode == 0xDE:
-                    carry = 1 if self.flags["c"] else 0
+                    carry = 1 if self.get_flag("c") else 0
                     result = left - right - carry
                     self.registers.data[RegisterFile.A] = result & 0xFF
                     self._set_sbc_flags(left, right, carry, result)
@@ -1712,23 +1727,23 @@ class CPU(CPUOpcodes):
             return opcode, 12
 
         if opcode == 0x37:
-            self.flags["n"] = False
-            self.flags["h"] = False
-            self.flags["c"] = True
-            flag_register = self.registers.data[RegisterFile.F] & CPU.FLAG_MASKS["z"]
-            flag_register |= CPU.FLAG_MASKS["c"]
+            self.set_flag("n", False)
+            self.set_flag("h", False)
+            self.set_flag("c", True)
+            flag_register = self.registers.data[RegisterFile.F] & FLAG_MASKS["z"]
+            flag_register |= FLAG_MASKS["c"]
             self.registers.data[RegisterFile.F] = flag_register
             self.registers["PC"] = pc + 1
             return opcode, 4
 
         if opcode == 0x3F:
-            carry = not self.flags["c"]
-            self.flags["n"] = False
-            self.flags["h"] = False
-            self.flags["c"] = carry
-            flag_register = self.registers.data[RegisterFile.F] & CPU.FLAG_MASKS["z"]
+            carry = not self.get_flag("c")
+            self.set_flag("n", False)
+            self.set_flag("h", False)
+            self.set_flag("c", carry)
+            flag_register = self.registers.data[RegisterFile.F] & FLAG_MASKS["z"]
             if carry:
-                flag_register |= CPU.FLAG_MASKS["c"]
+                flag_register |= FLAG_MASKS["c"]
             self.registers.data[RegisterFile.F] = flag_register
             self.registers["PC"] = pc + 1
             return opcode, 4
@@ -1843,7 +1858,7 @@ class CPU(CPUOpcodes):
         if register != -1:
             left = self.registers.data[RegisterFile.A]
             right = self.registers.data[register]
-            carry = 1 if self.flags["c"] else 0
+            carry = 1 if self.get_flag("c") else 0
             result = left + right + carry
             self.registers.data[RegisterFile.A] = result & 0xFF
             self._set_adc_flags(left, right, carry, result)
@@ -1853,7 +1868,7 @@ class CPU(CPUOpcodes):
             hl = (self.registers.data[RegisterFile.H] << 8) | self.registers.data[RegisterFile.L]
             left = self.registers.data[RegisterFile.A]
             right = self._read_memory_byte(hl)
-            carry = 1 if self.flags["c"] else 0
+            carry = 1 if self.get_flag("c") else 0
             result = left + right + carry
             self.registers.data[RegisterFile.A] = result & 0xFF
             self._set_adc_flags(left, right, carry, result)
@@ -1883,7 +1898,7 @@ class CPU(CPUOpcodes):
         if register != -1:
             left = self.registers.data[RegisterFile.A]
             right = self.registers.data[register]
-            carry = 1 if self.flags["c"] else 0
+            carry = 1 if self.get_flag("c") else 0
             result = left - right - carry
             self.registers.data[RegisterFile.A] = result & 0xFF
             self._set_sbc_flags(left, right, carry, result)
@@ -1893,7 +1908,7 @@ class CPU(CPUOpcodes):
             hl = (self.registers.data[RegisterFile.H] << 8) | self.registers.data[RegisterFile.L]
             left = self.registers.data[RegisterFile.A]
             right = self._read_memory_byte(hl)
-            carry = 1 if self.flags["c"] else 0
+            carry = 1 if self.get_flag("c") else 0
             result = left - right - carry
             self.registers.data[RegisterFile.A] = result & 0xFF
             self._set_sbc_flags(left, right, carry, result)
@@ -2025,8 +2040,8 @@ class CPU(CPUOpcodes):
         clock = self.clock
         video = self.video
         apu = self.apu
-        update_timers = self._update_timers
-        update_interrupt_enable_delay = self._update_interrupt_enable_delay
+        interrupts = self.interrupts
+        timer = self.timer
         wait_for_next_cycle = clock.wait_for_next_cycle
         
         elapsed_cycles = 0
@@ -2045,10 +2060,7 @@ class CPU(CPUOpcodes):
                     start_time = time.time()
 
                 # 2. Service interrupts
-                if self.interrupt_master_enable or self.halted:
-                    c = self._service_interrupts()
-                else:
-                    c = 0
+                c = interrupts.service(self)
                 
                 # 3. Execute instruction or handle halt
                 if c > 0:
@@ -2070,13 +2082,12 @@ class CPU(CPUOpcodes):
                 if batch_cycles >= BATCH_SIZE:
                     if video: video.step(batch_cycles)
                     if apu: apu.step(batch_cycles)
-                    update_timers(batch_cycles)
+                    timer.step(batch_cycles)
                     clock.update(batch_cycles)
                     batch_cycles = 0
                 
                 # Update interrupt delay (only if pending)
-                if self.enable_interrupts_delay > 0:
-                    update_interrupt_enable_delay()
+                interrupts.update_ime_delay()
 
                 # 7. Check limits
                 instructions_executed += 1
@@ -2097,7 +2108,7 @@ class CPU(CPUOpcodes):
         if batch_cycles > 0:
             if video: video.step(batch_cycles)
             if apu: apu.step(batch_cycles)
-            update_timers(batch_cycles)
+            timer.step(batch_cycles)
             
         if realtime and elapsed_cycles:
             wait_for_next_cycle(elapsed_cycles)

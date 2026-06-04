@@ -1,4 +1,4 @@
-from typing import Tuple, Union
+from typing import Tuple, Union, Final
 try:
     from typing import TypeAlias
 except ImportError:
@@ -21,3 +21,9 @@ Sample: TypeAlias = Tuple[float, float]
 
 # Video types
 ColorIndex: TypeAlias = int  # 0-3
+
+# Flag constants (masks)
+FLAG_Z: Final[int] = 0x80
+FLAG_N: Final[int] = 0x40
+FLAG_H: Final[int] = 0x20
+FLAG_C: Final[int] = 0x10
