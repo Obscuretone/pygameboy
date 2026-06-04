@@ -3779,7 +3779,7 @@ class CPUOpcodes:
             if data is not None
             else self._read_memory_byte((self.registers[REG_PC] + 1)  & WORD_MASK)
         )
-        self.registers[REG_A] = self._read_memory_byte(int(0xFF00 + n8)
+        self.registers[REG_A] = self._read_memory_byte(int(0xFF00 + n8))
         self.registers[REG_PC] += 2
         return 12
 
@@ -3791,7 +3791,7 @@ class CPUOpcodes:
 
     def _ld_a_c_mem(self, data=None):
         """Opcode 0xF2 (LD 'A','C',)"""
-        self.registers[REG_A] = self._read_memory_byte(int(0xFF00 + self.registers[REG_C])
+        self.registers[REG_A] = self._read_memory_byte(int(0xFF00 + self.registers[REG_C]))
         self.registers[REG_PC] += 1
         return 8
 
