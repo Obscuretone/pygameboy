@@ -16,13 +16,13 @@ class SystemClock:
             clock_speed_hz: The target clock speed in Hertz.
         """
         self.clock_speed_hz: int = clock_speed_hz
-        self.start_time: float = time.time()
+        self.start_time: float = time.perf_counter()
         self.last_time: float = self.start_time
         self.cycles_elapsed: int = 0
 
     def reset(self) -> None:
         """Reset the clock and cycle count."""
-        self.start_time = time.time()
+        self.start_time = time.perf_counter()
         self.last_time = self.start_time
         self.cycles_elapsed = 0
 
@@ -37,7 +37,7 @@ class SystemClock:
         """
         ideal_elapsed = cycles / self.clock_speed_hz
         self.last_time += ideal_elapsed
-        current_time = time.time()
+        current_time = time.perf_counter()
 
         if self.last_time > current_time:
             time.sleep(self.last_time - current_time)

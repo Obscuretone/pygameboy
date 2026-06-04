@@ -186,35 +186,35 @@ def main() -> None:
 
     def audio_callback(outdata, frames, time, status):
         nonlocal last_audio_sample
-        if status:
+        if status and args.verbose:
             print(status)
 
         read_pos = apu.buffer_read_pos
         size = apu.buffer_size
 
         if size >= frames:
-            if read_pos + frames <= apu.SAMPLE_RATE:
+            if read_pos + frames <= apu.BUFFER_MAX:
                 outdata[:] = apu.buffer[read_pos : read_pos + frames]
             else:
-                chunk1 = apu.SAMPLE_RATE - read_pos
+                chunk1 = apu.BUFFER_MAX - read_pos
                 chunk2 = frames - chunk1
                 outdata[:chunk1] = apu.buffer[read_pos:]
                 outdata[chunk1:] = apu.buffer[:chunk2]
 
-            apu.buffer_read_pos = (read_pos + frames) % apu.SAMPLE_RATE
+            apu.buffer_read_pos = (read_pos + frames) % apu.BUFFER_MAX
             apu.buffer_size -= frames
             last_audio_sample[:] = outdata[-1]
         else:
             if size > 0:
-                if read_pos + size <= apu.SAMPLE_RATE:
+                if read_pos + size <= apu.BUFFER_MAX:
                     outdata[:size] = apu.buffer[read_pos : read_pos + size]
                 else:
-                    chunk1 = apu.SAMPLE_RATE - read_pos
+                    chunk1 = apu.BUFFER_MAX - read_pos
                     chunk2 = size - chunk1
                     outdata[:chunk1] = apu.buffer[read_pos:]
                     outdata[chunk1:size] = apu.buffer[:chunk2]
                 outdata[size:] = outdata[size - 1]
-                apu.buffer_read_pos = (read_pos + size) % apu.SAMPLE_RATE
+                apu.buffer_read_pos = (read_pos + size) % apu.BUFFER_MAX
                 apu.buffer_size = 0
                 last_audio_sample[:] = outdata[-1]
             else:
@@ -231,6 +231,7 @@ def main() -> None:
             callback=audio_callback,
             samplerate=apu.SAMPLE_RATE,
             blocksize=1024,
+            latency='high',
         )
         stream.start()
 
@@ -273,9 +274,19 @@ def main() -> None:
             running = handle_input(ram.joypad)
 
             # Run CPU for one frame worth of cycles (~70224 cycles)
+            # Sync to audio stream if available, otherwise sync to system clock
+            realtime_clock = not args.no_realtime
+            
+            if realtime_clock and stream is not None:
+                # Target latency ~2048 samples. If we have more than that, wait.
+                # Audio thread will drain buffer while we wait.
+                while apu.buffer_size > 2048:
+                    pygame.time.wait(1)
+                realtime_clock = False # Don't use SystemClock sleep
+                    
             cpu.run(
                 max_cycles=FRAME_CYCLES,
-                realtime=not args.no_realtime,
+                realtime=realtime_clock,
                 fast=not args.slow_step,
                 announce=False,
                 profile_opcodes=args.profile,
