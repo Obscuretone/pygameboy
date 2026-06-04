@@ -40,6 +40,7 @@ from constants import (
     ECHO_END,
     IO_START,
     HRAM_START,
+    WRAM_START,
     REG_JOYP,
     REG_SB,
     REG_SC,
@@ -72,6 +73,7 @@ WriteHandler = Callable[[Address, Byte], None]
 class Memory:
     """
     Handles the GameBoy's 64KB address space using a Flat Memory model.
+    The 'storage' array is the single source of truth for the entire address space.
     """
 
     storage: bytearray 
@@ -100,7 +102,6 @@ class Memory:
 
         # Initialize IO registers to hardware defaults
         for i in range(0xFF00, 0x10000):
-            # If the data provided was zeroed, we still want to set defaults for IO
             if self.storage[i] == 0:
                 self.storage[i] = 0xFF
         
@@ -108,7 +109,7 @@ class Memory:
         for addr in [REG_JOYP, REG_DIV, REG_TIMA, REG_TMA, REG_TAC, REG_IF, REG_LY, IE_REG, 0xFF50]:
             self.storage[addr] = 0x00
         
-        # APU master switch default
+        # APU master switch default (Sound Off)
         self.storage[0xFF26] = 0x00 
 
         self.cartridge_boot_area: Optional[bytearray] = None
@@ -144,6 +145,7 @@ class Memory:
             setattr(value, "on_bank_change", self._on_mbc_bank_change)
             setattr(value, "on_ram_bank_change", self._on_mbc_ram_bank_change)
             
+            # Sync Initial ROM Banks
             bank0_data = value.rom[0:ROM_BANK_SIZE]
             if not self.boot_rom_disabled and self.cartridge_boot_area is not None:
                 boot_len = len(self.cartridge_boot_area)
@@ -156,6 +158,7 @@ class Memory:
             if limit > ROM_BANK_SIZE:
                 self.storage[ROM_BANK_SIZE:limit] = value.rom[ROM_BANK_SIZE:limit]
             
+            # Sync Initial RAM Bank if enabled
             if value.ram_enabled:
                 self.storage[ERAM_START : ERAM_END + 1] = value.ram[0:0x2000]
             else:
@@ -182,6 +185,7 @@ class Memory:
         self.boot_rom_disabled = False
 
     def _update_page_table(self) -> None:
+        """Configure the write page tables."""
         for i in range(PAGE_COUNT):
             self.write_pages[i] = self._write_ram_direct
 
@@ -191,18 +195,18 @@ class Memory:
             for i in range(ERAM_START >> 8, (ERAM_END >> 8) + 1):
                 self.write_pages[i] = self._write_mbc_ram
 
-        self.write_pages[UNUSABLE_START >> 8] = self._write_oam_area
-        self.write_pages[IO_START >> 8] = self._write_io_hram
+        # specialized mirroring for WRAM
+        for i in range(WRAM_START >> 8, (0xDDFF >> 8) + 1):
+            self.write_pages[i] = self._write_wram_mirrored
 
         for i in range(ECHO_START >> 8, (ECHO_END >> 8) + 1):
             self.write_pages[i] = self._write_echo_ram
 
+        self.write_pages[UNUSABLE_START >> 8] = self._write_oam_unusable_area
+        self.write_pages[IO_START >> 8] = self._write_io_hram
+
     def _write_ram_direct(self, address: Address, value: Byte) -> None:
         self.storage[address] = value
-        if 0xC000 <= address <= 0xDDFF:
-            self.storage[address + ECHO_OFFSET] = value
-        elif 0xE000 <= address <= 0xFDFF:
-            self.storage[address - ECHO_OFFSET] = value
 
     def _write_mbc_rom(self, address: Address, value: Byte) -> None:
         if self._mbc:
@@ -218,11 +222,16 @@ class Memory:
         else:
             self.storage[address] = value
 
+    def _write_wram_mirrored(self, address: Address, value: Byte) -> None:
+        self.storage[address] = value
+        if address <= 0xDDFF:
+            self.storage[address + ECHO_OFFSET] = value
+
     def _write_echo_ram(self, address: Address, value: Byte) -> None:
         self.storage[address] = value
         self.storage[address - ECHO_OFFSET] = value
 
-    def _write_oam_area(self, address: Address, value: Byte) -> None:
+    def _write_oam_unusable_area(self, address: Address, value: Byte) -> None:
         if address <= OAM_END:
             self.storage[address] = value
 
@@ -241,16 +250,11 @@ class Memory:
 
         if REG_NR10 <= address <= REG_WAVE_RAM_END:
             self.apu.write_byte(address, value)
-            # Synchronize NR52 switch behavior
             if address == 0xFF26:
-                if not (value & 0x80): # Sound OFF
-                    # Registers read as 0xFF when APU is off
-                    for i in range(0xFF10, 0xFF26):
-                        self.storage[i] = 0xFF
-                else: # Sound ON
-                    # Test expects registers to be 0 initially when turned on
-                    for i in range(0xFF10, 0xFF26):
-                        self.storage[i] = 0x00
+                if not (value & 0x80):
+                    for i in range(0xFF10, 0xFF26): self.storage[i] = 0xFF
+                else:
+                    for i in range(0xFF10, 0xFF26): self.storage[i] = 0x00
             else:
                 self.storage[address] = value
             return
@@ -293,4 +297,4 @@ class Memory:
         self.write_pages[addr >> 8](addr, value & BYTE_MASK)
 
     def request_interrupt(self, mask: Byte) -> None:
-        self.storage[REG_IF] |= mask & INTERRUPT_MASK
+        self.storage[REG_IF] |= (mask & INTERRUPT_MASK)
