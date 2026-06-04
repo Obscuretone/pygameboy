@@ -3120,10 +3120,10 @@ class CPUOpcodes:
         self.registers["A"] = result & 0xFF
 
         # Set Zero flag if result is 0
-        self.flags["z"] = result == 0
-        self.flags["n"] = False
-        self.flags["h"] = False
-        self.flags["c"] = False
+        self.set_flag("z", result == 0)
+        self.set_flag("n", False)
+        self.set_flag("h", False)
+        self.set_flag("c", False)
 
         # Increment the Program Counter
         self.registers["PC"] += 1
