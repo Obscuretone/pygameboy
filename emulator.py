@@ -1,4 +1,4 @@
-from typing import Dict, Union, Final
+from typing import Dict, Union, Final, List, Tuple
 import os
 import sys
 import argparse
@@ -22,17 +22,19 @@ from cpu import CPU
 from memory import Memory
 from video import VideoChip
 from mbc import MBC0, MBC1, MBC2, MBC3, MBC5
+from constants import (
+    CART_TITLE_START,
+    CART_TITLE_END,
+    CART_TYPE_ADDR,
+    CART_ROM_SIZE_ADDR,
+    CART_RAM_SIZE_ADDR,
+    GB_CLOCK_HZ,
+    FRAME_CYCLES,
+    DMG_PALETTE_COLORS,
+)
 
 # Standard GB color palette (original green shades)
-GB_PALETTE: Final[np.ndarray] = np.array(
-    [
-        (155, 188, 15),  # 0: Lightest
-        (139, 172, 15),  # 1: Light
-        (48, 98, 48),  # 2: Dark
-        (15, 56, 15),  # 3: Darkest
-    ],
-    dtype=np.uint8,
-)
+GB_PALETTE: Final[np.ndarray] = np.array(DMG_PALETTE_COLORS, dtype=np.uint8)
 
 # Pygame to Joypad mapping
 PYGAME_MAP: Final[Dict[int, str]] = {
@@ -51,7 +53,7 @@ PYGAME_MAP: Final[Dict[int, str]] = {
 def get_rom_title(rom: Union[bytes, bytearray]) -> str:
     """Extract the ROM title from the cartridge header."""
     try:
-        title = bytes(rom[0x0134:0x0143]).split(b"\0", 1)[0].decode("ascii")
+        title = bytes(rom[CART_TITLE_START:CART_TITLE_END]).split(b"\0", 1)[0].decode("ascii")
     except UnicodeDecodeError:
         title = "Unknown"
     return title or "Unknown"
@@ -60,10 +62,10 @@ def get_rom_title(rom: Union[bytes, bytearray]) -> str:
 def print_rom_info(rom: Union[bytes, bytearray]) -> None:
     """Print metadata about the loaded ROM."""
     title = get_rom_title(rom)
-    mbc_type = rom[0x0147]
-    rom_size = 32768 << rom[0x0148]
+    mbc_type = rom[CART_TYPE_ADDR]
+    rom_size = 32768 << rom[CART_ROM_SIZE_ADDR]
     ram_size = 0
-    ram_code = rom[0x0149]
+    ram_code = rom[CART_RAM_SIZE_ADDR]
     if ram_code == 2:
         ram_size = 8192
     elif ram_code == 3:
@@ -127,7 +129,7 @@ def main() -> None:
     print_rom_info(rom)
     sys.stdout.flush()
 
-    clock = SystemClock(clock_speed_hz=4194304)
+    clock = SystemClock(clock_speed_hz=GB_CLOCK_HZ)
     clock.reset()
 
     # Initial memory setup
@@ -139,7 +141,7 @@ def main() -> None:
     ram.cartridge_boot_area = rom[: len(bootloader)]
 
     # Detect MBC Type
-    mbc_type = rom[0x0147]
+    mbc_type = rom[CART_TYPE_ADDR]
     if mbc_type == 0:
         ram.mbc = MBC0(rom)
     elif mbc_type in [0x01, 0x02, 0x03]:
@@ -228,7 +230,7 @@ def main() -> None:
 
             # Run CPU for one frame worth of cycles (~70224 cycles)
             cpu.run(
-                max_cycles=70224,
+                max_cycles=FRAME_CYCLES,
                 realtime=not args.no_realtime,
                 fast=not args.slow_step,
                 announce=False,
