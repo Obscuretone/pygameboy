@@ -44,10 +44,10 @@ from constants import (
     VRAM_SIZE,
     OAM_SIZE,
     PALETTE_COLOR_MASK,
-    MODE_0_CYCLES,
-    MODE_1_CYCLES,
-    MODE_2_CYCLES,
-    MODE_3_CYCLES,
+    CYCLES_HBLANK,
+    CYCLES_VBLANK,
+    CYCLES_OAM_SEARCH,
+    CYCLES_PIXEL_TRANSFER,
     VBLANK_LINE_LIMIT,
     TILE_SIZE_BYTES,
     SPRITE_COUNT,
@@ -55,6 +55,11 @@ from constants import (
     MAX_SPRITES_PER_SCANLINE,
     TILE_MAP_WIDTH,
     OAM_DMA_TRANSFER_SIZE,
+    INT_VBLANK_BIT,
+    MODE_HBLANK,
+    MODE_VBLANK,
+    MODE_OAM_SEARCH,
+    MODE_PIXEL_TRANSFER,
 )
 from gb_types import Address, Byte, Cycles, BIT_0, BYTE_MASK
 
@@ -188,42 +193,42 @@ class VideoChip:
             # Current Mode
             mode = self.STAT & STAT_MODE_MASK
 
-            if mode == 2:  # OAM Search
-                if self.mode_clock >= MODE_2_CYCLES:
-                    self.mode_clock -= MODE_2_CYCLES
-                    self.set_mode(3)
+            if mode == MODE_OAM_SEARCH:
+                if self.mode_clock >= CYCLES_OAM_SEARCH:
+                    self.mode_clock -= CYCLES_OAM_SEARCH
+                    self.set_mode(MODE_PIXEL_TRANSFER)
                 else:
                     break
-            elif mode == 3:  # Pixel Transfer
-                if self.mode_clock >= MODE_3_CYCLES:
-                    self.mode_clock -= MODE_3_CYCLES
-                    self.set_mode(0)
+            elif mode == MODE_PIXEL_TRANSFER:
+                if self.mode_clock >= CYCLES_PIXEL_TRANSFER:
+                    self.mode_clock -= CYCLES_PIXEL_TRANSFER
+                    self.set_mode(MODE_HBLANK)
                     self.render_scanline()
                 else:
                     break
-            elif mode == 0:  # H-Blank
-                if self.mode_clock >= MODE_0_CYCLES:
-                    self.mode_clock -= MODE_0_CYCLES
+            elif mode == MODE_HBLANK:
+                if self.mode_clock >= CYCLES_HBLANK:
+                    self.mode_clock -= CYCLES_HBLANK
                     self.LY += 1
 
                     if self.LY == self.SCREEN_HEIGHT:
-                        self.set_mode(1)
-                        # Request V-Blank interrupt (bit 0)
-                        self.memory.request_interrupt(BIT_0)
+                        self.set_mode(MODE_VBLANK)
+                        # Request V-Blank interrupt
+                        self.memory.request_interrupt(INT_VBLANK_BIT)
                     else:
-                        self.set_mode(2)
+                        self.set_mode(MODE_OAM_SEARCH)
 
                     self.check_lyc()
                 else:
                     break
-            elif mode == 1:  # V-Blank
-                if self.mode_clock >= MODE_1_CYCLES:
-                    self.mode_clock -= MODE_1_CYCLES
+            elif mode == MODE_VBLANK:
+                if self.mode_clock >= CYCLES_VBLANK:
+                    self.mode_clock -= CYCLES_VBLANK
                     self.LY += 1
 
                     if self.LY > VBLANK_LINE_LIMIT:
                         self.LY = 0
-                        self.set_mode(2)
+                        self.set_mode(MODE_OAM_SEARCH)
 
                     self.check_lyc()
                 else:

@@ -1,11 +1,12 @@
 from typing import Any, Optional
 from protocols import MemoryBus
-from gb_types import Byte, BIT_0, BIT_1, BIT_2, BIT_3, BIT_6, BIT_7
+from gb_types import Byte, BIT_6, BIT_7
 from constants import (
     JOYPAD_DIRECTION_SELECT_BIT,
     JOYPAD_BUTTON_SELECT_BIT,
     JOYPAD_INTERRUPT_BIT,
     JOYPAD_KEYS_MASK,
+    INT_JOYPAD_BIT,
 )
 
 
@@ -64,13 +65,13 @@ class Joypad:
         is_button = False
 
         if key == "right" or key == "a_button":
-            bit = BIT_0
+            bit = 0x01
         elif key == "left" or key == "b_button":
-            bit = BIT_1
+            bit = 0x02
         elif key == "up" or key == "select":
-            bit = BIT_2
+            bit = 0x04
         elif key == "down" or key == "start":
-            bit = BIT_3
+            bit = 0x08
 
         if key in ["a_button", "b_button", "select", "start"]:
             is_button = True
@@ -85,7 +86,7 @@ class Joypad:
 
             # Trigger interrupt if transitioning from not-pressed to pressed
             if (old_state & bit) and self.memory:
-                self.memory.request_interrupt(JOYPAD_INTERRUPT_BIT)
+                self.memory.request_interrupt(INT_JOYPAD_BIT)
         else:
             if is_button:
                 self.button_keys |= bit

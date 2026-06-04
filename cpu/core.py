@@ -39,8 +39,10 @@ from constants import (
     HRAM_START,
     HRAM_END,
     REG_JOYP,
-    MODE_1_CYCLES,
+    CYCLES_VBLANK,
     OPCODE_COUNT,
+    TAC_ENABLE_BIT,
+    TAC_CLOCK_SELECT_MASK,
 )
 
 
