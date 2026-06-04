@@ -1,35 +1,25 @@
 from typing import Union, Tuple, Dict, Final
 import numpy as np
-from gb_types import Byte, Word
+from gb_types import Byte, Word, REG_A, REG_F, REG_B, REG_C, REG_D, REG_E, REG_H, REG_L, REG_PC, REG_SP
 
 class RegisterFile:
     """
     Manages the GameBoy's internal registers.
     """
-    A: Final[int] = 0
-    F: Final[int] = 1
-    B: Final[int] = 2
-    C: Final[int] = 3
-    D: Final[int] = 4
-    E: Final[int] = 5
-    H: Final[int] = 6
-    L: Final[int] = 7
+    A: Final[int] = REG_A
+    F: Final[int] = REG_F
+    B: Final[int] = REG_B
+    C: Final[int] = REG_C
+    D: Final[int] = REG_D
+    E: Final[int] = REG_E
+    H: Final[int] = REG_H
+    L: Final[int] = REG_L
 
     _single: Final[Dict[str, int]] = {
-        "A": A,
-        "F": F,
-        "B": B,
-        "C": C,
-        "D": D,
-        "E": E,
-        "H": H,
-        "L": L,
+        "A": A, "F": F, "B": B, "C": C, "D": D, "E": E, "H": H, "L": L,
     }
     _pairs: Final[Dict[str, Tuple[int, int]]] = {
-        "AF": (A, F),
-        "BC": (B, C),
-        "DE": (D, E),
-        "HL": (H, L),
+        "AF": (A, F), "BC": (B, C), "DE": (D, E), "HL": (H, L),
     }
 
     def __init__(self) -> None:
@@ -41,7 +31,7 @@ class RegisterFile:
     @property
     def shape(self) -> Tuple[int, ...]:
         """Return the shape of the internal data array."""
-        return self.data.shape
+        return (8,)
 
     def __getitem__(self, reg: Union[str, int]) -> int:
         """
@@ -49,16 +39,16 @@ class RegisterFile:
         """
         if isinstance(reg, str):
             if reg in self._single:
-                return int(self.data[self._single[reg]])
+                return self.data[self._single[reg]]
             if reg in self._pairs:
                 high, low = self._pairs[reg]
-                return (int(self.data[high]) << 8) | int(self.data[low])
-            if reg == "PC":
+                return (self.data[high] << 8) | self.data[low]
+            if reg == REG_PC:
                 return self.PC
-            if reg == "SP":
+            if reg == REG_SP:
                 return self.SP
             raise KeyError(reg)
-        return int(self.data[reg])
+        return self.data[reg]
 
     def __setitem__(self, reg: Union[str, int], value: int) -> None:
         """
@@ -78,10 +68,10 @@ class RegisterFile:
                 if reg == "AF":
                     self.data[self.F] &= 0xF0
                 return
-            if reg == "PC":
+            if reg == REG_PC:
                 self.PC = value & 0xFFFF
                 return
-            if reg == "SP":
+            if reg == REG_SP:
                 self.SP = value & 0xFFFF
                 return
             raise KeyError(reg)
