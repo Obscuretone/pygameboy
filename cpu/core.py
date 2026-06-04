@@ -153,8 +153,7 @@ class CPU(CPUOpcodes):
                     if self.halted:
                         cyc = halt_cycles
                     else:
-                        opcode = mem[reg.PC]
-                        cyc = dispatch[opcode]()
+                        cyc = dispatch[mem[reg.PC]]()
 
                 # Instruction or Interrupt serviced
                 executed += 1
