@@ -160,6 +160,17 @@ def main() -> None:
 
     cpu = CPU(clock, ram, video, apu, args.verbose)
 
+    # If no boot ROM, initialize CPU to post-boot state
+    if not bootloader:
+        cpu.registers.PC = 0x0100
+        cpu.registers.SP = 0xFFFE
+        cpu.registers["AF"] = 0x01B0
+        cpu.registers["BC"] = 0x0013
+        cpu.registers["DE"] = 0x00D8
+        cpu.registers["HL"] = 0x014D
+        # Disable boot ROM register
+        ram.write_byte(REG_BOOT, 1)
+
     # Audio setup
     last_audio_sample = [0.0, 0.0]
 
