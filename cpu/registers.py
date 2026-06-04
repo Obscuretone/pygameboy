@@ -18,6 +18,7 @@ class RegisterFile:
     """
     Manages the GameBoy's internal registers.
     """
+    __slots__ = ('data', '_pc', '_sp')
 
     A: Final[int] = REG_A
     F: Final[int] = REG_F
@@ -48,8 +49,24 @@ class RegisterFile:
     def __init__(self) -> None:
         """Initialize registers with zeros."""
         self.data: bytearray = bytearray(8)
-        self.PC: Word = 0
-        self.SP: Word = 0
+        self._pc: Word = 0
+        self._sp: Word = 0
+
+    @property
+    def PC(self) -> int:
+        return self._pc
+
+    @PC.setter
+    def PC(self, value: int) -> None:
+        self._pc = value & 0xFFFF
+
+    @property
+    def SP(self) -> int:
+        return self._sp
+
+    @SP.setter
+    def SP(self, value: int) -> None:
+        self._sp = value & 0xFFFF
 
     @property
     def shape(self) -> Tuple[int, ...]:
