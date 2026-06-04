@@ -2,6 +2,7 @@ import unittest
 from memory import Memory
 from clock import SystemClock
 
+
 class TestMemoryAccuracy(unittest.TestCase):
     def setUp(self):
         self.clock = SystemClock(4194304)
@@ -13,7 +14,7 @@ class TestMemoryAccuracy(unittest.TestCase):
         self.memory.write_byte(0xC000, 0x42)
         # Read from Echo RAM (0xE000)
         self.assertEqual(self.memory.read_byte(0xE000), 0x42)
-        
+
         # Write to Echo RAM (0xFDFF)
         self.memory.write_byte(0xFDFF, 0x77)
         # Read from WRAM (0xBDFF) -> wait, 0xFDFF - 0x2000 = 0xDDFF
@@ -26,5 +27,6 @@ class TestMemoryAccuracy(unittest.TestCase):
         self.memory.write_byte(0xFEA0, 0x42)
         self.assertEqual(self.memory.read_byte(0xFEA0), 0x00)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

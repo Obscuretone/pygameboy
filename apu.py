@@ -1,8 +1,6 @@
-from typing import List, Deque, Final, ClassVar
-from collections import deque
+from typing import List, Final, ClassVar
 import numpy as np
 from gb_types import (
-    Sample,
     Cycles,
     Address,
     Byte,
@@ -105,7 +103,7 @@ class PulseChannel:
         if self.timer <= 0:
             period = (self.FREQUENCY_BASE - self.frequency) * self.TIMER_FACTOR
             self.timer += period
-            self.duty_step = (self.duty_step + 1) & 7 # Masking instead of mod
+            self.duty_step = (self.duty_step + 1) & 7  # Masking instead of mod
             self.output = (
                 self.volume if self.DUTY_CYCLES[self.duty][self.duty_step] else 0
             )
@@ -328,9 +326,11 @@ class APU:
     CHANNEL_COUNT: Final[float] = 4.0
     MAX_VOLUME_LEVEL: Final[float] = 15.0
     MAX_MASTER_VOLUME_LEVEL: Final[float] = 7.0
-    
+
     # Pre-calculated normalization divisor
-    NORM_DIVISOR: Final[float] = MAX_VOLUME_LEVEL * CHANNEL_COUNT * MAX_MASTER_VOLUME_LEVEL
+    NORM_DIVISOR: Final[float] = (
+        MAX_VOLUME_LEVEL * CHANNEL_COUNT * MAX_MASTER_VOLUME_LEVEL
+    )
 
     FRAME_SEQUENCER_STEPS: Final[int] = 8
     ENVELOPE_STEP: Final[int] = 7
@@ -461,10 +461,14 @@ class APU:
             return
 
         # Optimization: only step active channels
-        if self.ch1.enabled: self.ch1.step(cycles)
-        if self.ch2.enabled: self.ch2.step(cycles)
-        if self.ch3.enabled: self.ch3.step(cycles)
-        if self.ch4.enabled: self.ch4.step(cycles)
+        if self.ch1.enabled:
+            self.ch1.step(cycles)
+        if self.ch2.enabled:
+            self.ch2.step(cycles)
+        if self.ch3.enabled:
+            self.ch3.step(cycles)
+        if self.ch4.enabled:
+            self.ch4.step(cycles)
 
         self.frame_sequencer_clock += cycles
         if self.frame_sequencer_clock >= FRAME_SEQUENCER_PERIOD:
@@ -479,7 +483,7 @@ class APU:
     def step_frame_sequencer(self) -> None:
         """Advance the APU frame sequencer (512Hz)."""
         step = self.frame_sequencer_step
-        if (step & 1) == 0: # Even steps: length counter
+        if (step & 1) == 0:  # Even steps: length counter
             self.ch1.step_length()
             self.ch2.step_length()
             self.ch3.step_length()
@@ -504,15 +508,23 @@ class APU:
         left = 0.0
         right = 0.0
 
-        if nr51 & APU_MIX_CH1_LEFT: left += self.ch1.output
-        if nr51 & APU_MIX_CH2_LEFT: left += self.ch2.output
-        if nr51 & APU_MIX_CH3_LEFT: left += self.ch3.output
-        if nr51 & APU_MIX_CH4_LEFT: left += self.ch4.output
+        if nr51 & APU_MIX_CH1_LEFT:
+            left += self.ch1.output
+        if nr51 & APU_MIX_CH2_LEFT:
+            left += self.ch2.output
+        if nr51 & APU_MIX_CH3_LEFT:
+            left += self.ch3.output
+        if nr51 & APU_MIX_CH4_LEFT:
+            left += self.ch4.output
 
-        if nr51 & APU_MIX_CH1_RIGHT: right += self.ch1.output
-        if nr51 & APU_MIX_CH2_RIGHT: right += self.ch2.output
-        if nr51 & APU_MIX_CH3_RIGHT: right += self.ch3.output
-        if nr51 & APU_MIX_CH4_RIGHT: right += self.ch4.output
+        if nr51 & APU_MIX_CH1_RIGHT:
+            right += self.ch1.output
+        if nr51 & APU_MIX_CH2_RIGHT:
+            right += self.ch2.output
+        if nr51 & APU_MIX_CH3_RIGHT:
+            right += self.ch3.output
+        if nr51 & APU_MIX_CH4_RIGHT:
+            right += self.ch4.output
 
         # Final scaling using pre-calculated divisor
         self.left_output = (left * l_vol) / self.NORM_DIVISOR

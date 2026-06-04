@@ -5,7 +5,6 @@ from video import VideoChip
 
 
 class TestCPU(unittest.TestCase):
-
     registers_8bit = ["A", "B", "C", "D", "E", "H", "L"]
     registers_16bit = ["BC", "DE", "HL"]
 
@@ -706,7 +705,7 @@ class TestCPU(unittest.TestCase):
         # Execute JR 'e8' instruction with a negative offset of -0x0F
         self.cpu.memory[0x0201] = 0xF1
         self.cpu.jr_e8()  # type: ignore
-  # Two's complement representation of -0x0F
+        # Two's complement representation of -0x0F
 
         # Check if the program counter (PC) is updated correctly to address 0x1F3 (0x0200 - 0x000f + 0x0002)
         self.assertEqual(
@@ -2229,15 +2228,17 @@ class TestCPU(unittest.TestCase):
     def test_pc_boundary_wrap_around(self):
         """Test that PC wraps correctly when executing at the 64KB boundary."""
         self.cpu.registers.PC = 0xFFFF
-        self.ram.storage[0xFFFF] = 0x00 # NOP
-        
-        # Execute 2 instructions. 
+        self.ram.storage[0xFFFF] = 0x00  # NOP
+
+        # Execute 2 instructions.
         # 1. PC=0xFFFF, opcode=0x00, PC becomes 0x0000
         # 2. PC=0x0000, executes whatever is there
         self.cpu.run(max_instructions=2, realtime=False, fast=True, announce=False)
-        
+
         self.assertLess(self.cpu.registers.PC, 0x10000)
-        self.assertEqual(self.cpu.registers.PC, 1) # Assuming next instruction is 1 byte NOP
+        self.assertEqual(
+            self.cpu.registers.PC, 1
+        )  # Assuming next instruction is 1 byte NOP
 
 
 if __name__ == "__main__":

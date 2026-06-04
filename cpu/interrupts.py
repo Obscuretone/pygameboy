@@ -70,7 +70,7 @@ class InterruptManager:
                 self.ime_enable_delay = 0
 
                 # Clear IF bit
-                self.storage[REG_IF] &= (mask ^ BYTE_MASK)
+                self.storage[REG_IF] &= mask ^ BYTE_MASK
 
                 # Push PC to stack
                 pc = cpu.registers.PC

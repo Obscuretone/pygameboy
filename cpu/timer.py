@@ -58,7 +58,7 @@ class Timer:
         # Use a while loop to handle potential multiple increments accurately
         while self.timer_cycles >= period:
             self.timer_cycles -= period
-            
+
             if self.storage is not None:
                 tima = int(self.storage[REG_TIMA])
                 if tima == 0xFF:
