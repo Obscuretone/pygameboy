@@ -146,6 +146,7 @@ class CPU(CPUOpcodes):
         fast=True,
         announce=True,
     ):
+        # Cache components and methods locally for performance
         clock, video, apu, interrupts, timer = (
             self.clock,
             self.video,
@@ -154,34 +155,52 @@ class CPU(CPUOpcodes):
             self.timer,
         )
         reg, mem, dispatch = self.registers, self.memory, self._dispatch_table
-        v_step, a_step, t_step, c_update = (
-            (video.step if video else None),
-            (apu.step if apu else None),
-            timer.step,
-            clock.update,
-        )
-        i_service, i_update_delay = interrupts.service, interrupts.update_ime_delay
+        
+        v_step = video.step if video else None
+        a_step = apu.step if apu else None
+        t_step = timer.step
+        i_service = interrupts.service
+        
         executed, total_cyc = 0, 0
+        
         try:
             while True:
-                cyc = i_service(self)
+                # 1. Interrupt Handling (Check IME and halted state first)
+                if interrupts.ime or self.halted:
+                    cyc = i_service(self)
+                else:
+                    cyc = 0
+                
                 if cyc > 0:
                     executed += 1
                 else:
                     if self.halted:
                         cyc = self.HALT_CYCLES
                     else:
+                        # 2. Instruction Fetch and Execute
                         opcode = mem[reg.PC]
                         cyc = dispatch[opcode]()
                     executed += 1
+                
                 total_cyc += cyc
+                
+                # 3. Synchronous Updates (Inlined clock update)
                 t_step(cyc)
-                c_update(cyc)
+                clock.cycles_elapsed += cyc
+                
                 if v_step:
                     v_step(cyc)
                 if a_step:
                     a_step(cyc)
-                i_update_delay()
+                
+                # 4. Inlined IME Delay Update
+                if interrupts.ime_enable_delay > 0:
+                    interrupts.ime_enable_delay -= 1
+                    if interrupts.ime_enable_delay == 0:
+                        interrupts.ime = True
+                        interrupts.pending_ime_enable = False
+                
+                # 5. Exit conditions
                 if self.stopped:
                     break
                 if max_instructions and executed >= max_instructions:
@@ -190,8 +209,10 @@ class CPU(CPUOpcodes):
                     break
         except KeyboardInterrupt:
             pass
+            
         if realtime and total_cyc:
             clock.wait_for_next_cycle(total_cyc)
+            
         return executed, total_cyc
 
     def step(self):
@@ -243,7 +264,7 @@ class CPU(CPUOpcodes):
     def _read_memory_byte(self, address: Address) -> Byte:
         address &= WORD_MASK
         if (WRAM_START <= address <= WRAM_END) or (HRAM_START <= address <= HRAM_END):
-            return self.memory[address]
+            return int(self.memory[address])
         return self.ram.read_byte(address)
 
     def _write_memory_byte(self, address: Address, value: Byte) -> None:
