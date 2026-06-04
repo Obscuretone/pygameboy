@@ -230,8 +230,8 @@ FRAME_CYCLES = 70224
 DMG_PALETTE_COLORS = [
     (155, 188, 15),  # 0: Lightest
     (139, 172, 15),  # 1: Light
-    (48, 98, 48),    # 2: Dark
-    (15, 56, 15),    # 3: Darkest
+    (48, 98, 48),  # 2: Dark
+    (15, 56, 15),  # 3: Darkest
 ]
 
 # Opcode Mapping

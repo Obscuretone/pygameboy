@@ -60,7 +60,11 @@ PYGAME_MAP: Final[Dict[int, str]] = {
 def get_rom_title(rom: Union[bytes, bytearray]) -> str:
     """Extract the ROM title from the cartridge header."""
     try:
-        title = bytes(rom[CART_TITLE_START:CART_TITLE_END]).split(b"\0", 1)[0].decode("ascii")
+        title = (
+            bytes(rom[CART_TITLE_START:CART_TITLE_END])
+            .split(b"\0", 1)[0]
+            .decode("ascii")
+        )
     except UnicodeDecodeError:
         title = "Unknown"
     return title or "Unknown"
@@ -134,7 +138,9 @@ def main() -> None:
             if len(boot_rom_data) == 256:
                 ram.set_boot_rom(boot_rom_data)
             else:
-                print(f"Warning: DMG_ROM.bin has invalid size {len(boot_rom_data)}, skipping.")
+                print(
+                    f"Warning: DMG_ROM.bin has invalid size {len(boot_rom_data)}, skipping."
+                )
                 boot_rom_data = None
 
     # Detect MBC Type and attach to ram
@@ -182,32 +188,32 @@ def main() -> None:
         nonlocal last_audio_sample
         if status:
             print(status)
-            
+
         read_pos = apu.buffer_read_pos
         size = apu.buffer_size
-        
+
         if size >= frames:
             if read_pos + frames <= apu.SAMPLE_RATE:
-                outdata[:] = apu.buffer[read_pos:read_pos+frames]
+                outdata[:] = apu.buffer[read_pos : read_pos + frames]
             else:
                 chunk1 = apu.SAMPLE_RATE - read_pos
                 chunk2 = frames - chunk1
                 outdata[:chunk1] = apu.buffer[read_pos:]
                 outdata[chunk1:] = apu.buffer[:chunk2]
-            
+
             apu.buffer_read_pos = (read_pos + frames) % apu.SAMPLE_RATE
             apu.buffer_size -= frames
             last_audio_sample[:] = outdata[-1]
         else:
             if size > 0:
                 if read_pos + size <= apu.SAMPLE_RATE:
-                    outdata[:size] = apu.buffer[read_pos:read_pos+size]
+                    outdata[:size] = apu.buffer[read_pos : read_pos + size]
                 else:
                     chunk1 = apu.SAMPLE_RATE - read_pos
                     chunk2 = size - chunk1
                     outdata[:chunk1] = apu.buffer[read_pos:]
                     outdata[chunk1:size] = apu.buffer[:chunk2]
-                outdata[size:] = outdata[size-1]
+                outdata[size:] = outdata[size - 1]
                 apu.buffer_read_pos = (read_pos + size) % apu.SAMPLE_RATE
                 apu.buffer_size = 0
                 last_audio_sample[:] = outdata[-1]

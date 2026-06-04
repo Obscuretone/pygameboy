@@ -26,6 +26,7 @@ from constants import (
     ROM_END,
     ERAM_START,
     ERAM_END,
+    RAM_BANK_SIZE,
     OAM_END,
     UNUSABLE_START,
     UNUSABLE_END,
@@ -63,17 +64,17 @@ class Memory:
     The 'storage' array is the single source of truth for the entire address space.
     """
 
-    storage: bytearray 
+    storage: bytearray
 
     def __init__(
         self,
         clock: Optional[Union[ClockDevice, MemoryData]] = None,
         data: Optional[MemoryData] = None,
-        backend: str = "bytearray", 
+        backend: str = "bytearray",
     ):
         # 1. Physical 64KB Memory
         self.storage = bytearray(WORD_VALUE_COUNT)
-        
+
         # 2. Page Write Dispatch Table
         self.write_pages: List[WriteHandler] = [self._write_ram_direct] * PAGE_COUNT
 
@@ -91,15 +92,24 @@ class Memory:
         for i in range(0xFF00, 0x10000):
             if self.storage[i] == 0:
                 self.storage[i] = 0xFF
-        
+
         # Explicitly set registers that should be 0 at boot
-        for addr in [REG_JOYP, REG_DIV, REG_TIMA, REG_TMA, REG_TAC, REG_LY, IE_REG, 0xFF50]:
+        for addr in [
+            REG_JOYP,
+            REG_DIV,
+            REG_TIMA,
+            REG_TMA,
+            REG_TAC,
+            REG_LY,
+            IE_REG,
+            0xFF50,
+        ]:
             self.storage[addr] = 0x00
-        
+
         # IF defaults to 0xE1 (bits 5-7 are 1 on DMG)
         self.storage[REG_IF] = 0xE1
         # APU master switch default (Sound Off)
-        self.storage[0xFF26] = 0x00 
+        self.storage[0xFF26] = 0x00
 
         self.cartridge_boot_area: Optional[bytearray] = None
         self.boot_rom_disabled: bool = True
@@ -134,7 +144,7 @@ class Memory:
             # Register bank change callbacks for performance mirroring
             setattr(value, "on_bank_change", self._on_mbc_bank_change)
             setattr(value, "on_ram_bank_change", self._on_mbc_ram_bank_change)
-            
+
             # Sync Initial ROM Banks
             # Cartridge Bank 0 always at 0x0000-0x3FFF
             bank0_data = value.rom[0:ROM_BANK_SIZE]
@@ -143,16 +153,18 @@ class Memory:
                 # Update the shadow area so it's ready when boot ROM is disabled
                 self.cartridge_boot_area[:] = bank0_data[:BOOT_ROM_SIZE]
                 # Update the rest of bank 0 in storage
-                self.storage[BOOT_ROM_SIZE:ROM_BANK_SIZE] = bank0_data[BOOT_ROM_SIZE:ROM_BANK_SIZE]
+                self.storage[BOOT_ROM_SIZE:ROM_BANK_SIZE] = bank0_data[
+                    BOOT_ROM_SIZE:ROM_BANK_SIZE
+                ]
             else:
                 # No boot ROM active, update all of bank 0 in storage
                 self.storage[0:ROM_BANK_SIZE] = bank0_data
-            
+
             # Sync initial Bank 1
             limit = min(len(value.rom), ROM_BANK_SIZE * 2)
             if limit > ROM_BANK_SIZE:
                 self.storage[ROM_BANK_SIZE:limit] = value.rom[ROM_BANK_SIZE:limit]
-            
+
             # Sync Initial RAM Bank if enabled
             if value.ram_enabled:
                 self.storage[ERAM_START : ERAM_END + 1] = value.ram[0:RAM_BANK_SIZE]
@@ -253,7 +265,7 @@ class Memory:
         if address == REG_JOYP:
             self.joypad.write(value)
             return
-        
+
         if address in [REG_SB, REG_SC]:
             self.serial.write_byte(address, value)
             return
@@ -262,10 +274,12 @@ class Memory:
             self.apu.write_byte(address, value)
             # Synchronize NR52 switch behavior
             if address == 0xFF26:
-                if not (value & 0x80): # Sound OFF
-                    for i in range(0xFF10, 0xFF26): self.storage[i] = 0xFF
-                else: # Sound ON
-                    for i in range(0xFF10, 0xFF26): self.storage[i] = 0x00
+                if not (value & 0x80):  # Sound OFF
+                    for i in range(0xFF10, 0xFF26):
+                        self.storage[i] = 0xFF
+                else:  # Sound ON
+                    for i in range(0xFF10, 0xFF26):
+                        self.storage[i] = 0x00
             else:
                 self.storage[address] = value
             return
@@ -299,11 +313,11 @@ class Memory:
         addr = address & WORD_MASK
         if UNUSABLE_START <= addr <= UNUSABLE_END:
             return 0x00
-        
+
         # Fast scanline fallback if video disabled
         if addr == REG_LY and self.clock is not None and not self._video:
             return (self.clock.get_cycles_elapsed() // 456) % MAX_SCANLINE
-            
+
         return self.storage[addr]
 
     def write_byte(self, address: Address, value: Byte) -> None:

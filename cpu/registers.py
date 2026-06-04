@@ -18,7 +18,8 @@ class RegisterFile:
     """
     Manages the GameBoy's internal registers.
     """
-    __slots__ = ('data', '_pc', '_sp')
+
+    __slots__ = ("data", "_pc", "_sp")
 
     A: Final[int] = REG_A
     F: Final[int] = REG_F

@@ -3,6 +3,7 @@ from memory import Memory
 from clock import SystemClock
 from video import VideoChip
 
+
 class TestRegressions(unittest.TestCase):
     def setUp(self):
         self.clock = SystemClock(4194304)
@@ -25,11 +26,11 @@ class TestRegressions(unittest.TestCase):
         # Write to WRAM, read from Echo
         self.memory.write_byte(0xC000, 0x42)
         self.assertEqual(self.memory.read_byte(0xE000), 0x42)
-        
+
         # Write to Echo, read from WRAM
         self.memory.write_byte(0xE001, 0x77)
         self.assertEqual(self.memory.read_byte(0xC001), 0x77)
-        
+
         # Verify boundary
         self.memory.write_byte(0xDDFF, 0x99)
         self.assertEqual(self.memory.read_byte(0xFDFF), 0x99)
@@ -46,20 +47,21 @@ class TestRegressions(unittest.TestCase):
         self.memory.write_byte(0xFF26, 0x80)
         # Verify registers are initialized to 0
         self.assertEqual(self.memory.read_byte(0xFF10), 0x00)
-        
+
         # Write to a register
         self.memory.write_byte(0xFF10, 0x55)
         self.assertEqual(self.memory.read_byte(0xFF10), 0x55)
-        
+
         # Power OFF (NR52 Bit 7 = 0)
         self.memory.write_byte(0xFF26, 0x00)
         # Registers should read as 0xFF when APU is off
         self.assertEqual(self.memory.read_byte(0xFF10), 0xFF)
-        
+
         # Power ON again
         self.memory.write_byte(0xFF26, 0x80)
         # Should be reset to 0x00
         self.assertEqual(self.memory.read_byte(0xFF10), 0x00)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

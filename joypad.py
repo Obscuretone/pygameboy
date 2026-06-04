@@ -23,7 +23,7 @@ class Joypad:
         self.button_keys: int = self.INITIAL_KEYS_STATE
         # bits 4, 5 (0=selected, 1=not selected)
         self.selection: int = JOYPAD_DIRECTION_SELECT_BIT | JOYPAD_BUTTON_SELECT_BIT
-        
+
         # Initial register state
         self._update_register()
 
@@ -34,7 +34,7 @@ class Joypad:
             res &= self.direction_keys
         if not (self.selection & JOYPAD_BUTTON_SELECT_BIT):
             res &= self.button_keys
-        
+
         # Bits 6-7 are always 1
         self.memory.storage[REG_JOYP] = res | BIT_6 | BIT_7
 
@@ -45,7 +45,9 @@ class Joypad:
     def write(self, value: Byte) -> None:
         """Select button groups."""
         # Only bits 4 and 5 are writable
-        self.selection = value & (JOYPAD_DIRECTION_SELECT_BIT | JOYPAD_BUTTON_SELECT_BIT)
+        self.selection = value & (
+            JOYPAD_DIRECTION_SELECT_BIT | JOYPAD_BUTTON_SELECT_BIT
+        )
         self._update_register()
 
     def set_key(self, key: str, pressed: bool) -> None:
@@ -53,10 +55,14 @@ class Joypad:
         bit = 0
         is_button = False
 
-        if key == "right" or key == "a_button": bit = 0x01
-        elif key == "left" or key == "b_button": bit = 0x02
-        elif key == "up" or key == "select": bit = 0x04
-        elif key == "down" or key == "start": bit = 0x08
+        if key == "right" or key == "a_button":
+            bit = 0x01
+        elif key == "left" or key == "b_button":
+            bit = 0x02
+        elif key == "up" or key == "select":
+            bit = 0x04
+        elif key == "down" or key == "start":
+            bit = 0x08
 
         if key in ["a_button", "b_button", "select", "start"]:
             is_button = True
@@ -64,16 +70,20 @@ class Joypad:
         old_state = self.button_keys if is_button else self.direction_keys
 
         if pressed:
-            if is_button: self.button_keys &= ~bit
-            else: self.direction_keys &= ~bit
-            
+            if is_button:
+                self.button_keys &= ~bit
+            else:
+                self.direction_keys &= ~bit
+
             # Rising edge: from not-pressed (1) to pressed (0)
-            if (old_state & bit):
+            if old_state & bit:
                 self.memory.request_interrupt(INT_JOYPAD_BIT)
         else:
-            if is_button: self.button_keys |= bit
-            else: self.direction_keys |= bit
-            
+            if is_button:
+                self.button_keys |= bit
+            else:
+                self.direction_keys |= bit
+
         self._update_register()
 
     KEY_MAP = {
