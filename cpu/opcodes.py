@@ -209,8 +209,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 2
         """
-        n8 = (
-            data[0]
+        n8 = (int(data[0])
             if data is not None
             else self._read_memory_byte((self.registers[REG_PC] + 1)  & WORD_MASK)
         )
@@ -326,8 +325,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 2
         """
-        n8 = (
-            data[0]
+        n8 = (int(data[0])
             if data is not None
             else self._read_memory_byte((self.registers[REG_PC] + 1)  & WORD_MASK)
         )
@@ -475,8 +473,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 2
         """
-        n8 = (
-            data[0]
+        n8 = (int(data[0])
             if data is not None
             else self._read_memory_byte((self.registers[REG_PC] + 1)  & WORD_MASK)
         )
@@ -525,8 +522,7 @@ class CPUOpcodes:
         cycles = 12
         bytes = 2
         """
-        n8 = (
-            data[0]
+        n8 = (int(data[0])
             if data is not None
             else self._read_memory_byte((self.registers[REG_PC] + 1)  & WORD_MASK)
         )
@@ -628,8 +624,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 2
         """
-        n8 = (
-            data[0]
+        n8 = (int(data[0])
             if data is not None
             else self._read_memory_byte((self.registers[REG_PC] + 1)  & WORD_MASK)
         )
@@ -676,8 +671,7 @@ class CPUOpcodes:
         bytes = 2
         """
         if not self.get_flag("z"):
-            n8 = (
-                data[0]
+            n8 = (int(data[0])
                 if data is not None
                 else self._read_memory_byte((self.registers[REG_PC] + 1)  & WORD_MASK)
             )
@@ -790,8 +784,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 2
         """
-        n8 = (
-            data[0]
+        n8 = (int(data[0])
             if data is not None
             else self._read_memory_byte((self.registers[REG_PC] + 1)  & WORD_MASK)
         )
@@ -845,8 +838,7 @@ class CPUOpcodes:
         bytes = 2
         """
         if self.get_flag("z"):
-            n8 = (
-                data[0]
+            n8 = (int(data[0])
                 if data is not None
                 else self._read_memory_byte((self.registers[REG_PC] + 1)  & WORD_MASK)
             )
@@ -951,8 +943,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 2
         """
-        n8 = (
-            data[0]
+        n8 = (int(data[0])
             if data is not None
             else self._read_memory_byte((self.registers[REG_PC] + 1)  & WORD_MASK)
         )
@@ -996,8 +987,7 @@ class CPUOpcodes:
         bytes = 2
         """
         if not self.get_flag("c"):
-            n8 = (
-                data[0]
+            n8 = (int(data[0])
                 if data is not None
                 else self._read_memory_byte((self.registers[REG_PC] + 1)  & WORD_MASK)
             )
@@ -1111,8 +1101,7 @@ class CPUOpcodes:
         cycles = 12
         bytes = 2
         """
-        n8 = (
-            data[0]
+        n8 = (int(data[0])
             if data is not None
             else self._read_memory_byte((self.registers[REG_PC] + 1)  & WORD_MASK)
         )
@@ -1149,8 +1138,7 @@ class CPUOpcodes:
         bytes = 2
         """
         if self.get_flag("c"):
-            n8 = (
-                data[0]
+            n8 = (int(data[0])
                 if data is not None
                 else self._read_memory_byte((self.registers[REG_PC] + 1)  & WORD_MASK)
             )
@@ -1255,8 +1243,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 2
         """
-        n8 = (
-            data[0]
+        n8 = (int(data[0])
             if data is not None
             else self._read_memory_byte((self.registers[REG_PC] + 1)  & WORD_MASK)
         )
@@ -3359,8 +3346,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 2
         """
-        n8 = (
-            data[0]
+        n8 = (int(data[0])
             if data is not None
             else self._read_memory_byte((self.registers[REG_PC] + 1)  & WORD_MASK)
         )
@@ -3518,8 +3504,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 2
         """
-        n8 = (
-            data[0]
+        n8 = (int(data[0])
             if data is not None
             else self._read_memory_byte((self.registers[REG_PC] + 1)  & WORD_MASK)
         )
@@ -3626,8 +3611,7 @@ class CPUOpcodes:
 
     def _sub_n8(self, data=None):
         """Opcode 0xD6 (SUB 'A','n8',)"""
-        n8 = (
-            data[0]
+        n8 = (int(data[0])
             if data is not None
             else self._read_memory_byte((self.registers[REG_PC] + 1)  & WORD_MASK)
         )
@@ -3684,8 +3668,7 @@ class CPUOpcodes:
 
     def _sbc_a_n8(self, data=None):
         """Opcode 0xDE (SBC 'A','n8',)"""
-        n8 = (
-            data[0]
+        n8 = (int(data[0])
             if data is not None
             else self._read_memory_byte((self.registers[REG_PC] + 1)  & WORD_MASK)
         )
@@ -3702,12 +3685,11 @@ class CPUOpcodes:
     # 0xE0 - 0xEF
     def _ldh_n8_a(self, data=None):
         """Opcode 0xE0 (LDH 'a8','A',)"""
-        n8 = (
-            data[0]
+        n8 = (int(data[0])
             if data is not None
             else self._read_memory_byte((self.registers[REG_PC] + 1)  & WORD_MASK)
         )
-        self._write_memory_byte(0xFF00 + n8, self.registers[REG_A])
+        self._write_memory_byte(int(0xFF00 + n8), self.registers[REG_A])
         self.registers[REG_PC] += 2
         return 12
 
@@ -3719,7 +3701,7 @@ class CPUOpcodes:
 
     def _ld_c_a_mem(self, data=None):
         """Opcode 0xE2 (LD 'C','A',)"""
-        self._write_memory_byte(0xFF00 + self.registers[REG_C], self.registers[REG_A])
+        self._write_memory_byte(int(0xFF00 + self.registers[REG_C]), self.registers[REG_A])
         self.registers[REG_PC] += 1
         return 8
 
@@ -3731,8 +3713,7 @@ class CPUOpcodes:
 
     def _and_n8(self, data=None):
         """Opcode 0xE6 (AND 'A','n8',)"""
-        n8 = (
-            data[0]
+        n8 = (int(data[0])
             if data is not None
             else self._read_memory_byte((self.registers[REG_PC] + 1)  & WORD_MASK)
         )
@@ -3748,8 +3729,7 @@ class CPUOpcodes:
 
     def _add_sp_e8(self, data=None):
         """Opcode 0xE8 (ADD 'SP','e8',)"""
-        n8 = (
-            data[0]
+        n8 = (int(data[0])
             if data is not None
             else self._read_memory_byte((self.registers[REG_PC] + 1)  & WORD_MASK)
         )
@@ -3778,8 +3758,7 @@ class CPUOpcodes:
 
     def _xor_n8(self, data=None):
         """Opcode 0xEE (XOR 'A','n8',)"""
-        n8 = (
-            data[0]
+        n8 = (int(data[0])
             if data is not None
             else self._read_memory_byte((self.registers[REG_PC] + 1)  & WORD_MASK)
         )
@@ -3796,12 +3775,11 @@ class CPUOpcodes:
     # HIGH_NIBBLE_MASK - BYTE_MASK
     def _ldh_a_n8(self, data=None):
         """Opcode HIGH_NIBBLE_MASK (LDH 'A','a8',)"""
-        n8 = (
-            data[0]
+        n8 = (int(data[0])
             if data is not None
             else self._read_memory_byte((self.registers[REG_PC] + 1)  & WORD_MASK)
         )
-        self.registers[REG_A] = self._read_memory_byte(0xFF00 + n8)
+        self.registers[REG_A] = self._read_memory_byte(int(0xFF00 + n8)
         self.registers[REG_PC] += 2
         return 12
 
@@ -3813,7 +3791,7 @@ class CPUOpcodes:
 
     def _ld_a_c_mem(self, data=None):
         """Opcode 0xF2 (LD 'A','C',)"""
-        self.registers[REG_A] = self._read_memory_byte(0xFF00 + self.registers[REG_C])
+        self.registers[REG_A] = self._read_memory_byte(int(0xFF00 + self.registers[REG_C])
         self.registers[REG_PC] += 1
         return 8
 
@@ -3832,8 +3810,7 @@ class CPUOpcodes:
 
     def _or_n8(self, data=None):
         """Opcode 0xF6 (OR 'A','n8',)"""
-        n8 = (
-            data[0]
+        n8 = (int(data[0])
             if data is not None
             else self._read_memory_byte((self.registers[REG_PC] + 1)  & WORD_MASK)
         )
@@ -3849,8 +3826,7 @@ class CPUOpcodes:
 
     def _ld_hl_sp_e8(self, data=None):
         """Opcode 0xF8 (LD 'HL','SP','e8',)"""
-        n8 = (
-            data[0]
+        n8 = (int(data[0])
             if data is not None
             else self._read_memory_byte((self.registers[REG_PC] + 1)  & WORD_MASK)
         )
@@ -3887,8 +3863,7 @@ class CPUOpcodes:
 
     def _cp_n8(self, data=None):
         """Opcode 0xFE (CP 'A','n8',)"""
-        n8 = (
-            data[0]
+        n8 = (int(data[0])
             if data is not None
             else self._read_memory_byte((self.registers[REG_PC] + 1)  & WORD_MASK)
         )
@@ -3909,8 +3884,7 @@ class CPUOpcodes:
         # 1. Fetch value
         # 2. Execute operation
         # No write-back for BIT
-        n8 = (
-            data[0]
+        n8 = (int(data[0])
             if data is not None
             else self._read_memory_byte((self.registers[REG_PC] + 1)  & WORD_MASK)
         )

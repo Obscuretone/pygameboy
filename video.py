@@ -60,7 +60,6 @@ from constants import (
     MODE_VBLANK,
     MODE_OAM_SEARCH,
     MODE_PIXEL_TRANSFER,
-    TILE_WIDTH,
 )
 from gb_types import Address, Byte, Cycles, BIT_0, BYTE_MASK
 
@@ -82,6 +81,10 @@ class VideoChip:
     SCREEN_HEIGHT: Final[int] = 144
     VRAM_SIZE: Final[int] = VRAM_SIZE
     OAM_SIZE: Final[int] = OAM_SIZE
+
+    # Pre-calculated NumPy arrays for vectorized operations
+    _BIT_INDICES: Final[np.ndarray] = np.arange(8)
+    _BITS_NORMAL: Final[np.ndarray] = 7 - _BIT_INDICES
 
     def __init__(self, clock: ClockDevice, memory: MemoryBus):
         """
@@ -190,9 +193,10 @@ class VideoChip:
         """
         self.mode_clock += cycles
 
-        # Optimization: use if instead of while for common case of small cycles
+        # Current Mode
         mode = self.STAT & STAT_MODE_MASK
 
+        # Optimization: use if-elif chain instead of while loop for single steps
         if mode == MODE_OAM_SEARCH:
             if self.mode_clock >= CYCLES_OAM_SEARCH:
                 self.mode_clock -= CYCLES_OAM_SEARCH
@@ -250,19 +254,15 @@ class VideoChip:
                 VRAM_START if (self.LCDC & LCDC_TILE_DATA_SEL) else (VRAM_START + VRAM_TILE_DATA_1_OFFSET)
             )
             unsigned_tiles = bool(self.LCDC & LCDC_TILE_DATA_SEL)
-            bg_tile_map_base = (
-                (VRAM_START + VRAM_TILE_MAP_1_OFFSET)
-                if (self.LCDC & LCDC_BG_TILE_MAP_SEL)
-                else (VRAM_START + VRAM_TILE_MAP_0_OFFSET)
-            )
-
+            
+            # Optimized BG vs Window split
             window_enabled = (self.LCDC & LCDC_WINDOW_ENABLE) and (self.WY <= self.LY)
             window_x = self.WX - 7
             
             x_indices = self.x_indices
             using_window = (window_enabled) & (x_indices >= window_x)
 
-            # Pre-calculate positions
+            # Pre-calculate positions using NumPy vectorized logic
             x_pos = np.where(
                 using_window, x_indices - window_x, (x_indices + self.SCX) & BYTE_MASK
             )
@@ -270,12 +270,14 @@ class VideoChip:
                 using_window, self.LY - self.WY, (self.LY + self.SCY) & BYTE_MASK
             )
             
+            # Select map base for each pixel
             tile_map_base = np.where(
                 using_window, 
                 (VRAM_START + VRAM_TILE_MAP_1_OFFSET) if (self.LCDC & LCDC_WINDOW_TILE_MAP_SEL) else (VRAM_START + VRAM_TILE_MAP_0_OFFSET),
-                bg_tile_map_base
+                (VRAM_START + VRAM_TILE_MAP_1_OFFSET) if (self.LCDC & LCDC_BG_TILE_MAP_SEL) else (VRAM_START + VRAM_TILE_MAP_0_OFFSET)
             )
 
+            # Bit-shifts instead of division/mod
             tile_row = y_pos >> 3
             tile_col = x_pos >> 3
             tile_y = y_pos & 7
@@ -320,7 +322,7 @@ class VideoChip:
                 sprite_xs = active_sprites[:, 1].astype(np.int16) - 8
                 sort_indices = np.lexsort((indices, sprite_xs))
 
-                # Extract line buffer for priority check
+                # Extract line buffer slice for efficient updates
                 line_buffer = self.frame_buffer[line_start:line_end]
 
                 for idx in reversed(sort_indices):
@@ -345,37 +347,30 @@ class VideoChip:
                     byte1 = self.vram[tile_data_address - VRAM_START]
                     byte2 = self.vram[tile_data_address - VRAM_START + 1]
 
-                    # NumPy optimization for sprite pixels
-                    bit_indices = np.arange(8)
-                    if not x_flip:
-                        bits = 7 - bit_indices
-                    else:
-                        bits = bit_indices
+                    # Use pre-calculated bit arrays
+                    bits = self._BIT_INDICES if x_flip else self._BITS_NORMAL
                     
                     s_color_indices = (((byte2 >> bits) & 1) << 1) | ((byte1 >> bits) & 1)
                     
-                    # Apply palette and visibility
-                    mask = (s_color_indices != 0)
-                    
-                    # Target screen range
+                    # Target screen range check
                     start_x = max(0, x_pos)
                     end_x = min(self.SCREEN_WIDTH, x_pos + 8)
                     
                     if start_x < end_x:
-                        # Slice of sprite pixels that are on screen
                         s_start = start_x - x_pos
                         s_end = end_x - x_pos
                         
                         target_slice = line_buffer[start_x:end_x]
                         sprite_slice = s_color_indices[s_start:s_end]
-                        mask_slice = mask[s_start:s_end]
                         
+                        # Transparency and priority masking
+                        mask_slice = (sprite_slice != 0)
                         if priority:
-                            # OBJ-to-BG Priority: if 1, OBJ is displayed only if BG is color 0
                             mask_slice &= (target_slice == 0)
                         
-                        final_sprite_colors = (palette >> (sprite_slice * 2)) & PALETTE_COLOR_MASK
-                        target_slice[mask_slice] = final_sprite_colors[mask_slice]
+                        if np.any(mask_slice):
+                            final_sprite_colors = (palette >> (sprite_slice * 2)) & PALETTE_COLOR_MASK
+                            target_slice[mask_slice] = final_sprite_colors[mask_slice]
 
     def perform_dma(self, value: Byte) -> None:
         """Perform OAM DMA transfer from source address to OAM."""

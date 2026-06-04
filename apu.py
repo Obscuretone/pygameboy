@@ -114,9 +114,10 @@ class PulseChannel:
             return
 
         self.timer -= cycles
-        while self.timer <= 0:
-            self.timer += (self.FREQUENCY_BASE - self.frequency) * self.TIMER_FACTOR
-            self.duty_step = (self.duty_step + 1) % self.DUTY_STEPS
+        if self.timer <= 0:
+            period = (self.FREQUENCY_BASE - self.frequency) * self.TIMER_FACTOR
+            self.timer += period
+            self.duty_step = (self.duty_step + 1) & 7 # Masking instead of mod
             self.output = (
                 self.volume if self.DUTY_CYCLES[self.duty][self.duty_step] else 0
             )
@@ -176,7 +177,6 @@ class PulseChannel:
 class WaveChannel:
     """
     Implements a GameBoy Wave audio channel (Channel 3).
-    Uses custom 4-bit samples from Wave RAM.
     """
 
     MAX_LENGTH: Final[int] = 256
@@ -201,13 +201,14 @@ class WaveChannel:
             return
 
         self.timer -= cycles
-        while self.timer <= 0:
-            self.timer += (self.FREQUENCY_BASE - self.frequency) * self.TIMER_FACTOR
-            self.sample_index = (self.sample_index + 1) % self.SAMPLE_COUNT
+        if self.timer <= 0:
+            period = (self.FREQUENCY_BASE - self.frequency) * self.TIMER_FACTOR
+            self.timer += period
+            self.sample_index = (self.sample_index + 1) & 31
 
-            byte_index = self.sample_index // 2
+            byte_index = self.sample_index >> 1
             byte = self.wave_ram[byte_index]
-            if self.sample_index % 2 == 0:
+            if (self.sample_index & 1) == 0:
                 sample = (byte >> 4) & LOW_NIBBLE_MASK
             else:
                 sample = byte & LOW_NIBBLE_MASK
@@ -248,7 +249,6 @@ class WaveChannel:
 class NoiseChannel:
     """
     Implements a GameBoy Noise audio channel (Channel 4).
-    Uses a Linear Feedback Shift Register (LFSR) to generate pseudo-random noise.
     """
 
     MAX_LENGTH: Final[int] = 64
@@ -277,8 +277,7 @@ class NoiseChannel:
             return
 
         self.timer -= cycles
-        while self.timer <= 0:
-            # Simplified noise timer
+        if self.timer <= 0:
             self.timer += self.TIMER_BASE
 
             res = (self.lfsr & BIT_0) ^ ((self.lfsr & BIT_1) >> 1)
@@ -340,8 +339,10 @@ class APU:
     # Normalization constants
     CHANNEL_COUNT: Final[float] = 4.0
     MAX_VOLUME_LEVEL: Final[float] = 15.0
-    MAX_CHANNEL_OUTPUT: Final[float] = MAX_VOLUME_LEVEL * CHANNEL_COUNT
     MAX_MASTER_VOLUME_LEVEL: Final[float] = 7.0
+    
+    # Pre-calculated normalization divisor
+    NORM_DIVISOR: Final[float] = MAX_VOLUME_LEVEL * CHANNEL_COUNT * MAX_MASTER_VOLUME_LEVEL
 
     FRAME_SEQUENCER_STEPS: Final[int] = 8
     ENVELOPE_STEP: Final[int] = 7
@@ -470,10 +471,11 @@ class APU:
         if not self.sound_enabled:
             return
 
-        self.ch1.step(cycles)
-        self.ch2.step(cycles)
-        self.ch3.step(cycles)
-        self.ch4.step(cycles)
+        # Optimization: only step active channels
+        if self.ch1.enabled: self.ch1.step(cycles)
+        if self.ch2.enabled: self.ch2.step(cycles)
+        if self.ch3.enabled: self.ch3.step(cycles)
+        if self.ch4.enabled: self.ch4.step(cycles)
 
         self.frame_sequencer_clock += cycles
         if self.frame_sequencer_clock >= FRAME_SEQUENCER_PERIOD:
@@ -481,65 +483,50 @@ class APU:
             self.step_frame_sequencer()
 
         self.cycles += cycles
-        while self.cycles >= self.SAMPLE_PERIOD:
+        if self.cycles >= self.SAMPLE_PERIOD:
             self.cycles -= self.SAMPLE_PERIOD
             self.sample()
 
     def step_frame_sequencer(self) -> None:
         """Advance the APU frame sequencer (512Hz)."""
-        if self.frame_sequencer_step % 2 == 0:
+        step = self.frame_sequencer_step
+        if (step & 1) == 0: # Even steps: length counter
             self.ch1.step_length()
             self.ch2.step_length()
             self.ch3.step_length()
             self.ch4.step_length()
 
-        if self.frame_sequencer_step == self.ENVELOPE_STEP:
+        if step == self.ENVELOPE_STEP:
             self.ch1.step_envelope()
             self.ch2.step_envelope()
             self.ch4.step_envelope()
 
-        self.frame_sequencer_step = (self.frame_sequencer_step + 1) % self.FRAME_SEQUENCER_STEPS
+        self.frame_sequencer_step = (step + 1) & 7
 
     def sample(self) -> None:
         """Generate a stereo sample and add it to the buffer."""
-        nr50 = self.registers[REG_NR50 - REG_NR10]
-        nr51 = self.registers[REG_NR51 - REG_NR10]
+        regs = self.registers
+        nr50 = regs[REG_NR50 - REG_NR10]
+        nr51 = regs[REG_NR51 - REG_NR10]
 
         l_vol = (nr50 & APU_VOL_LEFT_MASK) >> 4
         r_vol = nr50 & APU_VOL_RIGHT_MASK
 
-        c1 = self.ch1.output
-        c2 = self.ch2.output
-        c3 = self.ch3.output
-        c4 = self.ch4.output
-
         left = 0.0
         right = 0.0
 
-        if nr51 & APU_MIX_CH4_LEFT:
-            left += c4
-        if nr51 & APU_MIX_CH3_LEFT:
-            left += c3
-        if nr51 & APU_MIX_CH2_LEFT:
-            left += c2
-        if nr51 & APU_MIX_CH1_LEFT:
-            left += c1
+        if nr51 & APU_MIX_CH1_LEFT: left += self.ch1.output
+        if nr51 & APU_MIX_CH2_LEFT: left += self.ch2.output
+        if nr51 & APU_MIX_CH3_LEFT: left += self.ch3.output
+        if nr51 & APU_MIX_CH4_LEFT: left += self.ch4.output
 
-        if nr51 & APU_MIX_CH4_RIGHT:
-            right += c4
-        if nr51 & APU_MIX_CH3_RIGHT:
-            right += c3
-        if nr51 & APU_MIX_CH2_RIGHT:
-            right += c2
-        if nr51 & APU_MIX_CH1_RIGHT:
-            right += c1
+        if nr51 & APU_MIX_CH1_RIGHT: right += self.ch1.output
+        if nr51 & APU_MIX_CH2_RIGHT: right += self.ch2.output
+        if nr51 & APU_MIX_CH3_RIGHT: right += self.ch3.output
+        if nr51 & APU_MIX_CH4_RIGHT: right += self.ch4.output
 
-        # Normalize and Scale to -1.0 to 1.0
-        self.left_output = (left * l_vol) / (
-            self.MAX_CHANNEL_OUTPUT * self.MAX_MASTER_VOLUME_LEVEL
-        )
-        self.right_output = (right * r_vol) / (
-            self.MAX_CHANNEL_OUTPUT * self.MAX_MASTER_VOLUME_LEVEL
-        )
+        # Final scaling using pre-calculated divisor
+        self.left_output = (left * l_vol) / self.NORM_DIVISOR
+        self.right_output = (right * r_vol) / self.NORM_DIVISOR
 
         self.buffer.append((self.left_output, self.right_output))

@@ -39,6 +39,8 @@ from constants import (
     HRAM_START,
     HRAM_END,
     REG_JOYP,
+    REG_IF,
+    IE_REG,
     CYCLES_VBLANK,
     OPCODE_COUNT,
     TAC_ENABLE_BIT,
@@ -163,25 +165,33 @@ class CPU(CPUOpcodes):
         
         executed, total_cyc = 0, 0
         
+        # Local cache for frequently accessed values
+        reg_pc = REG_PC
+        halt_cycles = self.HALT_CYCLES
+        
         try:
             while True:
-                # 1. Interrupt Handling (Check IME and halted state first)
+                # 1. Interrupt Handling
+                # Optimized hot path: check memory directly for pending interrupts
                 if interrupts.ime or self.halted:
-                    cyc = i_service(self)
+                    # Inlined pending check (IF & IE & 0x1F)
+                    if mem[REG_IF] & mem[IE_REG] & 0x1F:
+                        cyc = i_service(self)
+                    else:
+                        cyc = 0
                 else:
                     cyc = 0
                 
-                if cyc > 0:
-                    executed += 1
-                else:
+                if cyc == 0:
                     if self.halted:
-                        cyc = self.HALT_CYCLES
+                        cyc = halt_cycles
                     else:
                         # 2. Instruction Fetch and Execute
+                        # Physical Memory Mapping ensures mem[reg.PC] is always fast and correct
                         opcode = mem[reg.PC]
                         cyc = dispatch[opcode]()
-                    executed += 1
                 
+                executed += 1
                 total_cyc += cyc
                 
                 # 3. Synchronous Updates (Inlined clock update)
@@ -193,7 +203,7 @@ class CPU(CPUOpcodes):
                 if a_step:
                     a_step(cyc)
                 
-                # 4. Inlined IME Delay Update
+                # 4. Optimized IME Delay Update (only if active)
                 if interrupts.ime_enable_delay > 0:
                     interrupts.ime_enable_delay -= 1
                     if interrupts.ime_enable_delay == 0:
@@ -263,14 +273,16 @@ class CPU(CPUOpcodes):
     # --- Hardware Helpers ---
     def _read_memory_byte(self, address: Address) -> Byte:
         address &= WORD_MASK
-        if (WRAM_START <= address <= WRAM_END) or (HRAM_START <= address <= HRAM_END):
+        # Fast path: WRAM/HRAM/ROM are already mapped correctly in self.memory
+        if address < 0x8000 or (0xC000 <= address <= 0xDFFF) or (0xFF80 <= address <= 0xFFFE):
             return int(self.memory[address])
         return self.ram.read_byte(address)
 
     def _write_memory_byte(self, address: Address, value: Byte) -> None:
         address &= WORD_MASK
         value &= BYTE_MASK
-        if (WRAM_START <= address <= WRAM_END) or (HRAM_START <= address <= HRAM_END):
+        # Fast path for WRAM and HRAM
+        if (0xC000 <= address <= 0xDFFF) or (0xFF80 <= address <= 0xFFFE):
             self.memory[address] = value
         else:
             self.ram.write_byte(address, value)
@@ -408,10 +420,10 @@ class CPU(CPUOpcodes):
         )
     )
     _ld_memffxx_reg_reg = lambda self, r1, r2: self._write_memory_byte(
-        REG_JOYP + self.read_register(r1), self.read_register(r2)
+        int(REG_JOYP + self.read_register(r1)), self.read_register(r2)
     )
     _ld_memffxx_int_reg = lambda self, i, r: self._write_memory_byte(
-        REG_JOYP + i, self.read_register(r)
+        int(REG_JOYP + i), self.read_register(r)
     )
     _ld_reg_mem = lambda self, r, ar: self.write_register(
         r, self._read_memory_byte(self.read_register(ar))
