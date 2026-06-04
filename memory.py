@@ -21,6 +21,7 @@ from gb_types import (
     WORD_MASK,
     WORD_VALUE_COUNT,
     INTERRUPT_MASK,
+    TIMER_CONTROL_MASK,
 )
 from constants import (
     ECHO_OFFSET,
@@ -49,6 +50,10 @@ from constants import (
     REG_WAVE_RAM_END,
     REG_LCDC,
     REG_WX,
+    MODE_1_CYCLES,
+    MAX_SCANLINE,
+    PAGE_SIZE_BYTES,
+    PAGE_COUNT,
 )
 
 # Type for page handlers
@@ -63,8 +68,8 @@ class Memory:
     Memory is divided into 256 pages of 256 bytes each.
     """
 
-    PAGE_SIZE: Final[int] = 256
-    NUM_PAGES: Final[int] = 256
+    PAGE_SIZE: Final[int] = PAGE_SIZE_BYTES
+    NUM_PAGES: Final[int] = PAGE_COUNT
     storage: MemoryData
 
     def __init__(
@@ -200,6 +205,7 @@ class Memory:
             self.read_pages[i] = self._read_echo_ram
             self.write_pages[i] = self._write_echo_ram
 
+
     def _read_ram_direct(self, address: Address) -> Byte:
         return self.storage[address]
 
@@ -239,7 +245,7 @@ class Memory:
 
         # LY clock fallback if video disabled (essential for tests and headless mode)
         if address == REG_LY and self.clock is not None and not self._video:
-            return (self.clock.get_cycles_elapsed() // 456) % 154
+            return (self.clock.get_cycles_elapsed() // MODE_1_CYCLES) % MAX_SCANLINE
 
         # Video Registers
         if REG_LCDC <= address <= REG_WX:
@@ -287,7 +293,7 @@ class Memory:
             self.storage[address] = 0
             return  # DIV reset
         if address == REG_TAC:
-            self.storage[address] = value & 0x07
+            self.storage[address] = value & TIMER_CONTROL_MASK
             return  # TAC
 
         # Boot ROM Disable

@@ -70,6 +70,7 @@ class PulseChannel:
     MAX_VOLUME: Final[int] = 15
     TIMER_FACTOR: Final[int] = 4
     FREQUENCY_BASE: Final[int] = 2048
+    DUTY_STEPS: Final[int] = 8
 
     NRX1_DUTY_MASK: Final[int] = 0xC0
     NRX4_FREQ_HI_MASK: Final[int] = 0x07
@@ -101,7 +102,7 @@ class PulseChannel:
         self.timer -= cycles
         while self.timer <= 0:
             self.timer += (self.FREQUENCY_BASE - self.frequency) * self.TIMER_FACTOR
-            self.duty_step = (self.duty_step + 1) % 8
+            self.duty_step = (self.duty_step + 1) % self.DUTY_STEPS
             self.output = (
                 self.volume if self.DUTY_CYCLES[self.duty][self.duty_step] else 0
             )
@@ -167,6 +168,7 @@ class WaveChannel:
     MAX_LENGTH: Final[int] = 256
     TIMER_FACTOR: Final[int] = 2
     FREQUENCY_BASE: Final[int] = 2048
+    SAMPLE_COUNT: Final[int] = 32
 
     NR32_VOL_SHIFT_MASK: Final[int] = 0x60
     NR34_FREQ_HI_MASK: Final[int] = 0x07
@@ -190,7 +192,7 @@ class WaveChannel:
         self.timer -= cycles
         while self.timer <= 0:
             self.timer += (self.FREQUENCY_BASE - self.frequency) * self.TIMER_FACTOR
-            self.sample_index = (self.sample_index + 1) % 32
+            self.sample_index = (self.sample_index + 1) % self.SAMPLE_COUNT
 
             byte_index = self.sample_index // 2
             byte = self.wave_ram[byte_index]
@@ -242,6 +244,7 @@ class NoiseChannel:
     MAX_VOLUME: Final[int] = 15
     TIMER_BASE: Final[int] = 128
     LFSR_INITIAL: Final[int] = 0x7FFF
+    LFSR_BIT_COUNT: Final[int] = 14
 
     def __init__(self):
         self.enabled: bool = False
@@ -268,7 +271,7 @@ class NoiseChannel:
             self.timer += self.TIMER_BASE
 
             res = (self.lfsr & BIT_0) ^ ((self.lfsr & BIT_1) >> 1)
-            self.lfsr = (self.lfsr >> 1) | (res << 14)
+            self.lfsr = (self.lfsr >> 1) | (res << self.LFSR_BIT_COUNT)
             self.output = self.volume if (self.lfsr & BIT_0) == 0 else 0
 
     def step_length(self) -> None:
@@ -325,6 +328,12 @@ class APU:
 
     NR50_LEFT_VOL_MASK: Final[int] = 0x70
     NR50_RIGHT_VOL_MASK: Final[int] = 0x07
+
+    # Normalization constants
+    CHANNEL_COUNT: Final[float] = 4.0
+    MAX_VOLUME: Final[float] = 15.0
+    MAX_CHANNEL_OUTPUT: Final[float] = MAX_VOLUME * CHANNEL_COUNT
+    MAX_MASTER_VOLUME: Final[float] = 7.0
 
     def __init__(self) -> None:
         self.registers: bytearray = bytearray(APU_REG_SIZE)
@@ -493,8 +502,8 @@ class APU:
         c3 = self.ch3.output
         c4 = self.ch4.output
 
-        left = 0
-        right = 0
+        left = 0.0
+        right = 0.0
 
         if nr51 & BIT_7:
             left += c4
@@ -514,10 +523,12 @@ class APU:
         if nr51 & BIT_0:
             right += c1
 
-        # Output is max 15 * 4 = 60
-        # Scale to -1.0 to 1.0
-        # Master volume 0-7 -> l_vol / 7.0
-        self.left_output = (left * l_vol) / (60.0 * 7.0)
-        self.right_output = (right * r_vol) / (60.0 * 7.0)
+        # Normalize and Scale to -1.0 to 1.0
+        self.left_output = (left * l_vol) / (
+            self.MAX_CHANNEL_OUTPUT * self.MAX_MASTER_VOLUME
+        )
+        self.right_output = (right * r_vol) / (
+            self.MAX_CHANNEL_OUTPUT * self.MAX_MASTER_VOLUME
+        )
 
         self.buffer.append((self.left_output, self.right_output))

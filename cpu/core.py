@@ -39,6 +39,8 @@ from constants import (
     HRAM_START,
     HRAM_END,
     REG_JOYP,
+    MODE_1_CYCLES,
+    OPCODE_COUNT,
 )
 
 
@@ -49,7 +51,7 @@ class CPU(CPUOpcodes):
 
     EMPTY_OPERANDS: Final[Tuple] = ()
     FLAG_Z, FLAG_N, FLAG_H, FLAG_C = FLAG_Z, FLAG_N, FLAG_H, FLAG_C
-    OPCODE_COUNT = 256
+    OPCODE_COUNT = OPCODE_COUNT
     HALT_CYCLES = 4
 
     @overload
