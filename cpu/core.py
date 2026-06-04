@@ -135,6 +135,8 @@ class CPU(CPUOpcodes):
 
         apu_accumulated = 0
         APU_STEP_THRESHOLD = 32
+        V_STEP_THRESHOLD = 24
+        v_accumulated = 0
 
         try:
             while True:
@@ -159,11 +161,14 @@ class CPU(CPUOpcodes):
                 total_cyc += cyc
 
                 # 3. Synchronous Updates
-                t_step(cyc)
                 clock.cycles_elapsed += cyc
 
-                if v_step:
-                    v_step(cyc)
+                v_accumulated += cyc
+                if v_accumulated >= V_STEP_THRESHOLD:
+                    if v_step:
+                        v_step(v_accumulated)
+                    t_step(v_accumulated)
+                    v_accumulated = 0
                 if a_step:
                     apu_accumulated += cyc
                     if apu_accumulated >= APU_STEP_THRESHOLD:
@@ -217,7 +222,7 @@ class CPU(CPUOpcodes):
     def clear_flag(self, flag: str):
         self.set_flag(flag, False)
 
-    def set_flag(self, flag: str, value: bool = True):
+    def set_flag(self, flag: str, value: Union[bool, int] = True):
         mask = {"z": 0x80, "n": 0x40, "h": 0x20, "c": 0x10}.get(flag.lower(), 0)
         if mask == 0 and flag.lower() != "none":
             raise ValueError(f"Unknown flag: {flag}")

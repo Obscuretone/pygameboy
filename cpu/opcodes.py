@@ -1,4 +1,4 @@
-from typing import Any, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING, Union
 from gb_types import (
     FLAG_Z,
     FLAG_C,
@@ -83,7 +83,7 @@ class CPUOpcodes:
     def _set_cb_result_flags(self, res: Byte, carry: bool) -> None: pass
     def _set_bit_flags(self, val: Byte, bit: int) -> None: pass
     def get_flag(self, flag: str) -> bool: return False
-    def set_flag(self, flag: str, value: bool = True) -> None: pass
+    def set_flag(self, flag: str, value: Union[bool, int] = True) -> None: pass
 
     # 0x00 - LOW_NIBBLE_MASK
     def _nop(self):
@@ -134,7 +134,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self._write_memory_byte(self.registers[REG_BC], self.registers[REG_A])
+        self._write_memory_byte(self.registers[REG_BC], self.registers.data[0])
         self.registers.PC += 1
         return 8
 
@@ -164,9 +164,9 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        v = self.registers[REG_B]
+        v = self.registers.data[2]
         res = (v + 1) & BYTE_MASK
-        self.registers[REG_B] = res
+        self.registers.data[2] = res
         self._set_inc_flags(v, res)
         self.registers.PC += 1
         return 4
@@ -182,9 +182,9 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        v = self.registers[REG_B]
+        v = self.registers.data[2]
         res = (v - 1) & BYTE_MASK
-        self.registers[REG_B] = res
+        self.registers.data[2] = res
         self._set_dec_flags(v, res)
         self.registers.PC += 1
         return 4
@@ -201,7 +201,7 @@ class CPUOpcodes:
         bytes = 2
         """
         n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
-        self.registers[REG_B] = n8
+        self.registers.data[2] = n8
         self.registers.PC += 2
         return 8
 
@@ -209,10 +209,10 @@ class CPUOpcodes:
         """
         Opcode 0x07 (RLCA)
         """
-        v = self.registers[REG_A]
+        v = self.registers.data[0]
         c = (v & BIT_7) >> 7
         res = ((v << 1) | c) & BYTE_MASK
-        self.registers[REG_A] = res
+        self.registers.data[0] = res
         self.registers.data[REG_F] = FLAG_C if c else 0
         self.registers.PC += 1
         return 4
@@ -245,7 +245,7 @@ class CPUOpcodes:
         """
         Opcode 0x0A (LD 'A','BC',)
         """
-        self.registers[REG_A] = self._read_memory_byte(self.registers[REG_BC])
+        self.registers.data[0] = self._read_memory_byte(self.registers[REG_BC])
         self.registers.PC += 1
         return 8
 
@@ -275,9 +275,9 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        v = self.registers[REG_C]
+        v = self.registers.data[3]
         res = (v + 1) & BYTE_MASK
-        self.registers[REG_C] = res
+        self.registers.data[3] = res
         self._set_inc_flags(v, res)
         self.registers.PC += 1
         return 4
@@ -293,9 +293,9 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        v = self.registers[REG_C]
+        v = self.registers.data[3]
         res = (v - 1) & BYTE_MASK
-        self.registers[REG_C] = res
+        self.registers.data[3] = res
         self._set_dec_flags(v, res)
         self.registers.PC += 1
         return 4
@@ -312,7 +312,7 @@ class CPUOpcodes:
         bytes = 2
         """
         n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
-        self.registers[REG_C] = n8
+        self.registers.data[3] = n8
         self.registers.PC += 2
         return 8
 
@@ -327,10 +327,10 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        v = self.registers[REG_A]
+        v = self.registers.data[0]
         c = v & BIT_0
         res = (v >> 1) | (c << 7)
-        self.registers[REG_A] = res
+        self.registers.data[0] = res
         self.registers.data[REG_F] = FLAG_C if c else 0
         self.registers.PC += 1
         return 4
@@ -388,7 +388,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self._write_memory_byte(self.registers[REG_DE], self.registers[REG_A])
+        self._write_memory_byte(self.registers[REG_DE], self.registers.data[0])
         self.registers.PC += 1
         return 8
 
@@ -418,9 +418,9 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        v = self.registers[REG_D]
+        v = self.registers.data[4]
         res = (v + 1) & BYTE_MASK
-        self.registers[REG_D] = res
+        self.registers.data[4] = res
         self._set_inc_flags(v, res)
         self.registers.PC += 1
         return 4
@@ -436,9 +436,9 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        v = self.registers[REG_D]
+        v = self.registers.data[4]
         res = (v - 1) & BYTE_MASK
-        self.registers[REG_D] = res
+        self.registers.data[4] = res
         self._set_dec_flags(v, res)
         self.registers.PC += 1
         return 4
@@ -455,7 +455,7 @@ class CPUOpcodes:
         bytes = 2
         """
         n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
-        self.registers[REG_D] = n8
+        self.registers.data[4] = n8
         self.registers.PC += 2
         return 8
 
@@ -476,11 +476,11 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        v = self.registers[REG_A]
-        oc = 1 if self.get_flag("c") else 0
+        v = self.registers.data[0]
+        oc = 1 if (self.registers.data[1] & 0x10) else 0
         c = (v & BIT_7) >> 7
         res = ((v << 1) | oc) & BYTE_MASK
-        self.registers[REG_A] = res
+        self.registers.data[0] = res
         self.registers.data[REG_F] = FLAG_C if c else 0
         self.registers.PC += 1
         return 4
@@ -533,7 +533,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self.registers[REG_A] = self._read_memory_byte(self.registers[REG_DE])
+        self.registers.data[0] = self._read_memory_byte(self.registers[REG_DE])
         self.registers.PC += 1
         return 8
 
@@ -563,9 +563,9 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        v = self.registers[REG_E]
+        v = self.registers.data[5]
         res = (v + 1) & BYTE_MASK
-        self.registers[REG_E] = res
+        self.registers.data[5] = res
         self._set_inc_flags(v, res)
         self.registers.PC += 1
         return 4
@@ -581,9 +581,9 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        v = self.registers[REG_E]
+        v = self.registers.data[5]
         res = (v - 1) & BYTE_MASK
-        self.registers[REG_E] = res
+        self.registers.data[5] = res
         self._set_dec_flags(v, res)
         self.registers.PC += 1
         return 4
@@ -600,7 +600,7 @@ class CPUOpcodes:
         bytes = 2
         """
         n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
-        self.registers[REG_E] = n8
+        self.registers.data[5] = n8
         self.registers.PC += 2
         return 8
 
@@ -615,11 +615,11 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        v = self.registers[REG_A]
-        oc = BIT_7 if self.get_flag("c") else 0
+        v = self.registers.data[0]
+        oc = BIT_7 if (self.registers.data[1] & 0x10) else 0
         c = v & BIT_0
         res = (v >> 1) | oc
-        self.registers[REG_A] = res
+        self.registers.data[0] = res
         self.registers.data[REG_F] = FLAG_C if c else 0
         self.registers.PC += 1
         return 4
@@ -642,7 +642,7 @@ class CPUOpcodes:
         cycles = without branch (8t)	with branch (12t)
         bytes = 2
         """
-        if not self.get_flag("z"):
+        if not (self.registers.data[1] & 0x80):
             n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
             self.registers.PC += 2 + self._signed_e8(n8)
             return 12
@@ -684,7 +684,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self._write_memory_byte(self.registers[REG_HL], self.registers[REG_A])
+        self._write_memory_byte(self.registers[REG_HL], self.registers.data[0])
         self.registers[REG_HL] = (self.registers[REG_HL] + 1) & WORD_MASK
         self.registers.PC += 1
         return 8
@@ -715,9 +715,9 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        v = self.registers[REG_H]
+        v = self.registers.data[6]
         res = (v + 1) & BYTE_MASK
-        self.registers[REG_H] = res
+        self.registers.data[6] = res
         self._set_inc_flags(v, res)
         self.registers.PC += 1
         return 4
@@ -733,9 +733,9 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        v = self.registers[REG_H]
+        v = self.registers.data[6]
         res = (v - 1) & BYTE_MASK
-        self.registers[REG_H] = res
+        self.registers.data[6] = res
         self._set_dec_flags(v, res)
         self.registers.PC += 1
         return 4
@@ -752,7 +752,7 @@ class CPUOpcodes:
         bytes = 2
         """
         n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
-        self.registers[REG_H] = n8
+        self.registers.data[6] = n8
         self.registers.PC += 2
         return 8
 
@@ -767,23 +767,23 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        v = self.registers[REG_A]
+        v = self.registers.data[0]
         adj = 0
-        c = self.get_flag("c")
-        if not self.get_flag("n"):
-            if self.get_flag("h") or (v & LOW_NIBBLE_MASK) > DAA_LOW_THRESHOLD:
+        c = (self.registers.data[1] & 0x10)
+        if not (self.registers.data[1] & 0x40):
+            if (self.registers.data[1] & 0x20) or (v & LOW_NIBBLE_MASK) > DAA_LOW_THRESHOLD:
                 adj |= DAA_LOW_ADJUST
-            if self.get_flag("c") or v > DAA_HIGH_THRESHOLD:
+            if (self.registers.data[1] & 0x10) or v > DAA_HIGH_THRESHOLD:
                 adj |= DAA_HIGH_ADJUST
                 c = True
             v = (v + adj) & BYTE_MASK
         else:
-            if self.get_flag("h"):
+            if (self.registers.data[1] & 0x20):
                 adj |= DAA_LOW_ADJUST
-            if self.get_flag("c"):
+            if (self.registers.data[1] & 0x10):
                 adj |= DAA_HIGH_ADJUST
             v = (v - adj) & BYTE_MASK
-        self.registers[REG_A] = v
+        self.registers.data[0] = v
         self.set_flag("z", v == 0)
         self.set_flag("h", False)
         self.set_flag("c", c)
@@ -801,7 +801,7 @@ class CPUOpcodes:
         cycles = 8 or 12
         bytes = 2
         """
-        if self.get_flag("z"):
+        if (self.registers.data[1] & 0x80):
             n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
             self.registers.PC += 2 + self._signed_e8(n8)
             return 12
@@ -837,7 +837,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self.registers[REG_A] = self._read_memory_byte(self.registers[REG_HL])
+        self.registers.data[0] = self._read_memory_byte(self.registers[REG_HL])
         self.registers[REG_HL] = (self.registers[REG_HL] + 1) & WORD_MASK
         self.registers.PC += 1
         return 8
@@ -868,9 +868,9 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        v = self.registers[REG_L]
+        v = self.registers.data[7]
         res = (v + 1) & BYTE_MASK
-        self.registers[REG_L] = res
+        self.registers.data[7] = res
         self._set_inc_flags(v, res)
         self.registers.PC += 1
         return 4
@@ -886,9 +886,9 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        v = self.registers[REG_L]
+        v = self.registers.data[7]
         res = (v - 1) & BYTE_MASK
-        self.registers[REG_L] = res
+        self.registers.data[7] = res
         self._set_dec_flags(v, res)
         self.registers.PC += 1
         return 4
@@ -905,7 +905,7 @@ class CPUOpcodes:
         bytes = 2
         """
         n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
-        self.registers[REG_L] = n8
+        self.registers.data[7] = n8
         self.registers.PC += 2
         return 8
 
@@ -923,7 +923,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_A] ^= BYTE_MASK
+        self.registers.data[0] ^= BYTE_MASK
         self.set_flag("n", True)
         self.set_flag("h", True)
         self.registers.PC += 1
@@ -944,7 +944,7 @@ class CPUOpcodes:
         cycles = 12
         bytes = 2
         """
-        if not self.get_flag("c"):
+        if not (self.registers.data[1] & 0x10):
             n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
             self.registers.PC += 2 + self._signed_e8(n8)
             return 12
@@ -985,7 +985,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self._write_memory_byte(self.registers[REG_HL], self.registers[REG_A])
+        self._write_memory_byte(self.registers[REG_HL], self.registers.data[0])
         self.registers[REG_HL] = (self.registers[REG_HL] - 1) & WORD_MASK
         self.registers.PC += 1
         return 8
@@ -1087,7 +1087,7 @@ class CPUOpcodes:
         cycles = 8 or 12
         bytes = 2
         """
-        if self.get_flag("c"):
+        if (self.registers.data[1] & 0x10):
             n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
             self.registers.PC += 2 + self._signed_e8(n8)
             return 12
@@ -1123,7 +1123,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self.registers[REG_A] = self._read_memory_byte(self.registers[REG_HL])
+        self.registers.data[0] = self._read_memory_byte(self.registers[REG_HL])
         self.registers[REG_HL] = (self.registers[REG_HL] - 1) & WORD_MASK
         self.registers.PC += 1
         return 8
@@ -1154,9 +1154,9 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        v = self.registers[REG_A]
+        v = self.registers.data[0]
         res = (v + 1) & BYTE_MASK
-        self.registers[REG_A] = res
+        self.registers.data[0] = res
         self._set_inc_flags(v, res)
         self.registers.PC += 1
         return 4
@@ -1172,9 +1172,9 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        v = self.registers[REG_A]
+        v = self.registers.data[0]
         res = (v - 1) & BYTE_MASK
-        self.registers[REG_A] = res
+        self.registers.data[0] = res
         self._set_dec_flags(v, res)
         self.registers.PC += 1
         return 4
@@ -1191,7 +1191,7 @@ class CPUOpcodes:
         bytes = 2
         """
         n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
-        self.registers[REG_A] = n8
+        self.registers.data[0] = n8
         self.registers.PC += 2
         return 8
 
@@ -1208,7 +1208,7 @@ class CPUOpcodes:
         """
         self.set_flag("n", False)
         self.set_flag("h", False)
-        self.set_flag("c", not self.get_flag("c"))
+        self.set_flag("c", not (self.registers.data[1] & 0x10))
         self.registers.PC += 1
         return 4
 
@@ -1224,7 +1224,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_B] = self.registers[REG_B]
+        self.registers.data[2] = self.registers.data[2]
         self.registers.PC += 1
         return 4
 
@@ -1239,7 +1239,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_B] = self.registers[REG_C]
+        self.registers.data[2] = self.registers.data[3]
         self.registers.PC += 1
         return 4
 
@@ -1254,7 +1254,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_B] = self.registers[REG_D]
+        self.registers.data[2] = self.registers.data[4]
         self.registers.PC += 1
         return 4
 
@@ -1269,7 +1269,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_B] = self.registers[REG_E]
+        self.registers.data[2] = self.registers.data[5]
         self.registers.PC += 1
         return 4
 
@@ -1284,7 +1284,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_B] = self.registers[REG_H]
+        self.registers.data[2] = self.registers.data[6]
         self.registers.PC += 1
         return 4
 
@@ -1299,7 +1299,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_B] = self.registers[REG_L]
+        self.registers.data[2] = self.registers.data[7]
         self.registers.PC += 1
         return 4
 
@@ -1314,7 +1314,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self.registers[REG_B] = self._read_memory_byte(self.registers[REG_HL])
+        self.registers.data[2] = self._read_memory_byte(self.registers[REG_HL])
         self.registers.PC += 1
         return 8
 
@@ -1329,7 +1329,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_B] = self.registers[REG_A]
+        self.registers.data[2] = self.registers.data[0]
         self.registers.PC += 1
         return 4
 
@@ -1344,7 +1344,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_C] = self.registers[REG_B]
+        self.registers.data[3] = self.registers.data[2]
         self.registers.PC += 1
         return 4
 
@@ -1360,7 +1360,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_C] = self.registers[REG_C]
+        self.registers.data[3] = self.registers.data[3]
         self.registers.PC += 1
         return 4
 
@@ -1375,7 +1375,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_C] = self.registers[REG_D]
+        self.registers.data[3] = self.registers.data[4]
         self.registers.PC += 1
         return 4
 
@@ -1390,7 +1390,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_C] = self.registers[REG_E]
+        self.registers.data[3] = self.registers.data[5]
         self.registers.PC += 1
         return 4
 
@@ -1405,7 +1405,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_C] = self.registers[REG_H]
+        self.registers.data[3] = self.registers.data[6]
         self.registers.PC += 1
         return 4
 
@@ -1420,7 +1420,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_C] = self.registers[REG_L]
+        self.registers.data[3] = self.registers.data[7]
         self.registers.PC += 1
         return 4
 
@@ -1435,13 +1435,13 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self.registers[REG_C] = self._read_memory_byte(self.registers[REG_HL])
+        self.registers.data[3] = self._read_memory_byte(self.registers[REG_HL])
         self.registers.PC += 1
         return 8
 
     def _ld_c_a(self):
         """Opcode 0xE2 (LD 'C','A',)"""
-        self.registers[REG_C] = self.registers[REG_A]
+        self.registers.data[3] = self.registers.data[0]
         self.registers.PC += 1
         return 4
 
@@ -1456,7 +1456,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_D] = self.registers[REG_B]
+        self.registers.data[4] = self.registers.data[2]
         self.registers.PC += 1
         return 4
 
@@ -1471,7 +1471,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_D] = self.registers[REG_C]
+        self.registers.data[4] = self.registers.data[3]
         self.registers.PC += 1
         return 4
 
@@ -1487,7 +1487,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_D] = self.registers[REG_D]
+        self.registers.data[4] = self.registers.data[4]
         self.registers.PC += 1
         return 4
 
@@ -1502,7 +1502,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_D] = self.registers[REG_E]
+        self.registers.data[4] = self.registers.data[5]
         self.registers.PC += 1
         return 4
 
@@ -1517,7 +1517,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_D] = self.registers[REG_H]
+        self.registers.data[4] = self.registers.data[6]
         self.registers.PC += 1
         return 4
 
@@ -1532,7 +1532,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_D] = self.registers[REG_L]
+        self.registers.data[4] = self.registers.data[7]
         self.registers.PC += 1
         return 4
 
@@ -1547,7 +1547,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self.registers[REG_D] = self._read_memory_byte(self.registers[REG_HL])
+        self.registers.data[4] = self._read_memory_byte(self.registers[REG_HL])
         self.registers.PC += 1
         return 8
 
@@ -1562,7 +1562,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_D] = self.registers[REG_A]
+        self.registers.data[4] = self.registers.data[0]
         self.registers.PC += 1
         return 4
 
@@ -1577,7 +1577,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_E] = self.registers[REG_B]
+        self.registers.data[5] = self.registers.data[2]
         self.registers.PC += 1
         return 4
 
@@ -1592,7 +1592,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_E] = self.registers[REG_C]
+        self.registers.data[5] = self.registers.data[3]
         self.registers.PC += 1
         return 4
 
@@ -1607,7 +1607,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_E] = self.registers[REG_D]
+        self.registers.data[5] = self.registers.data[4]
         self.registers.PC += 1
         return 4
 
@@ -1623,7 +1623,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_E] = self.registers[REG_E]
+        self.registers.data[5] = self.registers.data[5]
         self.registers.PC += 1
         return 4
 
@@ -1638,7 +1638,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_E] = self.registers[REG_H]
+        self.registers.data[5] = self.registers.data[6]
         self.registers.PC += 1
         return 4
 
@@ -1653,7 +1653,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_E] = self.registers[REG_L]
+        self.registers.data[5] = self.registers.data[7]
         self.registers.PC += 1
         return 4
 
@@ -1668,7 +1668,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self.registers[REG_E] = self._read_memory_byte(self.registers[REG_HL])
+        self.registers.data[5] = self._read_memory_byte(self.registers[REG_HL])
         self.registers.PC += 1
         return 8
 
@@ -1683,7 +1683,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_E] = self.registers[REG_A]
+        self.registers.data[5] = self.registers.data[0]
         self.registers.PC += 1
         return 4
 
@@ -1698,7 +1698,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_H] = self.registers[REG_B]
+        self.registers.data[6] = self.registers.data[2]
         self.registers.PC += 1
         return 4
 
@@ -1713,7 +1713,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_H] = self.registers[REG_C]
+        self.registers.data[6] = self.registers.data[3]
         self.registers.PC += 1
         return 4
 
@@ -1728,7 +1728,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_H] = self.registers[REG_D]
+        self.registers.data[6] = self.registers.data[4]
         self.registers.PC += 1
         return 4
 
@@ -1743,7 +1743,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_H] = self.registers[REG_E]
+        self.registers.data[6] = self.registers.data[5]
         self.registers.PC += 1
         return 4
 
@@ -1759,7 +1759,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_H] = self.registers[REG_H]
+        self.registers.data[6] = self.registers.data[6]
         self.registers.PC += 1
         return 4
 
@@ -1774,7 +1774,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_H] = self.registers[REG_L]
+        self.registers.data[6] = self.registers.data[7]
         self.registers.PC += 1
         return 4
 
@@ -1789,7 +1789,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self.registers[REG_H] = self._read_memory_byte(self.registers[REG_HL])
+        self.registers.data[6] = self._read_memory_byte(self.registers[REG_HL])
         self.registers.PC += 1
         return 8
 
@@ -1804,7 +1804,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_H] = self.registers[REG_A]
+        self.registers.data[6] = self.registers.data[0]
         self.registers.PC += 1
         return 4
 
@@ -1819,7 +1819,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_L] = self.registers[REG_B]
+        self.registers.data[7] = self.registers.data[2]
         self.registers.PC += 1
         return 4
 
@@ -1834,7 +1834,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_L] = self.registers[REG_C]
+        self.registers.data[7] = self.registers.data[3]
         self.registers.PC += 1
         return 4
 
@@ -1849,7 +1849,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_L] = self.registers[REG_D]
+        self.registers.data[7] = self.registers.data[4]
         self.registers.PC += 1
         return 4
 
@@ -1864,7 +1864,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_L] = self.registers[REG_E]
+        self.registers.data[7] = self.registers.data[5]
         self.registers.PC += 1
         return 4
 
@@ -1879,7 +1879,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_L] = self.registers[REG_H]
+        self.registers.data[7] = self.registers.data[6]
         self.registers.PC += 1
         return 4
 
@@ -1895,7 +1895,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_L] = self.registers[REG_L]
+        self.registers.data[7] = self.registers.data[7]
         self.registers.PC += 1
         return 4
 
@@ -1910,7 +1910,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self.registers[REG_L] = self._read_memory_byte(self.registers[REG_HL])
+        self.registers.data[7] = self._read_memory_byte(self.registers[REG_HL])
         self.registers.PC += 1
         return 8
 
@@ -1925,7 +1925,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_L] = self.registers[REG_A]
+        self.registers.data[7] = self.registers.data[0]
         self.registers.PC += 1
         return 4
 
@@ -1940,7 +1940,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self._write_memory_byte(self.registers[REG_HL], self.registers[REG_B])
+        self._write_memory_byte(self.registers[REG_HL], self.registers.data[2])
         self.registers.PC += 1
         return 8
 
@@ -1955,7 +1955,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self._write_memory_byte(self.registers[REG_HL], self.registers[REG_C])
+        self._write_memory_byte(self.registers[REG_HL], self.registers.data[3])
         self.registers.PC += 1
         return 8
 
@@ -1970,7 +1970,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self._write_memory_byte(self.registers[REG_HL], self.registers[REG_D])
+        self._write_memory_byte(self.registers[REG_HL], self.registers.data[4])
         self.registers.PC += 1
         return 8
 
@@ -1985,7 +1985,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self._write_memory_byte(self.registers[REG_HL], self.registers[REG_E])
+        self._write_memory_byte(self.registers[REG_HL], self.registers.data[5])
         self.registers.PC += 1
         return 8
 
@@ -2000,7 +2000,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self._write_memory_byte(self.registers[REG_HL], self.registers[REG_H])
+        self._write_memory_byte(self.registers[REG_HL], self.registers.data[6])
         self.registers.PC += 1
         return 8
 
@@ -2015,7 +2015,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self._write_memory_byte(self.registers[REG_HL], self.registers[REG_L])
+        self._write_memory_byte(self.registers[REG_HL], self.registers.data[7])
         self.registers.PC += 1
         return 8
 
@@ -2051,7 +2051,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self._write_memory_byte(self.registers[REG_HL], self.registers[REG_A])
+        self._write_memory_byte(self.registers[REG_HL], self.registers.data[0])
         self.registers.PC += 1
         return 8
 
@@ -2066,7 +2066,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_A] = self.registers[REG_B]
+        self.registers.data[0] = self.registers.data[2]
         self.registers.PC += 1
         return 4
 
@@ -2081,7 +2081,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_A] = self.registers[REG_C]
+        self.registers.data[0] = self.registers.data[3]
         self.registers.PC += 1
         return 4
 
@@ -2096,7 +2096,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_A] = self.registers[REG_D]
+        self.registers.data[0] = self.registers.data[4]
         self.registers.PC += 1
         return 4
 
@@ -2111,7 +2111,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_A] = self.registers[REG_E]
+        self.registers.data[0] = self.registers.data[5]
         self.registers.PC += 1
         return 4
 
@@ -2126,7 +2126,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_A] = self.registers[REG_H]
+        self.registers.data[0] = self.registers.data[6]
         self.registers.PC += 1
         return 4
 
@@ -2141,7 +2141,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_A] = self.registers[REG_L]
+        self.registers.data[0] = self.registers.data[7]
         self.registers.PC += 1
         return 4
 
@@ -2156,7 +2156,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self.registers[REG_A] = self._read_memory_byte(self.registers[REG_HL])
+        self.registers.data[0] = self._read_memory_byte(self.registers[REG_HL])
         self.registers.PC += 1
         return 8
 
@@ -2171,7 +2171,7 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self.registers[REG_A] = self.registers[REG_A]
+        self.registers.data[0] = self.registers.data[0]
         self.registers.PC += 1
         return 4
 
@@ -3159,7 +3159,7 @@ class CPUOpcodes:
         cycles = 8 to 20
         bytes = 1
         """
-        if not self.get_flag("z"):
+        if not (self.registers.data[1] & 0x80):
             self.registers.PC = self.pop_stack()
             return 20
         self.registers.PC += 1
@@ -3205,7 +3205,7 @@ class CPUOpcodes:
         n16 = self.memory[(self.registers.PC + 1) & 0xFFFF] | (
             self.memory[(self.registers.PC + 2) & 0xFFFF] << 8
         )
-        if not self.get_flag("z"):
+        if not (self.registers.data[1] & 0x80):
             self.registers.PC = n16
             return 16
         self.registers.PC += 3
@@ -3244,7 +3244,7 @@ class CPUOpcodes:
         n16 = self.memory[(self.registers.PC + 1) & 0xFFFF] | (
             self.memory[(self.registers.PC + 2) & 0xFFFF] << 8
         )
-        if not self.get_flag("z"):
+        if not (self.registers.data[1] & 0x80):
             self.push_stack((self.registers.PC + 3) & WORD_MASK)
             self.registers.PC = n16
             return 24
@@ -3307,7 +3307,7 @@ class CPUOpcodes:
         cycles = 8 - 20
         bytes = 1
         """
-        if self.get_flag("z"):
+        if (self.registers.data[1] & 0x80):
             self.registers.PC = self.pop_stack()
             return 20
         self.registers.PC += 1
@@ -3343,7 +3343,7 @@ class CPUOpcodes:
         n16 = self.memory[(self.registers.PC + 1) & 0xFFFF] | (
             self.memory[(self.registers.PC + 2) & 0xFFFF] << 8
         )
-        if self.get_flag("z"):
+        if (self.registers.data[1] & 0x80):
             self.registers.PC = n16
             return 16
         self.registers.PC += 3
@@ -3372,7 +3372,7 @@ class CPUOpcodes:
         n16 = self.memory[(self.registers.PC + 1) & 0xFFFF] | (
             self.memory[(self.registers.PC + 2) & 0xFFFF] << 8
         )
-        if self.get_flag("z"):
+        if (self.registers.data[1] & 0x80):
             self.push_stack((self.registers.PC + 3) & WORD_MASK)
             self.registers.PC = n16
             return 24
@@ -3446,7 +3446,7 @@ class CPUOpcodes:
         cycles = 20
         bytes = 1
         """
-        if not self.get_flag("c"):
+        if not (self.registers.data[1] & 0x10):
             self.registers.PC = self.pop_stack()
             return 20
         self.registers.PC += 1
@@ -3485,7 +3485,7 @@ class CPUOpcodes:
         n16 = self.memory[(self.registers.PC + 1) & 0xFFFF] | (
             self.memory[(self.registers.PC + 2) & 0xFFFF] << 8
         )
-        if not self.get_flag("c"):
+        if not (self.registers.data[1] & 0x10):
             self.registers.PC = n16
             return 16
         self.registers.PC += 3
@@ -3496,7 +3496,7 @@ class CPUOpcodes:
         n16 = self.memory[(self.registers.PC + 1) & 0xFFFF] | (
             self.memory[(self.registers.PC + 2) & 0xFFFF] << 8
         )
-        if not self.get_flag("c"):
+        if not (self.registers.data[1] & 0x10):
             self.push_stack((self.registers.PC + 3) & WORD_MASK)
             self.registers.PC = n16
             return 24
@@ -3524,7 +3524,7 @@ class CPUOpcodes:
 
     def _ret_c(self):
         """Opcode 0xD8 (RET 'C',)"""
-        if self.get_flag("c"):
+        if (self.registers.data[1] & 0x10):
             self.registers.PC = self.pop_stack()
             return 20
         self.registers.PC += 1
@@ -3542,7 +3542,7 @@ class CPUOpcodes:
         n16 = self.memory[(self.registers.PC + 1) & 0xFFFF] | (
             self.memory[(self.registers.PC + 2) & 0xFFFF] << 8
         )
-        if self.get_flag("c"):
+        if (self.registers.data[1] & 0x10):
             self.registers.PC = n16
             return 16
         self.registers.PC += 3
@@ -3553,7 +3553,7 @@ class CPUOpcodes:
         n16 = self.memory[(self.registers.PC + 1) & 0xFFFF] | (
             self.memory[(self.registers.PC + 2) & 0xFFFF] << 8
         )
-        if self.get_flag("c"):
+        if (self.registers.data[1] & 0x10):
             self.push_stack((self.registers.PC + 3) & WORD_MASK)
             self.registers.PC = n16
             return 24
@@ -3577,7 +3577,7 @@ class CPUOpcodes:
     def _ldh_n8_a(self):
         """Opcode 0xE0 (LDH 'a8','A',)"""
         n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
-        self._write_memory_byte(int(0xFF00 + n8), self.registers[REG_A])
+        self._write_memory_byte(int(0xFF00 + n8), self.registers.data[0])
         self.registers.PC += 2
         return 12
 
@@ -3590,7 +3590,7 @@ class CPUOpcodes:
     def _ld_c_a_mem(self):
         """Opcode 0xE2 (LD 'C','A',)"""
         self._write_memory_byte(
-            int(0xFF00 + self.registers[REG_C]), self.registers[REG_A]
+            int(0xFF00 + self.registers.data[3]), self.registers.data[0]
         )
         self.registers.PC += 1
         return 8
@@ -3634,7 +3634,7 @@ class CPUOpcodes:
         n16 = self.memory[(self.registers.PC + 1) & 0xFFFF] | (
             self.memory[(self.registers.PC + 2) & 0xFFFF] << 8
         )
-        self._write_memory_byte(n16, self.registers[REG_A])
+        self._write_memory_byte(n16, self.registers.data[0])
         self.registers.PC += 3
         return 16
 
@@ -3655,7 +3655,7 @@ class CPUOpcodes:
     def _ldh_a_n8(self):
         """Opcode HIGH_NIBBLE_MASK (LDH 'A','a8',)"""
         n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
-        self.registers[REG_A] = self._read_memory_byte(int(0xFF00 + n8))
+        self.registers.data[0] = self._read_memory_byte(int(0xFF00 + n8))
         self.registers.PC += 2
         return 12
 
@@ -3667,8 +3667,8 @@ class CPUOpcodes:
 
     def _ld_a_c_mem(self):
         """Opcode 0xF2 (LD 'A','C',)"""
-        self.registers[REG_A] = self._read_memory_byte(
-            int(0xFF00 + self.registers[REG_C])
+        self.registers.data[0] = self._read_memory_byte(
+            int(0xFF00 + self.registers.data[3])
         )
         self.registers.PC += 1
         return 8
@@ -3720,7 +3720,7 @@ class CPUOpcodes:
         n16 = self.memory[(self.registers.PC + 1) & 0xFFFF] | (
             self.memory[(self.registers.PC + 2) & 0xFFFF] << 8
         )
-        self.registers[REG_A] = self._read_memory_byte(n16)
+        self.registers.data[0] = self._read_memory_byte(n16)
         self.registers.PC += 3
         return 16
 
@@ -3784,13 +3784,13 @@ class CPUOpcodes:
                 set_val(res)
                 self._set_cb_result_flags(res, bool(c))
             elif bit == 2:
-                oc = 1 if self.get_flag("c") else 0
+                oc = 1 if (self.registers.data[1] & 0x10) else 0
                 c = (val & BIT_7) >> 7
                 res = ((val << 1) | oc) & BYTE_MASK
                 set_val(res)
                 self._set_cb_result_flags(res, bool(c))
             elif bit == 3:
-                oc = 1 if self.get_flag("c") else 0
+                oc = 1 if (self.registers.data[1] & 0x10) else 0
                 c = val & BIT_0
                 res = (val >> 1) | (oc << 7)
                 set_val(res)
