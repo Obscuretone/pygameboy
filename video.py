@@ -56,6 +56,7 @@ from constants import (
     TILE_MAP_WIDTH,
     OAM_DMA_TRANSFER_SIZE,
     INT_VBLANK_BIT,
+    INT_STAT_BIT,
     MODE_HBLANK,
     MODE_VBLANK,
     MODE_OAM_SEARCH,
@@ -89,36 +90,36 @@ class VideoChip:
     def __init__(self, clock: ClockDevice, memory: MemoryBus):
         """
         Initialize the VideoChip.
-
-        Args:
-            clock: The system clock for cycle-accurate timing.
-            memory: The memory bus for reading tile data and OAM.
         """
-        self.LCDC: int = LCDC_DEFAULT  # LCD Control Register
-        self.STAT: int = STAT_DEFAULT  # LCD Status Register
-        self.SCY: int = 0  # Scroll Y
-        self.SCX: int = 0  # Scroll X
-        self.LY: int = 0  # LCDC Y-Coordinate
-        self.LYC: int = 0  # LY Compare
-        self.BGP: int = BGP_DEFAULT  # BG Palette Data
-        self.OBP0: int = OBP_DEFAULT  # Object Palette 0 Data
-        self.OBP1: int = OBP_DEFAULT  # Object Palette 1 Data
-        self.WY: int = 0  # Window Y Position
-        self.WX: int = 0  # Window X Position
-        self.DMA: int = 0  # OAM DMA Source Address
+        self.LCDC: int = LCDC_DEFAULT
+        self.STAT: int = STAT_DEFAULT
+        self.SCY: int = 0
+        self.SCX: int = 0
+        self.LY: int = 0
+        self.LYC: int = 0
+        self.BGP: int = BGP_DEFAULT
+        self.OBP0: int = OBP_DEFAULT
+        self.OBP1: int = OBP_DEFAULT
+        self.WY: int = 0
+        self.WX: int = 0
+        self.DMA: int = 0
 
-        # VRAM and OAM
         self.vram: bytearray = bytearray(self.VRAM_SIZE)
         self.oam: bytearray = bytearray(self.OAM_SIZE)
         self.vram_np: np.ndarray = np.frombuffer(self.vram, dtype=np.uint8)
         self.x_indices: np.ndarray = np.arange(self.SCREEN_WIDTH)
         self.memory: MemoryBus = memory
         self.mode_clock: int = 0
+        
+        # Internal Window line counter (only increments when window is rendered)
+        self.window_line: int = 0
 
-        # Frame buffer: 160x144 pixels, each pixel is a color index (0-3)
         self.frame_buffer: np.ndarray = np.zeros(
             self.SCREEN_WIDTH * self.SCREEN_HEIGHT, dtype=np.uint8
         )
+        
+        # Tracking for STAT interrupt edge triggering
+        self.stat_irq_signal: bool = False
 
     def read_byte(self, address: Address) -> Byte:
         """Read a video register or memory byte."""
@@ -129,7 +130,7 @@ class VideoChip:
         elif address == REG_LCDC:
             return self.LCDC
         elif address == REG_STAT:
-            return self.STAT
+            return self.STAT | 0x80 # Bit 7 always 1
         elif address == REG_SCY:
             return self.SCY
         elif address == REG_SCX:
@@ -160,17 +161,28 @@ class VideoChip:
         elif OAM_START <= address <= OAM_END:
             self.oam[address - OAM_START] = value
         elif address == REG_LCDC:
+            old_lcd_on = bool(self.LCDC & 0x80)
+            new_lcd_on = bool(value & 0x80)
             self.LCDC = value
+            if old_lcd_on and not new_lcd_on:
+                # When LCD turns off, LY and Mode clock reset
+                self.LY = 0
+                self.mode_clock = 0
+                self.STAT &= ~STAT_MODE_MASK
+                self.STAT |= MODE_HBLANK
         elif address == REG_STAT:
-            self.STAT = value
+            # Only bits 3-6 are writable
+            self.STAT = (self.STAT & 0x07) | (value & 0x78)
+            self.update_stat_interrupt()
         elif address == REG_SCY:
             self.SCY = value
         elif address == REG_SCX:
             self.SCX = value
         elif address == REG_LY:
-            self.LY = value
+            pass # Read only
         elif address == REG_LYC:
             self.LYC = value
+            self.check_lyc()
         elif address == REG_DMA:
             self.DMA = value
             self.perform_dma(value)
@@ -184,19 +196,17 @@ class VideoChip:
             self.WY = value
         elif address == REG_WX:
             self.WX = value
-        else:
-            raise ValueError(f"Unknown video register address: {hex(address)}")
 
     def step(self, cycles: Cycles) -> None:
         """
         Advance the PPU by the specified number of cycles.
         """
-        self.mode_clock += cycles
+        if not (self.LCDC & 0x80):
+            return
 
-        # Current Mode
+        self.mode_clock += cycles
         mode = self.STAT & STAT_MODE_MASK
 
-        # Optimization: use if-elif chain instead of while loop for single steps
         if mode == MODE_OAM_SEARCH:
             if self.mode_clock >= CYCLES_OAM_SEARCH:
                 self.mode_clock -= CYCLES_OAM_SEARCH
@@ -222,12 +232,14 @@ class VideoChip:
                 self.LY += 1
                 if self.LY > VBLANK_LINE_LIMIT:
                     self.LY = 0
+                    self.window_line = 0 # Reset window line counter
                     self.set_mode(MODE_OAM_SEARCH)
                 self.check_lyc()
 
     def set_mode(self, mode: int) -> None:
-        """Set the current PPU mode in the STAT register."""
-        self.STAT = (self.STAT & STAT_INTERRUPT_MASK) | (mode & STAT_MODE_MASK)
+        """Set the current PPU mode and check for interrupts."""
+        self.STAT = (self.STAT & ~STAT_MODE_MASK) | (mode & STAT_MODE_MASK)
+        self.update_stat_interrupt()
 
     def check_lyc(self) -> None:
         """Check if LY matches LYC and update STAT register."""
@@ -235,49 +247,58 @@ class VideoChip:
             self.STAT |= STAT_LYC_FLAG
         else:
             self.STAT &= ~STAT_LYC_FLAG
+        self.update_stat_interrupt()
+
+    def update_stat_interrupt(self) -> None:
+        """Evaluate STAT interrupt conditions and request interrupt on rising edge."""
+        mode = self.STAT & STAT_MODE_MASK
+        
+        signal = False
+        if (self.STAT & 0x40) and (self.STAT & STAT_LYC_FLAG): signal = True
+        if (self.STAT & 0x20) and (mode == MODE_OAM_SEARCH): signal = True
+        if (self.STAT & 0x10) and (mode == MODE_VBLANK): signal = True
+        if (self.STAT & 0x08) and (mode == MODE_HBLANK): signal = True
+        
+        if signal and not self.stat_irq_signal:
+            self.memory.request_interrupt(INT_STAT_BIT)
+        self.stat_irq_signal = signal
 
     def render_scanline(self) -> None:
         """Render the current scanline (LY) to the frame buffer."""
-        # Fast path for LCD disabled
-        if not (self.LCDC & 0x80):
-            return
-
         line_start = self.LY * self.SCREEN_WIDTH
         line_end = line_start + self.SCREEN_WIDTH
 
-        # Bit 0 of LCDC: BG Display Enable
+        # Bit 0 of LCDC: BG Display Enable (DMG)
         if not (self.LCDC & LCDC_BG_ENABLE):
             self.frame_buffer[line_start:line_end] = 0
         else:
             # BG and Window rendering
             tile_data_base = (
-                VRAM_START if (self.LCDC & LCDC_TILE_DATA_SEL) else (VRAM_START + VRAM_TILE_DATA_1_OFFSET)
+                VRAM_START if (self.LCDC & LCDC_TILE_DATA_SEL) else (VRAM_START + VRAM_TILE_DATA_INDEX_OFFSET)
             )
             unsigned_tiles = bool(self.LCDC & LCDC_TILE_DATA_SEL)
             
-            # Optimized BG vs Window split
             window_enabled = (self.LCDC & LCDC_WINDOW_ENABLE) and (self.WY <= self.LY)
             window_x = self.WX - 7
             
             x_indices = self.x_indices
             using_window = (window_enabled) & (x_indices >= window_x)
 
-            # Pre-calculate positions using NumPy vectorized logic
+            # Positions
             x_pos = np.where(
                 using_window, x_indices - window_x, (x_indices + self.SCX) & BYTE_MASK
             )
+            # Window uses internal window_line counter
             y_pos = np.where(
-                using_window, self.LY - self.WY, (self.LY + self.SCY) & BYTE_MASK
+                using_window, self.window_line, (self.LY + self.SCY) & BYTE_MASK
             )
             
-            # Select map base for each pixel
             tile_map_base = np.where(
                 using_window, 
                 (VRAM_START + VRAM_TILE_MAP_1_OFFSET) if (self.LCDC & LCDC_WINDOW_TILE_MAP_SEL) else (VRAM_START + VRAM_TILE_MAP_0_OFFSET),
                 (VRAM_START + VRAM_TILE_MAP_1_OFFSET) if (self.LCDC & LCDC_BG_TILE_MAP_SEL) else (VRAM_START + VRAM_TILE_MAP_0_OFFSET)
             )
 
-            # Bit-shifts instead of division/mod
             tile_row = y_pos >> 3
             tile_col = x_pos >> 3
             tile_y = y_pos & 7
@@ -301,9 +322,12 @@ class VideoChip:
             bits = 7 - tile_x
             color_indices = (((byte2 >> bits) & 1) << 1) | ((byte1 >> bits) & 1)
             
-            # Map indices to final colors using the palette
             final_colors = (self.BGP >> (color_indices * 2)) & PALETTE_COLOR_MASK
             self.frame_buffer[line_start:line_end] = final_colors
+            
+            # Increment window line counter if window was rendered at least once on this scanline
+            if np.any(using_window):
+                self.window_line += 1
 
         # Render Sprites (OBJ)
         if self.LCDC & LCDC_OBJ_ENABLE:
@@ -322,7 +346,6 @@ class VideoChip:
                 sprite_xs = active_sprites[:, 1].astype(np.int16) - 8
                 sort_indices = np.lexsort((indices, sprite_xs))
 
-                # Extract line buffer slice for efficient updates
                 line_buffer = self.frame_buffer[line_start:line_end]
 
                 for idx in reversed(sort_indices):
@@ -347,12 +370,9 @@ class VideoChip:
                     byte1 = self.vram[tile_data_address - VRAM_START]
                     byte2 = self.vram[tile_data_address - VRAM_START + 1]
 
-                    # Use pre-calculated bit arrays
                     bits = self._BIT_INDICES if x_flip else self._BITS_NORMAL
-                    
                     s_color_indices = (((byte2 >> bits) & 1) << 1) | ((byte1 >> bits) & 1)
                     
-                    # Target screen range check
                     start_x = max(0, x_pos)
                     end_x = min(self.SCREEN_WIDTH, x_pos + 8)
                     
@@ -363,7 +383,6 @@ class VideoChip:
                         target_slice = line_buffer[start_x:end_x]
                         sprite_slice = s_color_indices[s_start:s_end]
                         
-                        # Transparency and priority masking
                         mask_slice = (sprite_slice != 0)
                         if priority:
                             mask_slice &= (target_slice == 0)
@@ -373,6 +392,7 @@ class VideoChip:
                             target_slice[mask_slice] = final_sprite_colors[mask_slice]
 
     def perform_dma(self, value: Byte) -> None:
-        """Perform OAM DMA transfer from source address to OAM."""
+        """Perform OAM DMA transfer correctly reading from the system bus."""
         source_base = value << 8
-        self.oam[:] = self.memory.storage[source_base : source_base + OAM_DMA_TRANSFER_SIZE]
+        for i in range(OAM_DMA_TRANSFER_SIZE):
+            self.oam[i] = self.memory.read_byte(source_base + i)
