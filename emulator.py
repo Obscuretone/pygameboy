@@ -31,6 +31,8 @@ from constants import (
     GB_CLOCK_HZ,
     FRAME_CYCLES,
     DMG_PALETTE_COLORS,
+    ROM_BASE_SIZE,
+    RAM_SIZE_MAP,
 )
 
 # Standard GB color palette (original green shades)
@@ -63,17 +65,8 @@ def print_rom_info(rom: Union[bytes, bytearray]) -> None:
     """Print metadata about the loaded ROM."""
     title = get_rom_title(rom)
     mbc_type = rom[CART_TYPE_ADDR]
-    rom_size = 32768 << rom[CART_ROM_SIZE_ADDR]
-    ram_size = 0
-    ram_code = rom[CART_RAM_SIZE_ADDR]
-    if ram_code == 2:
-        ram_size = 8192
-    elif ram_code == 3:
-        ram_size = 32768
-    elif ram_code == 4:
-        ram_size = 131072
-    elif ram_code == 5:
-        ram_size = 65536
+    rom_size = ROM_BASE_SIZE << rom[CART_ROM_SIZE_ADDR]
+    ram_size = RAM_SIZE_MAP.get(rom[CART_RAM_SIZE_ADDR], 0)
 
     print(f"Loading ROM: {title}")
     print(f"MBC Type:    {hex(mbc_type)}")
