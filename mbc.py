@@ -1,6 +1,26 @@
 from typing import Union, List, Optional, Final
-from gb_types import ROMData, RAMData
-from constants import ROM_BANK_SIZE, RAM_BANK_SIZE, ERAM_START, ROM_END
+from gb_types import (
+    ROMData,
+    RAMData,
+    LOW_NIBBLE_MASK,
+    UNMAPPED_BYTE,
+    BIT_0,
+    BIT_5,
+    BIT_6,
+    BIT_8,
+    HIGH_NIBBLE_MASK,
+)
+from constants import (
+    ROM_BANK_SIZE,
+    RAM_BANK_SIZE,
+    ERAM_START,
+    ROM_END,
+    MBC_RAM_ENABLE_END,
+    MBC_ROM_BANK_SEL_END,
+    MBC_RAM_BANK_SEL_END,
+    MBC_BANK_MODE_SEL_END,
+    MBC5_ROM_BANK_LOW_END,
+)
 
 
 class MBC:
@@ -26,7 +46,7 @@ class MBC:
     def read_ram(self, address: int) -> int:
         """Read a byte from the external RAM area."""
         if not self.ram_enabled:
-            return 0xFF
+            return UNMAPPED_BYTE
         return self.ram[address - ERAM_START]
 
     def write_ram(self, address: int, value: int) -> None:
@@ -49,6 +69,7 @@ class MBC1(MBC):
     """
 
     ROM_BANK_LOW_MASK: Final[int] = 0x1F
+    ROM_BANK_HIGH_MASK: Final[int] = BIT_5 | BIT_6
     RAM_BANK_MASK: Final[int] = 0x03
     MODE_MASK: Final[int] = 0x01
 
@@ -65,29 +86,31 @@ class MBC1(MBC):
             bank = self.rom_bank
             real_address = (bank * ROM_BANK_SIZE) + (address - ROM_BANK_SIZE)
             return self.rom[real_address % len(self.rom)]
-        return 0xFF
+        return UNMAPPED_BYTE
 
     def write_rom(self, address: int, value: int) -> None:
-        if address <= 0x1FFF:
+        if address <= MBC_RAM_ENABLE_END:
             # RAM Enable
-            self.ram_enabled = (value & 0x0F) == self.RAM_ENABLE_VAL
-        elif address <= 0x3FFF:
+            self.ram_enabled = (value & LOW_NIBBLE_MASK) == self.RAM_ENABLE_VAL
+        elif address <= MBC_ROM_BANK_SEL_END:
             # ROM Bank Number (Lower 5 bits)
             bank = value & self.ROM_BANK_LOW_MASK
             if bank == 0:
                 bank = 1
-            self.rom_bank = (self.rom_bank & 0x60) | bank
-        elif address <= 0x5FFF:
+            self.rom_bank = (self.rom_bank & self.ROM_BANK_HIGH_MASK) | bank
+        elif address <= MBC_RAM_BANK_SEL_END:
             # RAM Bank Number or Upper ROM Bank bits
             self.ram_bank = value & self.RAM_BANK_MASK
-            self.rom_bank = (self.rom_bank & 0x1F) | ((value & self.RAM_BANK_MASK) << 5)
-        elif address <= 0x7FFF:
+            self.rom_bank = (self.rom_bank & self.ROM_BANK_LOW_MASK) | (
+                (value & self.RAM_BANK_MASK) << 5
+            )
+        elif address <= MBC_BANK_MODE_SEL_END:
             # Banking Mode Select
             self.mode = value & self.MODE_MASK
 
     def read_ram(self, address: int) -> int:
         if not self.ram_enabled:
-            return 0xFF
+            return UNMAPPED_BYTE
         bank = self.ram_bank if self.mode == 1 else 0
         real_address = (bank * RAM_BANK_SIZE) + (address - ERAM_START)
         return self.ram[real_address % len(self.ram)]
@@ -121,19 +144,19 @@ class MBC3(MBC):
         elif address <= ROM_END:
             real_address = (self.rom_bank * ROM_BANK_SIZE) + (address - ROM_BANK_SIZE)
             return self.rom[real_address % len(self.rom)]
-        return 0xFF
+        return UNMAPPED_BYTE
 
     def write_rom(self, address: int, value: int) -> None:
-        if address <= 0x1FFF:
-            self.ram_enabled = (value & 0x0F) == self.RAM_ENABLE_VAL
-        elif address <= 0x3FFF:
+        if address <= MBC_RAM_ENABLE_END:
+            self.ram_enabled = (value & LOW_NIBBLE_MASK) == self.RAM_ENABLE_VAL
+        elif address <= MBC_ROM_BANK_SEL_END:
             bank = value & self.ROM_BANK_MASK
             if bank == 0:
                 bank = 1
             self.rom_bank = bank
-        elif address <= 0x5FFF:
+        elif address <= MBC_RAM_BANK_SEL_END:
             self.ram_bank = value
-        elif address <= 0x7FFF:
+        elif address <= MBC_BANK_MODE_SEL_END:
             if self.latch_state == 0 and value == 1:
                 # Latch RTC
                 pass
@@ -141,13 +164,13 @@ class MBC3(MBC):
 
     def read_ram(self, address: int) -> int:
         if not self.ram_enabled:
-            return 0xFF
+            return UNMAPPED_BYTE
         if 0x00 <= self.ram_bank <= 0x03:
             real_address = (self.ram_bank * RAM_BANK_SIZE) + (address - ERAM_START)
             return self.ram[real_address % len(self.ram)]
         elif 0x08 <= self.ram_bank <= 0x0C:
             return self.rtc_registers[self.ram_bank - 0x08]
-        return 0xFF
+        return UNMAPPED_BYTE
 
     def write_ram(self, address: int, value: int) -> None:
         if not self.ram_enabled:
@@ -178,23 +201,23 @@ class MBC5(MBC):
         elif address <= ROM_END:
             real_address = (self.rom_bank * ROM_BANK_SIZE) + (address - ROM_BANK_SIZE)
             return self.rom[real_address % len(self.rom)]
-        return 0xFF
+        return UNMAPPED_BYTE
 
     def write_rom(self, address: int, value: int) -> None:
-        if address <= 0x1FFF:
-            self.ram_enabled = (value & 0x0F) == self.RAM_ENABLE_VAL
-        elif address <= 0x2FFF:
+        if address <= MBC_RAM_ENABLE_END:
+            self.ram_enabled = (value & LOW_NIBBLE_MASK) == self.RAM_ENABLE_VAL
+        elif address <= MBC5_ROM_BANK_LOW_END:
             # Low 8 bits of ROM Bank
             self.rom_bank = (self.rom_bank & 0x100) | value
-        elif address <= 0x3FFF:
+        elif address <= MBC_ROM_BANK_SEL_END:
             # 9th bit of ROM Bank
-            self.rom_bank = (self.rom_bank & 0xFF) | ((value & 0x01) << 8)
-        elif address <= 0x5FFF:
+            self.rom_bank = (self.rom_bank & 0xFF) | ((value & BIT_0) << 8)
+        elif address <= MBC_RAM_BANK_SEL_END:
             self.ram_bank = value & self.RAM_BANK_MASK
 
     def read_ram(self, address: int) -> int:
         if not self.ram_enabled:
-            return 0xFF
+            return UNMAPPED_BYTE
         real_address = (self.ram_bank * RAM_BANK_SIZE) + (address - ERAM_START)
         return self.ram[real_address % len(self.ram)]
 
@@ -225,13 +248,13 @@ class MBC2(MBC):
         elif address <= ROM_END:
             real_address = (self.rom_bank * ROM_BANK_SIZE) + (address - ROM_BANK_SIZE)
             return self.rom[real_address % len(self.rom)]
-        return 0xFF
+        return UNMAPPED_BYTE
 
     def write_rom(self, address: int, value: int) -> None:
         if address < ROM_BANK_SIZE:
-            if (address & 0x0100) == 0:
+            if (address & BIT_8) == 0:
                 # RAM Enable (Bit 8 is 0)
-                self.ram_enabled = (value & 0x0F) == self.RAM_ENABLE_VAL
+                self.ram_enabled = (value & LOW_NIBBLE_MASK) == self.RAM_ENABLE_VAL
             else:
                 # ROM Bank Number (Bit 8 is 1)
                 bank = value & self.ROM_BANK_MASK
@@ -241,11 +264,11 @@ class MBC2(MBC):
 
     def read_ram(self, address: int) -> int:
         if not self.ram_enabled:
-            return 0xFF
+            return UNMAPPED_BYTE
         # MBC2 RAM is only 512 bytes, and only the lower 4 bits are usable
-        return self.ram[(address - ERAM_START) % self.RAM_SIZE] | 0xF0
+        return self.ram[(address - ERAM_START) % self.RAM_SIZE] | HIGH_NIBBLE_MASK
 
     def write_ram(self, address: int, value: int) -> None:
         if not self.ram_enabled:
             return
-        self.ram[(address - ERAM_START) % self.RAM_SIZE] = value & 0x0F
+        self.ram[(address - ERAM_START) % self.RAM_SIZE] = value & LOW_NIBBLE_MASK

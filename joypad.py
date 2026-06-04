@@ -1,6 +1,6 @@
 from typing import Any, Optional
 from protocols import MemoryBus
-from gb_types import Byte
+from gb_types import Byte, BIT_0, BIT_1, BIT_2, BIT_3, BIT_6, BIT_7
 from constants import (
     JOYPAD_DIRECTION_SELECT_BIT,
     JOYPAD_BUTTON_SELECT_BIT,
@@ -31,7 +31,7 @@ class Joypad:
         self.direction_keys: int = 0x0F
         self.button_keys: int = 0x0F
         # bits 4, 5 (0=selected, 1=not selected)
-        self.selection: int = 0x30
+        self.selection: int = JOYPAD_DIRECTION_SELECT_BIT | JOYPAD_BUTTON_SELECT_BIT
 
     def read(self) -> Byte:
         """
@@ -42,7 +42,7 @@ class Joypad:
             res &= self.direction_keys
         if not (self.selection & JOYPAD_BUTTON_SELECT_BIT):  # Button keys selected
             res &= self.button_keys
-        return res | 0xC0  # Bits 6-7 always 1
+        return res | BIT_6 | BIT_7  # Bits 6-7 always 1
 
     def write(self, value: Byte) -> None:
         """
@@ -61,13 +61,13 @@ class Joypad:
         is_button = False
 
         if key == "right" or key == "a_button":
-            bit = 0x01
+            bit = BIT_0
         elif key == "left" or key == "b_button":
-            bit = 0x02
+            bit = BIT_1
         elif key == "up" or key == "select":
-            bit = 0x04
+            bit = BIT_2
         elif key == "down" or key == "start":
-            bit = 0x08
+            bit = BIT_3
 
         if key in ["a_button", "b_button", "select", "start"]:
             is_button = True
