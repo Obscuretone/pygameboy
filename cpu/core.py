@@ -9,7 +9,7 @@ from .opcodes import CPUOpcodes
 from .interrupts import InterruptManager
 from .timer import Timer
 from protocols import VideoDevice, AudioDevice, ClockDevice
-from gb_types import Address, Byte, Word, Cycles, FLAG_Z, FLAG_N, FLAG_H, FLAG_C
+from gb_types import Address, Byte, Word, Cycles, FLAG_Z, FLAG_N, FLAG_H, FLAG_C, REG_PC, REG_SP, REG_A, REG_F, REG_B, REG_C, REG_D, REG_E, REG_H, REG_L
 
 FLAG_MASKS: Final[Dict[str, int]] = {"z": 0x80, "n": 0x40, "h": 0x20, "c": 0x10}
 CONDITION_ALWAYS = 0
@@ -17,24 +17,26 @@ CONDITION_NZ = 1
 CONDITION_Z = 2
 CONDITION_NC = 3
 CONDITION_C = 4
+
 class CPU(CPUOpcodes):
     """
     Implements the GameBoy LR35902 CPU.
     """
     EMPTY_OPERANDS: Final[Tuple] = ()
+    APU_STEP_BATCH_CYCLES: Final[int] = 64
+    
+    # Class-level aliases for backward compatibility and scoping
+    FLAG_Z = FLAG_Z
+    FLAG_N = FLAG_N
+    FLAG_H = FLAG_H
+    FLAG_C = FLAG_C
     FLAG_MASKS = FLAG_MASKS
     CONDITION_ALWAYS = CONDITION_ALWAYS
     CONDITION_NZ = CONDITION_NZ
     CONDITION_Z = CONDITION_Z
     CONDITION_NC = CONDITION_NC
     CONDITION_C = CONDITION_C
-    FLAG_MASKS: Final[Dict[str, int]] = {"z": 0x80, "n": 0x40, "h": 0x20, "c": 0x10}
-    APU_STEP_BATCH_CYCLES: Final[int] = 64
-    CONDITION_ALWAYS = 0
-    CONDITION_NZ = 1
-    CONDITION_Z = 2
-    CONDITION_NC = 3
-    CONDITION_C = 4
+
     FAST_INC_OPS = {
         0x04: RegisterFile.B,
         0x0C: RegisterFile.C,
@@ -82,11 +84,6 @@ class CPU(CPUOpcodes):
         0x19: (RegisterFile.D, RegisterFile.E),
         0x29: (RegisterFile.H, RegisterFile.L),
     }
-    CONDITION_ALWAYS = 0
-    CONDITION_NZ = 1
-    CONDITION_Z = 2
-    CONDITION_NC = 3
-    CONDITION_C = 4
     FAST_JR_OPS = {
         0x18: CONDITION_ALWAYS,
         0x20: CONDITION_NZ,
@@ -458,7 +455,7 @@ class CPU(CPUOpcodes):
         return cp_ops
 
     def _sync_flags_from_register(self):
-        flag_register = self.registers["F"]
+        flag_register = self.registers[REG_F]
         for flag, mask in FLAG_MASKS.items():
             self.set_flag(flag, bool(flag_register & mask))
 
@@ -650,13 +647,13 @@ class CPU(CPUOpcodes):
                 self.enable_interrupts_pending = False
                 self.enable_interrupts_delay = 0
                 self.memory[0xFF0F] = int(self.memory[0xFF0F]) & ~mask
-                pc = self.registers["PC"]
-                sp = (self.registers["SP"] - 1) & 0xFFFF
+                pc = self.registers[REG_PC]
+                sp = (self.registers[REG_SP] - 1) & 0xFFFF
                 self._write_memory_byte(sp, (pc >> 8) & 0xFF)
                 sp = (sp - 1) & 0xFFFF
                 self._write_memory_byte(sp, pc & 0xFF)
-                self.registers["SP"] = sp
-                self.registers["PC"] = vector
+                self.registers[REG_SP] = sp
+                self.registers[REG_PC] = vector
                 return 20
         return 0
 
@@ -760,17 +757,17 @@ class CPU(CPUOpcodes):
 
     def push_stack(self, value):
         # Decrement SP and write the value to memory
-        self.registers["SP"] -= 1
-        self.ram.write_byte(self.registers["SP"], (value >> 8) & 0xFF)  # Push high byte
-        self.registers["SP"] -= 1
-        self.ram.write_byte(self.registers["SP"], value & 0xFF)  # Push low byte
+        self.registers[REG_SP] -= 1
+        self.ram.write_byte(self.registers[REG_SP], (value >> 8) & 0xFF)  # Push high byte
+        self.registers[REG_SP] -= 1
+        self.ram.write_byte(self.registers[REG_SP], value & 0xFF)  # Push low byte
 
     def pop_stack(self):
         # Read the value from memory and increment SP
-        low_byte = self.ram.read_byte(self.registers["SP"])
-        self.registers["SP"] += 1
-        high_byte = self.ram.read_byte(self.registers["SP"])
-        self.registers["SP"] += 1
+        low_byte = self.ram.read_byte(self.registers[REG_SP])
+        self.registers[REG_SP] += 1
+        high_byte = self.ram.read_byte(self.registers[REG_SP])
+        self.registers[REG_SP] += 1
         return (high_byte << 8) | low_byte
 
     def write_register_8bit(self, reg, value):
@@ -1218,21 +1215,25 @@ class CPU(CPUOpcodes):
         self.set_flag("n", False)
         self.set_flag("z", value == 0)
 
-    def _xor_reg_reg(self, reg1, reg2):
+    def _xor_reg_reg(self, reg1: Union[str, int], reg2: Union[str, int]) -> None:
+        result = self.read_register(reg1) ^ self.read_register(reg2)
+        self.write_register(reg1, result)
+        self._set_xor_flags(result)
 
-        # Perform XOR operation
+    def _and_reg_reg(self, reg1: Union[str, int], reg2: Union[str, int]) -> None:
+        result = self.read_register(reg1) & self.read_register(reg2)
+        self.write_register(reg1, result)
+        self._set_and_flags(result)
+
+    def _or_reg_reg(self, reg1: Union[str, int], reg2: Union[str, int]) -> None:
+        result = self.read_register(reg1) | self.read_register(reg2)
+        self.write_register(reg1, result)
+        self._set_or_flags(result)
+
+    def _cp_reg_reg(self, reg1: Union[str, int], reg2: Union[str, int]) -> None:
         left = self.read_register(reg1)
         right = self.read_register(reg2)
-        result = left ^ right  # XOR
-
-        # Store the result back into register
-        self.write_register(reg1, result)
-
-        # Set the flags according to the operation
-        self.set_flag("z", True)  # Set Zero flag if result is 0 (it always will be)
-        self.set_flag("n", False)  # Reset Negative flag
-        self.set_flag("h", False)  # Reset Half Carry flag
-        self.set_flag("c", False)  # Reset Carry flag
+        self._set_sub_flags(left, right, left - right)
 
     #   ____                      _
     #  / __ \                    | |
@@ -1263,11 +1264,11 @@ class CPU(CPUOpcodes):
         return instruction["opcode"], cycles
 
     def step_fast(self):
-        pc = self.registers["PC"]
+        pc = self.registers[REG_PC]
         opcode = self.memory[pc]
 
         if opcode == 0x00:
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 4
 
         if opcode in (0x07, 0x0F, 0x17, 0x1F):
@@ -1290,7 +1291,7 @@ class CPU(CPUOpcodes):
             self.set_flag("h", False)
             self.set_flag("c", carry)
             self._write_flags_from_states()
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 4
 
         if opcode == 0x27:
@@ -1315,7 +1316,7 @@ class CPU(CPUOpcodes):
             self.set_flag("h", False)
             self.set_flag("c", carry)
             self._write_flags_from_states()
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 4
 
         if opcode == 0x2F:
@@ -1325,12 +1326,12 @@ class CPU(CPUOpcodes):
             self.set_flag("n", True)
             self.set_flag("h", True)
             self._write_flags_from_states()
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 4
 
         if opcode == 0x10:
             self.stopped = True
-            self.registers["PC"] = pc + 2
+            self.registers[REG_PC] = pc + 2
             return opcode, 4
 
         if opcode == 0xCB:
@@ -1378,13 +1379,13 @@ class CPU(CPUOpcodes):
                     self.registers.data[target] = result
                     cycles = 8
                 self._set_cb_result_flags(result, carry)
-                self.registers["PC"] = pc + 2
+                self.registers[REG_PC] = pc + 2
                 return opcode, cycles
 
             bit = operation
             if operation_group == 1:
                 self._set_bit_flags(value, bit)
-                self.registers["PC"] = pc + 2
+                self.registers[REG_PC] = pc + 2
                 return opcode, 12 if target is None else 8
 
             if operation_group == 2:
@@ -1398,12 +1399,12 @@ class CPU(CPUOpcodes):
             else:
                 self.registers.data[target] = result
                 cycles = 8
-            self.registers["PC"] = pc + 2
+            self.registers[REG_PC] = pc + 2
             return opcode, cycles
 
         if opcode == 0x76:
             self.halted = True
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 4
 
         jump_condition = self.fast_jr_ops[opcode]
@@ -1420,10 +1421,10 @@ class CPU(CPUOpcodes):
 
             if should_jump:
                 offset = CPU._signed_e8(self.memory[(pc + 1) & 0xFFFF])
-                self.registers["PC"] = pc + 2 + offset
+                self.registers[REG_PC] = pc + 2 + offset
                 return opcode, 12
 
-            self.registers["PC"] = pc + 2
+            self.registers[REG_PC] = pc + 2
             return opcode, 8
 
         if opcode >= 0xC0:
@@ -1442,14 +1443,14 @@ class CPU(CPUOpcodes):
                 if should_jump:
                     low = self.memory[(pc + 1) & 0xFFFF]
                     high = self.memory[(pc + 2) & 0xFFFF]
-                    self.registers["PC"] = (high << 8) | low
+                    self.registers[REG_PC] = (high << 8) | low
                     return opcode, 16
 
-                self.registers["PC"] = pc + 3
+                self.registers[REG_PC] = pc + 3
                 return opcode, 12
 
             if opcode == 0xE9:
-                self.registers["PC"] = (self.registers.data[RegisterFile.H] << 8) | self.registers.data[RegisterFile.L]
+                self.registers[REG_PC] = (self.registers.data[RegisterFile.H] << 8) | self.registers.data[RegisterFile.L]
                 return opcode, 4
 
             call_condition = self.fast_call_ops[opcode]
@@ -1468,15 +1469,15 @@ class CPU(CPUOpcodes):
                     low = self.memory[(pc + 1) & 0xFFFF]
                     high = self.memory[(pc + 2) & 0xFFFF]
                     return_address = (pc + 3) & 0xFFFF
-                    sp = (self.registers["SP"] - 1) & 0xFFFF
+                    sp = (self.registers[REG_SP] - 1) & 0xFFFF
                     self._write_memory_byte(sp, (return_address >> 8) & 0xFF)
                     sp = (sp - 1) & 0xFFFF
                     self._write_memory_byte(sp, return_address & 0xFF)
-                    self.registers["SP"] = sp
-                    self.registers["PC"] = (high << 8) | low
+                    self.registers[REG_SP] = sp
+                    self.registers[REG_PC] = (high << 8) | low
                     return opcode, 24
 
-                self.registers["PC"] = pc + 3
+                self.registers[REG_PC] = pc + 3
                 return opcode, 12
 
             ret_condition = self.fast_ret_ops[opcode]
@@ -1492,44 +1493,44 @@ class CPU(CPUOpcodes):
                     should_return = self.get_flag("c")
 
                 if should_return:
-                    sp = self.registers["SP"]
+                    sp = self.registers[REG_SP]
                     low = self._read_memory_byte(sp)
                     sp = (sp + 1) & 0xFFFF
                     high = self._read_memory_byte(sp)
                     sp = (sp + 1) & 0xFFFF
-                    self.registers["SP"] = sp
-                    self.registers["PC"] = (high << 8) | low
+                    self.registers[REG_SP] = sp
+                    self.registers[REG_PC] = (high << 8) | low
                     cycles = 16 if ret_condition == CONDITION_ALWAYS else 20
                     return opcode, cycles
 
-                self.registers["PC"] = pc + 1
+                self.registers[REG_PC] = pc + 1
                 return opcode, 8
 
             if opcode == 0xD9:
-                sp = self.registers["SP"]
+                sp = self.registers[REG_SP]
                 low = self._read_memory_byte(sp)
                 sp = (sp + 1) & 0xFFFF
                 high = self._read_memory_byte(sp)
                 sp = (sp + 1) & 0xFFFF
-                self.registers["SP"] = sp
-                self.registers["PC"] = (high << 8) | low
+                self.registers[REG_SP] = sp
+                self.registers[REG_PC] = (high << 8) | low
                 self.enable_interrupts_pending = False
                 self.interrupt_master_enable = True
                 return opcode, 16
 
             registers = self.fast_push_ops[opcode]
             if registers is not None:
-                sp = (self.registers["SP"] - 1) & 0xFFFF
+                sp = (self.registers[REG_SP] - 1) & 0xFFFF
                 self._write_memory_byte(sp, self.registers.data[registers[0]])
                 sp = (sp - 1) & 0xFFFF
                 self._write_memory_byte(sp, self.registers.data[registers[1]])
-                self.registers["SP"] = sp
-                self.registers["PC"] = pc + 1
+                self.registers[REG_SP] = sp
+                self.registers[REG_PC] = pc + 1
                 return opcode, 16
 
             registers = self.fast_pop_ops[opcode]
             if registers is not None:
-                sp = self.registers["SP"]
+                sp = self.registers[REG_SP]
                 low = self._read_memory_byte(sp)
                 sp = (sp + 1) & 0xFFFF
                 high = self._read_memory_byte(sp)
@@ -1539,19 +1540,19 @@ class CPU(CPUOpcodes):
                 if registers[1] == RegisterFile.F:
                     self.registers.data[RegisterFile.F] &= 0xF0
                     self._sync_flags_from_register()
-                self.registers["SP"] = sp
-                self.registers["PC"] = pc + 1
+                self.registers[REG_SP] = sp
+                self.registers[REG_PC] = pc + 1
                 return opcode, 12
 
             rst_target = self.fast_rst_ops[opcode]
             if rst_target != -1:
                 return_address = (pc + 1) & 0xFFFF
-                sp = (self.registers["SP"] - 1) & 0xFFFF
+                sp = (self.registers[REG_SP] - 1) & 0xFFFF
                 self._write_memory_byte(sp, (return_address >> 8) & 0xFF)
                 sp = (sp - 1) & 0xFFFF
                 self._write_memory_byte(sp, return_address & 0xFF)
-                self.registers["SP"] = sp
-                self.registers["PC"] = rst_target
+                self.registers[REG_SP] = sp
+                self.registers[REG_PC] = rst_target
                 return opcode, 16
 
             if opcode in (0xC6, 0xCE, 0xD6, 0xDE, 0xE6, 0xEE, 0xF6, 0xFE):
@@ -1589,7 +1590,7 @@ class CPU(CPUOpcodes):
                     self._set_or_flags(result)
                 else:
                     self._set_sub_flags(left, right, left - right)
-                self.registers["PC"] = pc + 2
+                self.registers[REG_PC] = pc + 2
                 return opcode, 8
 
             if opcode in (0xE0, 0xF0):
@@ -1600,7 +1601,7 @@ class CPU(CPUOpcodes):
                     )
                 else:
                     self.registers.data[RegisterFile.A] = self._read_memory_byte(address)
-                self.registers["PC"] = pc + 2
+                self.registers[REG_PC] = pc + 2
                 return opcode, 12
 
             if opcode in (0xE2, 0xF2):
@@ -1611,7 +1612,7 @@ class CPU(CPUOpcodes):
                     )
                 else:
                     self.registers.data[RegisterFile.A] = self._read_memory_byte(address)
-                self.registers["PC"] = pc + 1
+                self.registers[REG_PC] = pc + 1
                 return opcode, 8
 
             if opcode in (0xEA, 0xFA):
@@ -1624,40 +1625,40 @@ class CPU(CPUOpcodes):
                     )
                 else:
                     self.registers.data[RegisterFile.A] = self._read_memory_byte(address)
-                self.registers["PC"] = pc + 3
+                self.registers[REG_PC] = pc + 3
                 return opcode, 16
 
             if opcode == 0xE8:
-                sp = self.registers["SP"]
+                sp = self.registers[REG_SP]
                 offset = CPU._signed_e8(self.memory[(pc + 1) & 0xFFFF])
-                self.registers["SP"] = sp + offset
+                self.registers[REG_SP] = sp + offset
                 self._set_sp_e8_flags(sp, offset)
-                self.registers["PC"] = pc + 2
+                self.registers[REG_PC] = pc + 2
                 return opcode, 16
 
             if opcode == 0xF8:
-                sp = self.registers["SP"]
+                sp = self.registers[REG_SP]
                 offset = CPU._signed_e8(self.memory[(pc + 1) & 0xFFFF])
                 self._write_pair((RegisterFile.H, RegisterFile.L), sp + offset)
                 self._set_sp_e8_flags(sp, offset)
-                self.registers["PC"] = pc + 2
+                self.registers[REG_PC] = pc + 2
                 return opcode, 12
 
             if opcode == 0xF9:
-                self.registers["SP"] = self._read_pair((RegisterFile.H, RegisterFile.L))
-                self.registers["PC"] = pc + 1
+                self.registers[REG_SP] = self._read_pair((RegisterFile.H, RegisterFile.L))
+                self.registers[REG_PC] = pc + 1
                 return opcode, 8
 
             if opcode == 0xF3:
                 self.enable_interrupts_pending = False
                 self.interrupt_master_enable = False
-                self.registers["PC"] = pc + 1
+                self.registers[REG_PC] = pc + 1
                 return opcode, 4
 
             if opcode == 0xFB:
                 self.enable_interrupts_pending = True
                 self.enable_interrupts_delay = 2
-                self.registers["PC"] = pc + 1
+                self.registers[REG_PC] = pc + 1
                 return opcode, 4
 
         registers = self.fast_ld_n16_ops[opcode]
@@ -1665,65 +1666,65 @@ class CPU(CPUOpcodes):
             low = self.memory[(pc + 1) & 0xFFFF]
             high = self.memory[(pc + 2) & 0xFFFF]
             if registers == "SP":
-                self.registers["SP"] = (high << 8) | low
+                self.registers[REG_SP] = (high << 8) | low
             else:
                 self.registers.data[registers[0]] = high
                 self.registers.data[registers[1]] = low
-            self.registers["PC"] = pc + 3
+            self.registers[REG_PC] = pc + 3
             return opcode, 12
 
         registers = self.fast_inc_r16_ops[opcode]
         if registers is not None:
             self._write_pair(registers, self._read_pair(registers) + 1)
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 8
 
         registers = self.fast_dec_r16_ops[opcode]
         if registers is not None:
             self._write_pair(registers, self._read_pair(registers) - 1)
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 8
 
         if opcode == 0x33:
-            self.registers["SP"] = self.registers["SP"] + 1
-            self.registers["PC"] = pc + 1
+            self.registers[REG_SP] = self.registers[REG_SP] + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 8
 
         if opcode == 0x3B:
-            self.registers["SP"] = self.registers["SP"] - 1
-            self.registers["PC"] = pc + 1
+            self.registers[REG_SP] = self.registers[REG_SP] - 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 8
 
         registers = self.fast_add_hl_ops[opcode]
         if registers is not None or opcode == 0x39:
             left = self._read_pair((RegisterFile.H, RegisterFile.L))
-            right = self.registers["SP"] if opcode == 0x39 else self._read_pair(registers)
+            right = self.registers[REG_SP] if opcode == 0x39 else self._read_pair(registers)
             result = left + right
             self._write_pair((RegisterFile.H, RegisterFile.L), result)
             self._set_add_hl_flags(left, right, result)
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 8
 
         if opcode == 0x08:
             low = self.memory[(pc + 1) & 0xFFFF]
             high = self.memory[(pc + 2) & 0xFFFF]
             address = (high << 8) | low
-            sp = self.registers["SP"]
+            sp = self.registers[REG_SP]
             self._write_memory_byte(address, sp & 0xFF)
             self._write_memory_byte((address + 1) & 0xFFFF, (sp >> 8) & 0xFF)
-            self.registers["PC"] = pc + 3
+            self.registers[REG_PC] = pc + 3
             return opcode, 20
 
         register = self.fast_ld_n8_ops[opcode]
         if register != -1:
             self.registers.data[register] = self.memory[(pc + 1) & 0xFFFF]
-            self.registers["PC"] = pc + 2
+            self.registers[REG_PC] = pc + 2
             return opcode, 8
 
         if opcode == 0x36:
             hl = (self.registers.data[RegisterFile.H] << 8) | self.registers.data[RegisterFile.L]
             self._write_memory_byte(hl, self.memory[(pc + 1) & 0xFFFF])
-            self.registers["PC"] = pc + 2
+            self.registers[REG_PC] = pc + 2
             return opcode, 12
 
         if opcode == 0x37:
@@ -1733,7 +1734,7 @@ class CPU(CPUOpcodes):
             flag_register = self.registers.data[RegisterFile.F] & FLAG_MASKS["z"]
             flag_register |= FLAG_MASKS["c"]
             self.registers.data[RegisterFile.F] = flag_register
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 4
 
         if opcode == 0x3F:
@@ -1745,7 +1746,7 @@ class CPU(CPUOpcodes):
             if carry:
                 flag_register |= FLAG_MASKS["c"]
             self.registers.data[RegisterFile.F] = flag_register
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 4
 
         register = self.fast_inc_ops[opcode]
@@ -1754,7 +1755,7 @@ class CPU(CPUOpcodes):
             result = (value + 1) & 0xFF
             self.registers.data[register] = result
             self._set_inc_flags(value, result)
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 4
 
         if opcode == 0x34:
@@ -1763,7 +1764,7 @@ class CPU(CPUOpcodes):
             result = (value + 1) & 0xFF
             self._write_memory_byte(hl, result)
             self._set_inc_flags(value, result)
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 12
 
         register = self.fast_dec_ops[opcode]
@@ -1772,7 +1773,7 @@ class CPU(CPUOpcodes):
             result = (value - 1) & 0xFF
             self.registers.data[register] = result
             self._set_dec_flags(value, result)
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 4
 
         if opcode == 0x35:
@@ -1781,7 +1782,7 @@ class CPU(CPUOpcodes):
             result = (value - 1) & 0xFF
             self._write_memory_byte(hl, result)
             self._set_dec_flags(value, result)
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 12
 
         if opcode in (0x02, 0x0A, 0x12, 0x1A):
@@ -1793,7 +1794,7 @@ class CPU(CPUOpcodes):
                 self._write_memory_byte(address, self.registers.data[RegisterFile.A])
             else:
                 self.registers.data[RegisterFile.A] = self._read_memory_byte(address)
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 8
 
         if opcode in (0x22, 0x2A, 0x32, 0x3A):
@@ -1809,7 +1810,7 @@ class CPU(CPUOpcodes):
                 hl = (hl - 1) & 0xFFFF
             self.registers.data[RegisterFile.H] = (hl >> 8) & 0xFF
             self.registers.data[RegisterFile.L] = hl & 0xFF
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 8
 
         if 0x40 <= opcode < 0x80 and opcode != 0x76:
@@ -1832,7 +1833,7 @@ class CPU(CPUOpcodes):
             else:
                 self.registers.data[destination] = value
 
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, cycles
 
         register = self.fast_add_a_ops[opcode]
@@ -1842,7 +1843,7 @@ class CPU(CPUOpcodes):
             result = left + right
             self.registers.data[RegisterFile.A] = result & 0xFF
             self._set_add_flags(left, right, result)
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 4
         if opcode == 0x86:
             hl = (self.registers.data[RegisterFile.H] << 8) | self.registers.data[RegisterFile.L]
@@ -1851,7 +1852,7 @@ class CPU(CPUOpcodes):
             result = left + right
             self.registers.data[RegisterFile.A] = result & 0xFF
             self._set_add_flags(left, right, result)
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 8
 
         register = self.fast_adc_a_ops[opcode]
@@ -1862,7 +1863,7 @@ class CPU(CPUOpcodes):
             result = left + right + carry
             self.registers.data[RegisterFile.A] = result & 0xFF
             self._set_adc_flags(left, right, carry, result)
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 4
         if opcode == 0x8E:
             hl = (self.registers.data[RegisterFile.H] << 8) | self.registers.data[RegisterFile.L]
@@ -1872,7 +1873,7 @@ class CPU(CPUOpcodes):
             result = left + right + carry
             self.registers.data[RegisterFile.A] = result & 0xFF
             self._set_adc_flags(left, right, carry, result)
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 8
 
         register = self.fast_sub_a_ops[opcode]
@@ -1882,7 +1883,7 @@ class CPU(CPUOpcodes):
             result = left - right
             self.registers.data[RegisterFile.A] = result & 0xFF
             self._set_sub_flags(left, right, result)
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 4
         if opcode == 0x96:
             hl = (self.registers.data[RegisterFile.H] << 8) | self.registers.data[RegisterFile.L]
@@ -1891,7 +1892,7 @@ class CPU(CPUOpcodes):
             result = left - right
             self.registers.data[RegisterFile.A] = result & 0xFF
             self._set_sub_flags(left, right, result)
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 8
 
         register = self.fast_sbc_a_ops[opcode]
@@ -1902,7 +1903,7 @@ class CPU(CPUOpcodes):
             result = left - right - carry
             self.registers.data[RegisterFile.A] = result & 0xFF
             self._set_sbc_flags(left, right, carry, result)
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 4
         if opcode == 0x9E:
             hl = (self.registers.data[RegisterFile.H] << 8) | self.registers.data[RegisterFile.L]
@@ -1912,7 +1913,7 @@ class CPU(CPUOpcodes):
             result = left - right - carry
             self.registers.data[RegisterFile.A] = result & 0xFF
             self._set_sbc_flags(left, right, carry, result)
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 8
 
         register = self.fast_xor_a_ops[opcode]
@@ -1920,14 +1921,14 @@ class CPU(CPUOpcodes):
             result = self.registers.data[RegisterFile.A] ^ self.registers.data[register]
             self.registers.data[RegisterFile.A] = result
             self._set_xor_flags(result)
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 4
         if opcode == 0xAE:
             hl = (self.registers.data[RegisterFile.H] << 8) | self.registers.data[RegisterFile.L]
             result = self.registers.data[RegisterFile.A] ^ self._read_memory_byte(hl)
             self.registers.data[RegisterFile.A] = result
             self._set_xor_flags(result)
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 8
 
         register = self.fast_and_a_ops[opcode]
@@ -1935,14 +1936,14 @@ class CPU(CPUOpcodes):
             result = self.registers.data[RegisterFile.A] & self.registers.data[register]
             self.registers.data[RegisterFile.A] = result
             self._set_and_flags(result)
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 4
         if opcode == 0xA6:
             hl = (self.registers.data[RegisterFile.H] << 8) | self.registers.data[RegisterFile.L]
             result = self.registers.data[RegisterFile.A] & self._read_memory_byte(hl)
             self.registers.data[RegisterFile.A] = result
             self._set_and_flags(result)
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 8
 
         register = self.fast_or_a_ops[opcode]
@@ -1950,14 +1951,14 @@ class CPU(CPUOpcodes):
             result = self.registers.data[RegisterFile.A] | self.registers.data[register]
             self.registers.data[RegisterFile.A] = result
             self._set_or_flags(result)
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 4
         if opcode == 0xB6:
             hl = (self.registers.data[RegisterFile.H] << 8) | self.registers.data[RegisterFile.L]
             result = self.registers.data[RegisterFile.A] | self._read_memory_byte(hl)
             self.registers.data[RegisterFile.A] = result
             self._set_or_flags(result)
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 8
 
         register = self.fast_cp_a_ops[opcode]
@@ -1965,14 +1966,14 @@ class CPU(CPUOpcodes):
             left = self.registers.data[RegisterFile.A]
             right = self.registers.data[register]
             self._set_sub_flags(left, right, left - right)
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 4
         if opcode == 0xBE:
             hl = (self.registers.data[RegisterFile.H] << 8) | self.registers.data[RegisterFile.L]
             left = self.registers.data[RegisterFile.A]
             right = self._read_memory_byte(hl)
             self._set_sub_flags(left, right, left - right)
-            self.registers["PC"] = pc + 1
+            self.registers[REG_PC] = pc + 1
             return opcode, 8
 
         instruction = self.instruction_table[opcode]
