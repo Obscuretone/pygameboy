@@ -19,7 +19,7 @@ LOW_NIBBLE_MASK: Final[int] = 0x0F
 HIGH_NIBBLE_MASK: Final[int] = 0xF0
 UNMAPPED_BYTE: Final[int] = 0xFF
 
-# Bit masks
+# Generic Bit masks (use semantic constants from constants.py where possible)
 BIT_0: Final[int] = 0x01
 BIT_1: Final[int] = 0x02
 BIT_2: Final[int] = 0x04
@@ -44,15 +44,10 @@ BYTE_VALUE_COUNT: Final[int] = 0x0100
 WORD_VALUE_COUNT: Final[int] = 0x10000
 
 # DAA constants
-DAA_LOW_THRESHOLD: Final[int] = 0x09
+DAA_LOW_THRESHOLD: Final[int] = 9
 DAA_HIGH_THRESHOLD: Final[int] = 0x99
 DAA_LOW_ADJUST: Final[int] = 0x06
 DAA_HIGH_ADJUST: Final[int] = 0x60
-
-# Common Hardware Bitmasks
-TIMER_CONTROL_MASK: Final[int] = 0x07
-INTERRUPT_MASK: Final[int] = 0x1F
-AUDIO_LENGTH_MASK: Final[int] = 0x3F
 
 # Data types
 MemoryData: TypeAlias = Union[bytearray, np.ndarray]
@@ -95,6 +90,11 @@ COND_NZ: Final[int] = 1
 COND_Z: Final[int] = 2
 COND_NC: Final[int] = 3
 COND_C: Final[int] = 4
+
+# Legacy Masks (to be cleaned up in final turn)
+AUDIO_LENGTH_MASK: Final[int] = 0x3F
+TIMER_CONTROL_MASK: Final[int] = 0x07
+INTERRUPT_MASK: Final[int] = 0x1F
 
 # Opcode group constants
 FAST_INC_OPS: Final[Tuple[int, ...]] = (0x04, 0x0C, 0x14, 0x1C, 0x24, 0x2C, 0x34, 0x3C)

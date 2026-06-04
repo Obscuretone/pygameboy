@@ -50,7 +50,7 @@ from constants import (
     REG_WAVE_RAM_END,
     REG_LCDC,
     REG_WX,
-    MODE_1_CYCLES,
+    CYCLES_VBLANK,
     MAX_SCANLINE,
     PAGE_SIZE_BYTES,
     PAGE_COUNT,
@@ -205,7 +205,6 @@ class Memory:
             self.read_pages[i] = self._read_echo_ram
             self.write_pages[i] = self._write_echo_ram
 
-
     def _read_ram_direct(self, address: Address) -> Byte:
         return self.storage[address]
 
@@ -245,7 +244,7 @@ class Memory:
 
         # LY clock fallback if video disabled (essential for tests and headless mode)
         if address == REG_LY and self.clock is not None and not self._video:
-            return (self.clock.get_cycles_elapsed() // MODE_1_CYCLES) % MAX_SCANLINE
+            return (self.clock.get_cycles_elapsed() // CYCLES_VBLANK) % MAX_SCANLINE
 
         # Video Registers
         if REG_LCDC <= address <= REG_WX:

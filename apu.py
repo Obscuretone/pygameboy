@@ -20,7 +20,7 @@ from gb_types import (
     BYTE_MASK,
     UNMAPPED_BYTE,
     AUDIO_LENGTH_MASK,
-    TIMER_CONTROL_MASK,
+    SIGN_BIT_8,
 )
 from constants import (
     REG_NR10,
@@ -52,6 +52,21 @@ from constants import (
     APU_REG_SIZE,
     WAVE_RAM_SIZE,
     GB_CLOCK_HZ,
+    APU_ENVELOPE_PERIOD_MASK,
+    APU_ENVELOPE_DIR_BIT,
+    APU_ENVELOPE_INITIAL_VOL_MASK,
+    APU_FREQ_HI_MASK,
+    APU_WAVE_VOL_SHIFT_MASK,
+    APU_MIX_CH4_LEFT,
+    APU_MIX_CH3_LEFT,
+    APU_MIX_CH2_LEFT,
+    APU_MIX_CH1_LEFT,
+    APU_MIX_CH4_RIGHT,
+    APU_MIX_CH3_RIGHT,
+    APU_MIX_CH2_RIGHT,
+    APU_MIX_CH1_RIGHT,
+    APU_VOL_LEFT_MASK,
+    APU_VOL_RIGHT_MASK,
 )
 
 
@@ -73,7 +88,6 @@ class PulseChannel:
     DUTY_STEPS: Final[int] = 8
 
     NRX1_DUTY_MASK: Final[int] = 0xC0
-    NRX4_FREQ_HI_MASK: Final[int] = 0x07
 
     def __init__(self) -> None:
         self.enabled: bool = False
@@ -137,14 +151,14 @@ class PulseChannel:
         self, freq_lo: int, freq_hi: int, nr_x1: int, nr_x2: int, nr_x4: int
     ) -> None:
         """Trigger (restart) the channel with new register values."""
-        self.frequency = ((freq_hi & self.NRX4_FREQ_HI_MASK) << 8) | freq_lo
+        self.frequency = ((freq_hi & APU_FREQ_HI_MASK) << 8) | freq_lo
         self.duty = (nr_x1 & self.NRX1_DUTY_MASK) >> 6
 
         # Initial Volume and Envelope
-        self.initial_volume = (nr_x2 & HIGH_NIBBLE_MASK) >> 4
+        self.initial_volume = (nr_x2 & APU_ENVELOPE_INITIAL_VOL_MASK) >> 4
         self.volume = self.initial_volume
-        self.envelope_direction = (nr_x2 >> 3) & BIT_0
-        self.envelope_period = nr_x2 & TIMER_CONTROL_MASK
+        self.envelope_direction = 1 if (nr_x2 & APU_ENVELOPE_DIR_BIT) else 0
+        self.envelope_period = nr_x2 & APU_ENVELOPE_PERIOD_MASK
         self.envelope_timer = self.envelope_period
         self.envelope_enabled = True
 
@@ -169,9 +183,6 @@ class WaveChannel:
     TIMER_FACTOR: Final[int] = 2
     FREQUENCY_BASE: Final[int] = 2048
     SAMPLE_COUNT: Final[int] = 32
-
-    NR32_VOL_SHIFT_MASK: Final[int] = 0x60
-    NR34_FREQ_HI_MASK: Final[int] = 0x07
 
     def __init__(self):
         self.enabled: bool = False
@@ -215,8 +226,8 @@ class WaveChannel:
 
     def trigger(self, freq_lo: int, freq_hi: int, nr32: int, nr34: int) -> None:
         """Trigger (restart) the wave channel."""
-        self.frequency = ((freq_hi & self.NR34_FREQ_HI_MASK) << 8) | freq_lo
-        self.volume_shift = (nr32 & self.NR32_VOL_SHIFT_MASK) >> 5
+        self.frequency = ((freq_hi & APU_FREQ_HI_MASK) << 8) | freq_lo
+        self.volume_shift = (nr32 & APU_WAVE_VOL_SHIFT_MASK) >> 5
         self.enabled = True
         self.sample_index = 0
         self.timer = (self.FREQUENCY_BASE - self.frequency) * self.TIMER_FACTOR
@@ -303,9 +314,9 @@ class NoiseChannel:
     def trigger(self, nr42: int, nr44: int) -> None:
         """Trigger (restart) the noise channel."""
         self.enabled = True
-        self.volume = (nr42 & HIGH_NIBBLE_MASK) >> 4
-        self.envelope_direction = (nr42 >> 3) & BIT_0
-        self.envelope_period = nr42 & TIMER_CONTROL_MASK
+        self.volume = (nr42 & APU_ENVELOPE_INITIAL_VOL_MASK) >> 4
+        self.envelope_direction = 1 if (nr42 & APU_ENVELOPE_DIR_BIT) else 0
+        self.envelope_period = nr42 & APU_ENVELOPE_PERIOD_MASK
         self.envelope_timer = self.envelope_period
         self.envelope_enabled = True
 
@@ -326,14 +337,14 @@ class APU:
     NR52_READ_MASK: Final[int] = 0x7F
     NR52_REG_COUNT: Final[int] = 0x16
 
-    NR50_LEFT_VOL_MASK: Final[int] = 0x70
-    NR50_RIGHT_VOL_MASK: Final[int] = 0x07
-
     # Normalization constants
     CHANNEL_COUNT: Final[float] = 4.0
-    MAX_VOLUME: Final[float] = 15.0
-    MAX_CHANNEL_OUTPUT: Final[float] = MAX_VOLUME * CHANNEL_COUNT
-    MAX_MASTER_VOLUME: Final[float] = 7.0
+    MAX_VOLUME_LEVEL: Final[float] = 15.0
+    MAX_CHANNEL_OUTPUT: Final[float] = MAX_VOLUME_LEVEL * CHANNEL_COUNT
+    MAX_MASTER_VOLUME_LEVEL: Final[float] = 7.0
+
+    FRAME_SEQUENCER_STEPS: Final[int] = 8
+    ENVELOPE_STEP: Final[int] = 7
 
     def __init__(self) -> None:
         self.registers: bytearray = bytearray(APU_REG_SIZE)
@@ -482,20 +493,20 @@ class APU:
             self.ch3.step_length()
             self.ch4.step_length()
 
-        if self.frame_sequencer_step == 7:
+        if self.frame_sequencer_step == self.ENVELOPE_STEP:
             self.ch1.step_envelope()
             self.ch2.step_envelope()
             self.ch4.step_envelope()
 
-        self.frame_sequencer_step = (self.frame_sequencer_step + 1) % 8
+        self.frame_sequencer_step = (self.frame_sequencer_step + 1) % self.FRAME_SEQUENCER_STEPS
 
     def sample(self) -> None:
         """Generate a stereo sample and add it to the buffer."""
         nr50 = self.registers[REG_NR50 - REG_NR10]
         nr51 = self.registers[REG_NR51 - REG_NR10]
 
-        l_vol = (nr50 & self.NR50_LEFT_VOL_MASK) >> 4
-        r_vol = nr50 & self.NR50_RIGHT_VOL_MASK
+        l_vol = (nr50 & APU_VOL_LEFT_MASK) >> 4
+        r_vol = nr50 & APU_VOL_RIGHT_MASK
 
         c1 = self.ch1.output
         c2 = self.ch2.output
@@ -505,30 +516,30 @@ class APU:
         left = 0.0
         right = 0.0
 
-        if nr51 & BIT_7:
+        if nr51 & APU_MIX_CH4_LEFT:
             left += c4
-        if nr51 & BIT_6:
+        if nr51 & APU_MIX_CH3_LEFT:
             left += c3
-        if nr51 & BIT_5:
+        if nr51 & APU_MIX_CH2_LEFT:
             left += c2
-        if nr51 & BIT_4:
+        if nr51 & APU_MIX_CH1_LEFT:
             left += c1
 
-        if nr51 & BIT_3:
+        if nr51 & APU_MIX_CH4_RIGHT:
             right += c4
-        if nr51 & BIT_2:
+        if nr51 & APU_MIX_CH3_RIGHT:
             right += c3
-        if nr51 & BIT_1:
+        if nr51 & APU_MIX_CH2_RIGHT:
             right += c2
-        if nr51 & BIT_0:
+        if nr51 & APU_MIX_CH1_RIGHT:
             right += c1
 
         # Normalize and Scale to -1.0 to 1.0
         self.left_output = (left * l_vol) / (
-            self.MAX_CHANNEL_OUTPUT * self.MAX_MASTER_VOLUME
+            self.MAX_CHANNEL_OUTPUT * self.MAX_MASTER_VOLUME_LEVEL
         )
         self.right_output = (right * r_vol) / (
-            self.MAX_CHANNEL_OUTPUT * self.MAX_MASTER_VOLUME
+            self.MAX_CHANNEL_OUTPUT * self.MAX_MASTER_VOLUME_LEVEL
         )
 
         self.buffer.append((self.left_output, self.right_output))
