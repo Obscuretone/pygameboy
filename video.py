@@ -62,6 +62,7 @@ class VideoChip:
     _BITS_NORMAL: Final[np.ndarray] = 7 - _BIT_INDICES
 
     def __init__(self, clock: ClockDevice, memory: Any):
+        self.skip_render = False
         self.memory: Any = memory
         self.storage = memory.storage
 
@@ -276,6 +277,8 @@ class VideoChip:
         self.stat_irq_signal = signal
 
     def render_scanline(self) -> None:
+        if self.skip_render:
+            return
         if self.storage[REG_LY] >= self.SCREEN_HEIGHT:
             return
 
@@ -387,21 +390,20 @@ class VideoChip:
                     addr = VRAM_START + (int(tile) << 4) + (int(line) << 1)
                     voff = (addr - VRAM_START) & 0x1FFE
                     b1, b2 = self.vram_np[voff], self.vram_np[voff + 1]
-                    bits = self._BIT_INDICES if (attr & 0x20) else self._BITS_NORMAL
-                    idx_s = (((b2 >> bits) & 1) << 1) | ((b1 >> bits) & 1)
-
+                    
                     s_x, e_x = max(0, x), min(160, x + 8)
                     if s_x < e_x:
-                        target = line_buf[s_x:e_x]
-                        slice_s = idx_s[s_x - x : e_x - x]
-                        mask = slice_s != 0
-                        if attr & 0x80:
-                            bg_idx = self.bg_color_indices[
-                                line_start + s_x : line_start + e_x
-                            ]
-                            mask &= bg_idx == 0
-                        if np.any(mask):
-                            target[mask] = (pal >> (slice_s[mask] * 2)) & 3
+                        flip_x = bool(attr & 0x20)
+                        obj_behind_bg = bool(attr & 0x80)
+                        
+                        for px in range(s_x, e_x):
+                            bit_offset = px - x
+                            bit = bit_offset if flip_x else 7 - bit_offset
+                            
+                            color_bit = (((b2 >> bit) & 1) << 1) | ((b1 >> bit) & 1)
+                            if color_bit != 0:
+                                if not obj_behind_bg or self.bg_color_indices[line_start + px] == 0:
+                                    line_buf[px] = (pal >> (color_bit * 2)) & 3
 
     def perform_dma(self, value: Byte) -> None:
         src = value << 8
