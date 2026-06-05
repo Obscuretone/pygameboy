@@ -316,7 +316,7 @@ class APU:
     """
 
     SAMPLE_RATE: ClassVar[int] = 44100
-    BUFFER_MAX: ClassVar[int] = 4096 * 2  # ~0.18s latency max
+    BUFFER_MAX: ClassVar[int] = 2048  # ~0.18s latency max
     CPU_CLOCK_HZ: Final[int] = GB_CLOCK_HZ
     SAMPLE_PERIOD: Final[float] = CPU_CLOCK_HZ / SAMPLE_RATE
 
