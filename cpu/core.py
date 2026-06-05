@@ -232,11 +232,16 @@ class CPU(CPUOpcodes):
             self.registers.data[1] &= ~mask
 
     def read_register(self, reg):
-        return self.registers[reg]
+        if isinstance(reg, str):
+            return self.registers[reg]
+        return self.registers.data[reg]
 
     def write_register(self, reg, val):
-        self.registers[reg] = val
-        if reg in ("AF", 1):
+        if isinstance(reg, str):
+            self.registers[reg] = val
+            return
+        self.registers.data[reg] = val
+        if reg == 0:
             self.registers.data[1] &= 0xF0
 
     # --- Hardware Helpers (Optimized for Flat Memory) ---
@@ -517,7 +522,7 @@ class CPU(CPUOpcodes):
     def _add_reg_mem(self, r1: Any, r2: Any):
         a, b = (
             self.read_register(r1),
-            self.ram.read_byte(self.read_register(r2) & 0xFFFF),
+            self._read_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7])),
         )
         res = a + b
         self.write_register(r1, res & 0xFF)
@@ -526,7 +531,7 @@ class CPU(CPUOpcodes):
     def _adc_reg_mem(self, r1: Any, r2: Any):
         a, b, c = (
             self.read_register(r1),
-            self.ram.read_byte(self.read_register(r2) & 0xFFFF),
+            self._read_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7])),
             (1 if self.registers.data[1] & 0x10 else 0),
         )
         res = a + b + c
@@ -536,7 +541,7 @@ class CPU(CPUOpcodes):
     def _sub_reg_mem(self, r1: Any, r2: Any):
         a, b = (
             self.read_register(r1),
-            self.ram.read_byte(self.read_register(r2) & 0xFFFF),
+            self._read_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7])),
         )
         res = a - b
         self.write_register(r1, res & 0xFF)
@@ -545,7 +550,7 @@ class CPU(CPUOpcodes):
     def _sbc_reg_mem(self, r1: Any, r2: Any):
         a, b, c = (
             self.read_register(r1),
-            self.ram.read_byte(self.read_register(r2) & 0xFFFF),
+            self._read_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7])),
             (1 if self.registers.data[1] & 0x10 else 0),
         )
         res = a - b - c
@@ -553,30 +558,24 @@ class CPU(CPUOpcodes):
         self._set_sbc_flags(a, b, c, res)
 
     def _xor_reg_mem(self, r1: Any, r2: Any):
-        res = self.read_register(r1) ^ self.ram.read_byte(
-            self.read_register(r2) & 0xFFFF
-        )
+        res = self.read_register(r1) ^ self._read_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]))
         self.write_register(r1, res)
         self.registers.data[1] = 0x80 if res == 0 else 0
 
     def _and_reg_mem(self, r1: Any, r2: Any):
-        res = self.read_register(r1) & self.ram.read_byte(
-            self.read_register(r2) & 0xFFFF
-        )
+        res = self.read_register(r1) & self._read_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]))
         self.write_register(r1, res)
         self.registers.data[1] = (0x80 if res == 0 else 0) | 0x20
 
     def _or_reg_mem(self, r1: Any, r2: Any):
-        res = self.read_register(r1) | self.ram.read_byte(
-            self.read_register(r2) & 0xFFFF
-        )
+        res = self.read_register(r1) | self._read_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]))
         self.write_register(r1, res)
         self.registers.data[1] = 0x80 if res == 0 else 0
 
     def _cp_reg_mem(self, r1: Any, r2: Any):
         a, b = (
             self.read_register(r1),
-            self.ram.read_byte(self.read_register(r2) & 0xFFFF),
+            self._read_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7])),
         )
         self._set_sub_flags(a, b, a - b)
 
