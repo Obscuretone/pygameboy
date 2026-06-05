@@ -139,57 +139,115 @@ class CPU(CPUOpcodes):
         v_accumulated = 0
 
         try:
-            while True:
-                # 1. Interrupt Handling
-                if interrupts.ime or self.halted:
-                    if mem[0xFF0F] & mem[0xFFFF] & 0x1F:
-                        cyc = i_service(self)
+            # Fast path for standard frame execution
+            if max_cycles is not None and max_instructions is None:
+                while total_cyc < max_cycles:
+                    if interrupts.ime or self.halted:
+                        if mem[0xFF0F] & mem[0xFFFF] & 0x1F:
+                            cyc = i_service(self)
+                        else:
+                            cyc = 0
                     else:
                         cyc = 0
-                else:
-                    cyc = 0
 
-                if cyc == 0:
-                    if self.halted:
-                        cyc = halt_cycles
+                    if cyc == 0:
+                        if self.halted:
+                            cyc = halt_cycles
+                        else:
+                            reg.PC &= 0xFFFF
+                            cyc = dispatch[mem[reg.PC]]()
+
+                    executed += 1
+                    total_cyc += cyc
+
+                    v_accumulated += cyc
+                    if v_accumulated >= V_STEP_THRESHOLD:
+                        t_step(v_accumulated)
+                        if v_step:
+                            v_step(v_accumulated)
+                        v_accumulated = 0
+                        
+                        if a_step:
+                            apu_accumulated += V_STEP_THRESHOLD
+                            if apu_accumulated >= APU_STEP_THRESHOLD:
+                                a_step(apu_accumulated)
+                                apu_accumulated = 0
+
+                        if getattr(self.video, 'frame_done', False):
+                            self.video.frame_done = False
+                            break
+
+                    if interrupts.ime_enable_delay > 0:
+                        interrupts.ime_enable_delay -= 1
+                        if interrupts.ime_enable_delay == 0:
+                            interrupts.ime = True
+                            interrupts.pending_ime_enable = False
+
+                    if self.stopped:
+                        break
+            else:
+                # Test/Debug execution path (slow)
+                while True:
+                    if interrupts.ime or self.halted:
+                        if mem[0xFF0F] & mem[0xFFFF] & 0x1F:
+                            cyc = i_service(self)
+                        else:
+                            cyc = 0
                     else:
-                        reg.PC &= 0xFFFF
-                        cyc = dispatch[mem[reg.PC]]()
+                        cyc = 0
 
-                # Instruction or Interrupt serviced
-                executed += 1
-                total_cyc += cyc
+                    if cyc == 0:
+                        if self.halted:
+                            cyc = halt_cycles
+                        else:
+                            reg.PC &= 0xFFFF
+                            cyc = dispatch[mem[reg.PC]]()
 
-                # 3. Synchronous Updates
-                clock.cycles_elapsed += cyc
-                t_step(cyc)
+                    executed += 1
+                    total_cyc += cyc
+                    t_step(cyc)
 
-                v_accumulated += cyc
-                if v_accumulated >= V_STEP_THRESHOLD:
-                    if v_step:
-                        v_step(v_accumulated)
-                    v_accumulated = 0
+                    v_accumulated += cyc
+                    if v_accumulated >= V_STEP_THRESHOLD:
+                        if v_step:
+                            v_step(v_accumulated)
+                        v_accumulated = 0
+                    if a_step:
+                        apu_accumulated += cyc
+                        if apu_accumulated >= APU_STEP_THRESHOLD:
+                            a_step(apu_accumulated)
+                            apu_accumulated = 0
+
+                    if getattr(self.video, 'frame_done', False):
+                        self.video.frame_done = False
+                        break
+
+                    if interrupts.ime_enable_delay > 0:
+                        interrupts.ime_enable_delay -= 1
+                        if interrupts.ime_enable_delay == 0:
+                            interrupts.ime = True
+                            interrupts.pending_ime_enable = False
+
+                    if self.stopped:
+                        break
+                    if max_instructions and executed >= max_instructions:
+                        break
+                    if max_cycles and total_cyc >= max_cycles:
+                        break
+
+            # Flush remaining accumulators
+            if v_accumulated > 0 and max_cycles is not None and max_instructions is None:
+                t_step(v_accumulated)
+                if v_step:
+                    v_step(v_accumulated)
                 if a_step:
-                    apu_accumulated += cyc
-                    if apu_accumulated >= APU_STEP_THRESHOLD:
-                        a_step(apu_accumulated)
-                        apu_accumulated = 0
-
-                if interrupts.ime_enable_delay > 0:
-                    interrupts.ime_enable_delay -= 1
-                    if interrupts.ime_enable_delay == 0:
-                        interrupts.ime = True
-                        interrupts.pending_ime_enable = False
-
-                if self.stopped:
-                    break
-                if max_instructions and executed >= max_instructions:
-                    break
-                if max_cycles and total_cyc >= max_cycles:
-                    break
-
+                    a_step(v_accumulated)
+            
+            clock.cycles_elapsed += total_cyc
+            
         except KeyboardInterrupt:
             pass
+        
         if realtime and total_cyc:
             clock.wait_for_next_cycle(total_cyc)
         return executed, total_cyc

@@ -63,6 +63,7 @@ class VideoChip:
 
     def __init__(self, clock: ClockDevice, memory: Any):
         self.skip_render = False
+        self.frame_done = False
         self.memory: Any = memory
         self.storage = memory.storage
 
@@ -227,6 +228,7 @@ class VideoChip:
                     if self.storage[REG_LY] == self.SCREEN_HEIGHT:
                         self.set_mode(MODE_VBLANK)
                         self.memory.request_interrupt(INT_VBLANK_BIT)
+                        self.frame_done = True
                     else:
                         self.set_mode(MODE_OAM_SEARCH)
                     self.check_lyc()
