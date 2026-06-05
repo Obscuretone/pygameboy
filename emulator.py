@@ -230,8 +230,8 @@ def main() -> None:
             channels=2,
             callback=audio_callback,
             samplerate=apu.SAMPLE_RATE,
-            blocksize=1024,
-            latency='high',
+            blocksize=256,
+            latency='low',
         )
         stream.start()
 
@@ -275,7 +275,20 @@ def main() -> None:
             running = handle_input(ram.joypad)
 
             # Run CPU for one frame worth of cycles (~70224 cycles)
-            ram.video.skip_render = getattr(ram.video, '_force_skip', False)
+            
+            # --- Dynamic Audio-Slaved Synchronization ---
+            if stream is not None and not args.no_realtime:
+                # 1. Throttle CPU if audio buffer is too full (target ~1.5 frames latency = 1102 samples)
+                # Using a smaller blocksize (256) means these waits are tiny (~5ms), eliminating visual micro-stutter
+                while apu.buffer_size > 1024:
+                    pygame.time.delay(1)
+                
+                # 2. Auto-frameskip if CPU is falling behind audio thread (buffer draining)
+                # If we have less than 512 samples, we are at risk of starving the audio thread. Skip rendering!
+                ram.video.skip_render = (apu.buffer_size < 512)
+            else:
+                # Fallback to Pygame clock if no audio
+                ram.video.skip_render = getattr(ram.video, '_force_skip', False)
             
             cpu.run(
                 max_cycles=FRAME_CYCLES,
@@ -285,13 +298,18 @@ def main() -> None:
                 profile_opcodes=args.profile,
             )
             
-            if not args.no_realtime:
+            if not args.no_realtime and stream is None:
                 tick_time = pygame_clock.tick_busy_loop(59.7275)
-                # If frame took longer than 17ms (lagging), force skip the next frame to catch up
                 ram.video._force_skip = tick_time > 17
-                if ram.video._force_skip:
-                    frame_count += 1
-                    continue  # Skip blitting to screen
+                
+            if ram.video.skip_render:
+                # Ensure FPS counter still ticks accurately when skipping
+                if frame_count % 60 == 0:
+                    now = pygame.time.get_ticks() / 1000.0
+                    fps = 60 / (now - getattr(pygame, '_last_time', now - 1/60))
+                    pygame._last_time = now
+                    pygame.display.set_caption(f"PyGameBoy - {rom_title} - {fps:.1f} FPS")
+                continue  # Skip blitting to screen
 
             # 1. Get raw indices (0-3) from PPU
             raw_indices = ram.video.frame_buffer.reshape((144, 160))
