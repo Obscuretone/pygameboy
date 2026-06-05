@@ -257,6 +257,7 @@ def main() -> None:
 
     # Internal surface for 160x144 rendering
     internal_surface = pygame.Surface((160, 144))
+    pygame_clock = pygame.time.Clock()
     print("Internal surface created")
     sys.stdout.flush()
 
@@ -274,23 +275,16 @@ def main() -> None:
             running = handle_input(ram.joypad)
 
             # Run CPU for one frame worth of cycles (~70224 cycles)
-            # Sync to audio stream if available, otherwise sync to system clock
-            realtime_clock = not args.no_realtime
-            
-            if realtime_clock and stream is not None:
-                # Target latency ~2048 samples. If we have more than that, wait.
-                # Audio thread will drain buffer while we wait.
-                while apu.buffer_size > 2048:
-                    pygame.time.wait(1)
-                realtime_clock = False # Don't use SystemClock sleep
-                    
             cpu.run(
                 max_cycles=FRAME_CYCLES,
-                realtime=realtime_clock,
+                realtime=False,
                 fast=not args.slow_step,
                 announce=False,
                 profile_opcodes=args.profile,
             )
+            
+            if not args.no_realtime:
+                pygame_clock.tick_busy_loop(59.7275)
 
             # 1. Get raw indices (0-3) from PPU
             raw_indices = ram.video.frame_buffer.reshape((144, 160))
@@ -307,6 +301,12 @@ def main() -> None:
                 internal_surface, (window_width, window_height), screen
             )
             pygame.display.flip()
+            if frame_count % 60 == 0:
+                now = pygame.time.get_ticks() / 1000.0
+                fps = 60 / (now - getattr(pygame, '_last_time', now - 1/60))
+                pygame._last_time = now
+                pygame.display.set_caption(f"PyGameBoy - {rom_title} - {fps:.1f} FPS")
+                
 
     except KeyboardInterrupt:
         pass
