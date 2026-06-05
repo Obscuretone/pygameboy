@@ -224,7 +224,7 @@ class CPUOpcodes:
         n16 = self.memory[(self.registers.PC + 1) & 0xFFFF] | (
             self.memory[(self.registers.PC + 2) & 0xFFFF] << 8
         )
-        sp = self.registers[REG_SP]
+        sp = self.registers.SP
         self._write_memory_byte(n16, sp & BYTE_MASK)
         self._write_memory_byte((n16 + 1) & WORD_MASK, sp >> 8)
         self.registers.PC += 3
@@ -970,7 +970,7 @@ class CPUOpcodes:
         n16 = self.memory[(self.registers.PC + 1) & 0xFFFF] | (
             self.memory[(self.registers.PC + 2) & 0xFFFF] << 8
         )
-        self.registers[REG_SP] = n16
+        self.registers.SP = n16
         self.registers.PC += 3
         return 12
 
@@ -1001,7 +1001,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self.registers[REG_SP] = (self.registers[REG_SP] + 1) & WORD_MASK
+        self.registers.SP = (self.registers.SP + 1) & WORD_MASK
         self.registers.PC += 1
         return 8
 
@@ -1105,7 +1105,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        left, right = ((self.registers.data[6] << 8) | self.registers.data[7]), self.registers[REG_SP]
+        left, right = ((self.registers.data[6] << 8) | self.registers.data[7]), self.registers.SP
         res = left + right
         self.registers.data[6] = (res & WORD_MASK) >> 8; self.registers.data[7] = (res & WORD_MASK) & 0xFF
         self._set_add_hl_flags(left, right, res)
@@ -1139,7 +1139,7 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self.registers[REG_SP] = (self.registers[REG_SP] - 1) & WORD_MASK
+        self.registers.SP = (self.registers.SP - 1) & WORD_MASK
         self.registers.PC += 1
         return 8
 
@@ -3166,7 +3166,7 @@ class CPUOpcodes:
         return 8
 
     def _pop_bc(self):
-        # print('pop_bc start ' + hex(self.registers[REG_SP]))
+        # print('pop_bc start ' + hex(self.registers.SP))
         # Pop the lower byte of BC from the stack
         # Pop the upper byte of BC from the stack
         # Combine the lower and upper bytes to form BC
@@ -3624,8 +3624,8 @@ class CPUOpcodes:
         """Opcode 0xE8 (ADD 'SP','e8',)"""
         n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
         off = self._signed_e8(n8)
-        v = self.registers[REG_SP]
-        self.registers[REG_SP] = (v + off) & WORD_MASK
+        v = self.registers.SP
+        self.registers.SP = (v + off) & WORD_MASK
         self._set_sp_e8_flags(v, n8)
         self.registers.PC += 2
         return 16
@@ -3690,7 +3690,7 @@ class CPUOpcodes:
 
     def _push_af(self):
         """Opcode 0xF5 (PUSH 'AF',)"""
-        self.push_stack(self.registers["AF"])
+        self.push_stack(((self.registers.data[0] << 8) | self.registers.data[1]))
         self.registers.PC += 1
         return 16
 
@@ -3711,7 +3711,7 @@ class CPUOpcodes:
         """Opcode 0xF8 (LD 'HL','SP','e8',)"""
         n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
         off = self._signed_e8(n8)
-        v = self.registers[REG_SP]
+        v = self.registers.SP
         self.registers.data[6] = ((v + off) & WORD_MASK) >> 8; self.registers.data[7] = ((v + off) & WORD_MASK) & 0xFF
         self._set_sp_e8_flags(v, n8)
         self.registers.PC += 2
@@ -3719,7 +3719,7 @@ class CPUOpcodes:
 
     def _ld_sp_hl(self):
         """Opcode 0xF9 (LD 'SP','HL',)"""
-        self.registers[REG_SP] = ((self.registers.data[6] << 8) | self.registers.data[7])
+        self.registers.SP = ((self.registers.data[6] << 8) | self.registers.data[7])
         self.registers.PC += 1
         return 8
 
@@ -3741,8 +3741,17 @@ class CPUOpcodes:
 
     def _cp_n8(self):
         """Opcode 0xFE (CP 'A','n8',)"""
-        n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
-        self._cp_int(REG_A, n8)
+        b = self.memory[(self.registers.PC + 1) & 0xFFFF]
+        a = self.registers.data[0]
+        res = a - b
+        f = 0x40
+        if (res & 0xFF) == 0:
+            f |= 0x80
+        if (a & 0x0F) < (b & 0x0F):
+            f |= 0x20
+        if a < b:
+            f |= 0x10
+        self.registers.data[1] = f
         self.registers.PC += 2
         return 8
 
@@ -3770,13 +3779,13 @@ class CPUOpcodes:
         def get_val():
             if reg_id == REG_HL:
                 return self._read_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]))
-            return self.registers[reg_id]
+            return self.registers.data[reg_id]
 
         def set_val(v):
             if reg_id == REG_HL:
                 self._write_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]), v)
             else:
-                self.registers[reg_id] = v
+                self.registers.data[reg_id] = v
 
         cycles = 8 if reg_id != REG_HL else 16
         if category == 0:
