@@ -275,6 +275,8 @@ def main() -> None:
             running = handle_input(ram.joypad)
 
             # Run CPU for one frame worth of cycles (~70224 cycles)
+            ram.video.skip_render = getattr(ram.video, '_force_skip', False)
+            
             cpu.run(
                 max_cycles=FRAME_CYCLES,
                 realtime=False,
@@ -284,7 +286,12 @@ def main() -> None:
             )
             
             if not args.no_realtime:
-                pygame_clock.tick_busy_loop(59.7275)
+                tick_time = pygame_clock.tick_busy_loop(59.7275)
+                # If frame took longer than 17ms (lagging), force skip the next frame to catch up
+                ram.video._force_skip = tick_time > 17
+                if ram.video._force_skip:
+                    frame_count += 1
+                    continue  # Skip blitting to screen
 
             # 1. Get raw indices (0-3) from PPU
             raw_indices = ram.video.frame_buffer.reshape((144, 160))
