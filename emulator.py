@@ -291,7 +291,7 @@ def main() -> None:
                 ram.video.skip_render = getattr(ram.video, '_force_skip', False)
             
             cpu.run(
-                max_cycles=FRAME_CYCLES,
+                max_cycles=100000, # Bounded by V-Blank exit
                 realtime=False,
                 fast=not args.slow_step,
                 announce=False,
