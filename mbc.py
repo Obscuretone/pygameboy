@@ -35,8 +35,12 @@ class MBC:
         self.rom: ROMData = rom_data
         self.ram: RAMData = bytearray(ram_size)
         self.ram_enabled: bool = False
-        self.on_bank_change: Optional[Callable[[int, int, Union[bytes, bytearray]], None]] = None
-        self.on_ram_bank_change: Optional[Callable[[int, Union[bytes, bytearray]], None]] = None
+        self.on_bank_change: Optional[
+            Callable[[int, int, Union[bytes, bytearray]], None]
+        ] = None
+        self.on_ram_bank_change: Optional[
+            Callable[[int, Union[bytes, bytearray]], None]
+        ] = None
 
     def read_rom(self, address: int) -> int:
         return self.rom[address]
@@ -45,20 +49,33 @@ class MBC:
         pass
 
     def read_ram(self, address: int) -> int:
-        if not self.ram_enabled:
+        if not self.ram_enabled or not self.ram:
             return UNMAPPED_BYTE
         return self.ram[address - ERAM_START]
 
     def write_ram(self, address: int, value: int) -> None:
-        if not self.ram_enabled:
+        if not self.ram_enabled or not self.ram:
             return
         self.ram[address - ERAM_START] = value
 
-    def _trigger_bank_change(self, start_addr: int, bank_num: int, data: Union[bytes, bytearray]) -> None:
+    def _ram_bank_data(self, bank_num: int) -> Union[bytes, bytearray]:
+        if not self.ram:
+            return bytes([UNMAPPED_BYTE] * RAM_BANK_SIZE)
+        start = (bank_num * RAM_BANK_SIZE) % len(self.ram)
+        data = self.ram[start : start + RAM_BANK_SIZE]
+        if len(data) < RAM_BANK_SIZE:
+            return data + bytes([UNMAPPED_BYTE] * (RAM_BANK_SIZE - len(data)))
+        return data
+
+    def _trigger_bank_change(
+        self, start_addr: int, bank_num: int, data: Union[bytes, bytearray]
+    ) -> None:
         if self.on_bank_change:
             self.on_bank_change(start_addr, bank_num, data)
 
-    def _trigger_ram_bank_change(self, bank_num: int, data: Union[bytes, bytearray]) -> None:
+    def _trigger_ram_bank_change(
+        self, bank_num: int, data: Union[bytes, bytearray]
+    ) -> None:
         if self.on_ram_bank_change:
             self.on_ram_bank_change(bank_num, data)
 
@@ -132,19 +149,17 @@ class MBC1(MBC):
                 self._trigger_ram_bank_change(0, bytes([UNMAPPED_BYTE] * RAM_BANK_SIZE))
             else:
                 bank = self.ram_bank if self.mode == 1 else 0
-                start = (bank * RAM_BANK_SIZE) % len(self.ram)
-                data = self.ram[start : start + RAM_BANK_SIZE]
-                self._trigger_ram_bank_change(bank, data)
+                self._trigger_ram_bank_change(bank, self._ram_bank_data(bank))
 
     def read_ram(self, address: int) -> int:
-        if not self.ram_enabled:
+        if not self.ram_enabled or not self.ram:
             return UNMAPPED_BYTE
         bank = self.ram_bank if self.mode == 1 else 0
         real_address = (bank * RAM_BANK_SIZE) + (address - ERAM_START)
         return self.ram[real_address % len(self.ram)]
 
     def write_ram(self, address: int, value: int) -> None:
-        if not self.ram_enabled:
+        if not self.ram_enabled or not self.ram:
             return
         bank = self.ram_bank if self.mode == 1 else 0
         real_address = (bank * RAM_BANK_SIZE) + (address - ERAM_START)
@@ -207,9 +222,9 @@ class MBC3(MBC):
             if not self.ram_enabled:
                 self._trigger_ram_bank_change(0, bytes([UNMAPPED_BYTE] * RAM_BANK_SIZE))
             elif 0 <= self.ram_bank <= self.RAM_BANK_SELECT_MASK:
-                start = (self.ram_bank * RAM_BANK_SIZE) % len(self.ram)
-                data = self.ram[start : start + RAM_BANK_SIZE]
-                self._trigger_ram_bank_change(self.ram_bank, data)
+                self._trigger_ram_bank_change(
+                    self.ram_bank, self._ram_bank_data(self.ram_bank)
+                )
             else:
                 self._trigger_ram_bank_change(0, bytes([UNMAPPED_BYTE] * RAM_BANK_SIZE))
 
@@ -217,6 +232,8 @@ class MBC3(MBC):
         if not self.ram_enabled:
             return UNMAPPED_BYTE
         if 0 <= self.ram_bank <= self.RAM_BANK_SELECT_MASK:
+            if not self.ram:
+                return UNMAPPED_BYTE
             real_address = (self.ram_bank * RAM_BANK_SIZE) + (address - ERAM_START)
             return self.ram[real_address % len(self.ram)]
         elif self.RTC_REGISTER_START <= self.ram_bank <= self.RTC_REGISTER_END:
@@ -227,6 +244,8 @@ class MBC3(MBC):
         if not self.ram_enabled:
             return
         if 0 <= self.ram_bank <= self.RAM_BANK_SELECT_MASK:
+            if not self.ram:
+                return
             real_address = (self.ram_bank * RAM_BANK_SIZE) + (address - ERAM_START)
             self.ram[real_address % len(self.ram)] = value
         elif self.RTC_REGISTER_START <= self.ram_bank <= self.RTC_REGISTER_END:
@@ -282,18 +301,18 @@ class MBC5(MBC):
             if not self.ram_enabled:
                 self._trigger_ram_bank_change(0, bytes([UNMAPPED_BYTE] * RAM_BANK_SIZE))
             else:
-                start = (self.ram_bank * RAM_BANK_SIZE) % len(self.ram)
-                data = self.ram[start : start + RAM_BANK_SIZE]
-                self._trigger_ram_bank_change(self.ram_bank, data)
+                self._trigger_ram_bank_change(
+                    self.ram_bank, self._ram_bank_data(self.ram_bank)
+                )
 
     def read_ram(self, address: int) -> int:
-        if not self.ram_enabled:
+        if not self.ram_enabled or not self.ram:
             return UNMAPPED_BYTE
         real_address = (self.ram_bank * RAM_BANK_SIZE) + (address - ERAM_START)
         return self.ram[real_address % len(self.ram)]
 
     def write_ram(self, address: int, value: int) -> None:
-        if not self.ram_enabled:
+        if not self.ram_enabled or not self.ram:
             return
         real_address = (self.ram_bank * RAM_BANK_SIZE) + (address - ERAM_START)
         self.ram[real_address % len(self.ram)] = value

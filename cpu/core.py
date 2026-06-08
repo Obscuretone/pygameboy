@@ -134,7 +134,7 @@ class CPU(CPUOpcodes):
         halt_cycles = self.HALT_CYCLES
 
         apu_accumulated = 0
-        APU_STEP_THRESHOLD = 256
+        APU_STEP_THRESHOLD = 64
         V_STEP_THRESHOLD = 114
         v_accumulated = 0
 
@@ -160,18 +160,20 @@ class CPU(CPUOpcodes):
                     executed += 1
                     total_cyc += cyc
 
+                    t_step(cyc)
+
+                    if a_step:
+                        apu_accumulated += cyc
+                        if apu_accumulated >= APU_STEP_THRESHOLD:
+                            a_step(apu_accumulated)
+                            apu_accumulated = 0
+
                     v_accumulated += cyc
                     if v_accumulated >= V_STEP_THRESHOLD:
-                        t_step(v_accumulated)
                         if v_step:
                             v_step(v_accumulated)
+
                         v_accumulated = 0
-                        
-                        if a_step:
-                            apu_accumulated += V_STEP_THRESHOLD
-                            if apu_accumulated >= APU_STEP_THRESHOLD:
-                                a_step(apu_accumulated)
-                                apu_accumulated = 0
 
                         if getattr(self.video, 'frame_done', False):
                             self.video.frame_done = False
@@ -237,11 +239,15 @@ class CPU(CPUOpcodes):
 
             # Flush remaining accumulators
             if v_accumulated > 0 and max_cycles is not None and max_instructions is None:
-                t_step(v_accumulated)
                 if v_step:
                     v_step(v_accumulated)
-                if a_step:
-                    a_step(v_accumulated)
+            if (
+                apu_accumulated > 0
+                and a_step
+                and max_cycles is not None
+                and max_instructions is None
+            ):
+                a_step(apu_accumulated)
             
             clock.cycles_elapsed += total_cyc
             

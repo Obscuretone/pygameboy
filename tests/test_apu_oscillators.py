@@ -40,6 +40,18 @@ class TestAPUOscillators(unittest.TestCase):
         # Step 2, output 0
         self.assertEqual(self.apu.ch2.output, 0)
 
+    def test_pulse_oscillator_large_batch_advances_multiple_edges(self):
+        self.memory.write_byte(0xFF26, 0x80)
+        self.memory.write_byte(0xFF16, 0x80)
+        self.memory.write_byte(0xFF17, 0xA0)
+        self.memory.write_byte(0xFF18, 0x00)
+        self.memory.write_byte(0xFF19, 0x80 | 0x07)
+
+        self.apu.step(2048)
+
+        self.assertEqual(self.apu.ch2.duty_step, 2)
+        self.assertEqual(self.apu.ch2.output, 0)
+
     def test_wave_oscillator(self):
         self.memory.write_byte(0xFF26, 0x80)
 
