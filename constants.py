@@ -53,6 +53,17 @@ MBC_TYPE_MBC1 = [0x01, 0x02, 0x03]
 MBC_TYPE_MBC2 = [0x05, 0x06]
 MBC_TYPE_MBC3 = [0x0F, 0x10, 0x11, 0x12, 0x13]
 MBC_TYPE_MBC5 = [0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E]
+BATTERY_BACKED_CART_TYPES = {
+    0x03,  # MBC1 + RAM + Battery
+    0x06,  # MBC2 + Battery
+    0x09,  # ROM + RAM + Battery
+    0x0D,  # MMM01 + RAM + Battery
+    0x0F,  # MBC3 + Timer + Battery
+    0x10,  # MBC3 + Timer + RAM + Battery
+    0x13,  # MBC3 + RAM + Battery
+    0x1B,  # MBC5 + RAM + Battery
+    0x1E,  # MBC5 + Rumble + RAM + Battery
+}
 
 # MBC Register Ranges
 MBC_RAM_ENABLE_END = 0x1FFF

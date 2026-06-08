@@ -22,6 +22,12 @@ from cpu import CPU
 from memory import Memory
 from video import VideoChip
 from mbc import MBC0, MBC1, MBC2, MBC3, MBC5
+from cartridge_save import (
+    get_save_path,
+    has_battery,
+    load_cartridge_ram,
+    save_cartridge_ram,
+)
 from constants import (
     CART_TITLE_START,
     CART_TITLE_END,
@@ -42,6 +48,7 @@ from constants import (
 
 # Standard GB color palette (original green shades)
 GB_PALETTE: Final[np.ndarray] = np.array(DMG_PALETTE_COLORS, dtype=np.uint8)
+SAVE_FLUSH_FRAMES: Final[int] = 60
 
 # Pygame to Joypad mapping
 PYGAME_MAP: Final[Dict[int, str]] = {
@@ -159,6 +166,15 @@ def main() -> None:
     else:
         print(f"Warning: Unsupported MBC type {hex(mbc_type)}, using MBC0")
         ram.mbc = MBC0(rom)
+
+    save_path = get_save_path(args.rom)
+    battery_backed = has_battery(mbc_type)
+    if battery_backed and ram.mbc.ram:
+        loaded_bytes = load_cartridge_ram(ram.mbc, save_path)
+        if loaded_bytes:
+            print(f"Loaded cartridge save: {save_path} ({loaded_bytes} bytes)")
+        else:
+            print(f"Cartridge save path: {save_path}")
 
     video = VideoChip(clock, ram)
     ram.video = video
@@ -302,6 +318,13 @@ def main() -> None:
                 announce=False,
                 profile_opcodes=args.profile,
             )
+
+            if (
+                battery_backed
+                and ram.mbc.ram_dirty
+                and frame_count % SAVE_FLUSH_FRAMES == 0
+            ):
+                save_cartridge_ram(ram.mbc, save_path)
             
             if not args.no_realtime and stream is None:
                 tick_time = pygame_clock.tick_busy_loop(59.7275)
@@ -346,6 +369,10 @@ def main() -> None:
         print(f"Error: {e}")
         traceback.print_exc()
     finally:
+        if battery_backed:
+            saved_bytes = save_cartridge_ram(ram.mbc, save_path)
+            if saved_bytes:
+                print(f"Saved cartridge RAM: {save_path} ({saved_bytes} bytes)")
         if stream is not None:
             stream.stop()
             stream.close()
