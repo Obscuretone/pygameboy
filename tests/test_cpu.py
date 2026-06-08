@@ -2225,6 +2225,30 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(self.ram.read_byte(0xFF05), 0x42)
         self.assertEqual(self.ram.read_byte(0xFF0F) & 0x04, 0x04)
 
+    def test_fast_max_cycles_services_timer_interrupt_without_frame_delay(self):
+        """Test fast frame path services timer interrupts as soon as cycles elapse."""
+        self.ram.write_byte(0x0000, 0x00)
+        self.ram.write_byte(0xFF05, 0xFF)
+        self.ram.write_byte(0xFF06, 0x42)
+        self.ram.write_byte(0xFFFF, 0x04)
+        self.cpu._write_memory_byte(0xFF07, 0x05)
+        self.cpu.write_register("SP", 0xFFFE)
+        self.cpu.interrupts.ime = True
+
+        executed, cycles = self.cpu.run(
+            max_cycles=20,
+            realtime=False,
+            profile_opcodes=False,
+            fast=True,
+            announce=False,
+        )
+
+        self.assertEqual(executed, 5)
+        self.assertEqual(cycles, 36)
+        self.assertEqual(self.cpu.read_register("PC"), 0x50)
+        self.assertEqual(self.ram.read_byte(0xFF05), 0x43)
+        self.assertEqual(self.ram.read_byte(0xFF0F) & 0x04, 0)
+
     def test_pc_boundary_wrap_around(self):
         """Test that PC wraps correctly when executing at the 64KB boundary."""
         self.cpu.registers.PC = 0xFFFF

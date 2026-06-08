@@ -1,4 +1,5 @@
 from typing import List, Final, ClassVar
+import threading
 import numpy as np
 from gb_types import (
     Cycles,
@@ -100,8 +101,10 @@ class PulseChannel:
             return
 
         self.timer -= cycles
-        if self.timer <= 0:
+        while self.timer <= 0:
             period = (self.FREQUENCY_BASE - self.frequency) * self.TIMER_FACTOR
+            if period <= 0:
+                break
             self.timer += period
             self.duty_step = (self.duty_step + 1) & 7  # Masking instead of mod
             self.output = (
@@ -187,8 +190,10 @@ class WaveChannel:
             return
 
         self.timer -= cycles
-        if self.timer <= 0:
+        while self.timer <= 0:
             period = (self.FREQUENCY_BASE - self.frequency) * self.TIMER_FACTOR
+            if period <= 0:
+                break
             self.timer += period
             self.sample_index = (self.sample_index + 1) & 31
 
@@ -263,7 +268,7 @@ class NoiseChannel:
             return
 
         self.timer -= cycles
-        if self.timer <= 0:
+        while self.timer <= 0:
             self.timer += self.TIMER_BASE
 
             res = (self.lfsr & BIT_0) ^ ((self.lfsr & BIT_1) >> 1)
@@ -316,7 +321,7 @@ class APU:
     """
 
     SAMPLE_RATE: ClassVar[int] = 44100
-    BUFFER_MAX: ClassVar[int] = 2048  # ~0.18s latency max
+    BUFFER_MAX: ClassVar[int] = 8192  # ~0.18s latency max
     CPU_CLOCK_HZ: Final[int] = GB_CLOCK_HZ
     SAMPLE_PERIOD: Final[float] = CPU_CLOCK_HZ / SAMPLE_RATE
 
@@ -351,6 +356,7 @@ class APU:
         self.left_output: float = 0.0
         self.right_output: float = 0.0
         self.buffer = np.zeros((self.BUFFER_MAX, 2), dtype=np.float32)
+        self.buffer_lock = threading.Lock()
         self.buffer_write_pos = 0
         self.buffer_read_pos = 0
         self.buffer_size = 0
@@ -472,7 +478,7 @@ class APU:
             self.ch4.step(cycles)
 
         self.frame_sequencer_clock += cycles
-        if self.frame_sequencer_clock >= FRAME_SEQUENCER_PERIOD:
+        while self.frame_sequencer_clock >= FRAME_SEQUENCER_PERIOD:
             self.frame_sequencer_clock -= FRAME_SEQUENCER_PERIOD
             self.step_frame_sequencer()
 
@@ -531,7 +537,11 @@ class APU:
         self.left_output = (left * l_vol) / self.NORM_DIVISOR
         self.right_output = (right * r_vol) / self.NORM_DIVISOR
 
-        if self.buffer_size < self.BUFFER_MAX:
+        with self.buffer_lock:
+            if self.buffer_size >= self.BUFFER_MAX:
+                self.buffer_read_pos = (self.buffer_read_pos + 1) % self.BUFFER_MAX
+                self.buffer_size -= 1
+
             self.buffer[self.buffer_write_pos, 0] = self.left_output
             self.buffer[self.buffer_write_pos, 1] = self.right_output
             self.buffer_write_pos = (self.buffer_write_pos + 1) % self.BUFFER_MAX

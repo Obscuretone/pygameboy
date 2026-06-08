@@ -1,4 +1,7 @@
 *.gb
+*.gbc
+*.sav
+*.srm
 venv/
 __pycache__/
 *.prof

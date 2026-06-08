@@ -145,16 +145,17 @@ def main() -> None:
 
     # Detect MBC Type and attach to ram
     mbc_type = rom[CART_TYPE_ADDR]
+    ram_size = RAM_SIZE_MAP.get(rom[CART_RAM_SIZE_ADDR], 0)
     if mbc_type == MBC_TYPE_ROM_ONLY:
         ram.mbc = MBC0(rom)
     elif mbc_type in MBC_TYPE_MBC1:
-        ram.mbc = MBC1(rom)
+        ram.mbc = MBC1(rom, ram_size=ram_size)
     elif mbc_type in MBC_TYPE_MBC2:
         ram.mbc = MBC2(rom)
     elif mbc_type in MBC_TYPE_MBC3:
-        ram.mbc = MBC3(rom)
+        ram.mbc = MBC3(rom, ram_size=ram_size)
     elif mbc_type in MBC_TYPE_MBC5:
-        ram.mbc = MBC5(rom)
+        ram.mbc = MBC5(rom, ram_size=ram_size)
     else:
         print(f"Warning: Unsupported MBC type {hex(mbc_type)}, using MBC0")
         ram.mbc = MBC0(rom)
@@ -189,23 +190,23 @@ def main() -> None:
         if status and args.verbose:
             print(status)
 
-        read_pos = apu.buffer_read_pos
-        size = apu.buffer_size
+        with apu.buffer_lock:
+            read_pos = apu.buffer_read_pos
+            size = apu.buffer_size
 
-        if size >= frames:
-            if read_pos + frames <= apu.BUFFER_MAX:
-                outdata[:] = apu.buffer[read_pos : read_pos + frames]
-            else:
-                chunk1 = apu.BUFFER_MAX - read_pos
-                chunk2 = frames - chunk1
-                outdata[:chunk1] = apu.buffer[read_pos:]
-                outdata[chunk1:] = apu.buffer[:chunk2]
+            if size >= frames:
+                if read_pos + frames <= apu.BUFFER_MAX:
+                    outdata[:] = apu.buffer[read_pos : read_pos + frames]
+                else:
+                    chunk1 = apu.BUFFER_MAX - read_pos
+                    chunk2 = frames - chunk1
+                    outdata[:chunk1] = apu.buffer[read_pos:]
+                    outdata[chunk1:] = apu.buffer[:chunk2]
 
-            apu.buffer_read_pos = (read_pos + frames) % apu.BUFFER_MAX
-            apu.buffer_size -= frames
-            last_audio_sample[:] = outdata[-1]
-        else:
-            if size > 0:
+                apu.buffer_read_pos = (read_pos + frames) % apu.BUFFER_MAX
+                apu.buffer_size -= frames
+                last_audio_sample[:] = outdata[-1]
+            elif size > 0:
                 if read_pos + size <= apu.BUFFER_MAX:
                     outdata[:size] = apu.buffer[read_pos : read_pos + size]
                 else:
@@ -278,14 +279,18 @@ def main() -> None:
             
             # --- Dynamic Audio-Slaved Synchronization ---
             if stream is not None and not args.no_realtime:
-                # 1. Throttle CPU if audio buffer is too full (target ~1.5 frames latency = 1102 samples)
-                # Using a smaller blocksize (256) means these waits are tiny (~5ms), eliminating visual micro-stutter
-                while apu.buffer_size > 1024:
+                # 1. Throttle CPU if audio buffer is too full.
+                # Target around 93ms of queued audio to avoid underruns on slower frames.
+                with apu.buffer_lock:
+                    audio_buffer_size = apu.buffer_size
+                while audio_buffer_size > 4096:
                     pygame.time.delay(1)
+                    with apu.buffer_lock:
+                        audio_buffer_size = apu.buffer_size
                 
-                # 2. Auto-frameskip if CPU is falling behind audio thread (buffer draining)
-                # If we have less than 512 samples, we are at risk of starving the audio thread. Skip rendering!
-                ram.video.skip_render = (apu.buffer_size < 512)
+                # 2. Auto-frameskip if CPU is falling behind audio thread.
+                # Under ~23ms queued audio, prioritize refill over rendering.
+                ram.video.skip_render = audio_buffer_size < 1024
             else:
                 # Fallback to Pygame clock if no audio
                 ram.video.skip_render = getattr(ram.video, '_force_skip', False)
