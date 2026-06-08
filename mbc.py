@@ -35,6 +35,7 @@ class MBC:
         self.rom: ROMData = rom_data
         self.ram: RAMData = bytearray(ram_size)
         self.ram_enabled: bool = False
+        self.ram_dirty: bool = False
         self.on_bank_change: Optional[
             Callable[[int, int, Union[bytes, bytearray]], None]
         ] = None
@@ -57,6 +58,7 @@ class MBC:
         if not self.ram_enabled or not self.ram:
             return
         self.ram[address - ERAM_START] = value
+        self.ram_dirty = True
 
     def _ram_bank_data(self, bank_num: int) -> Union[bytes, bytearray]:
         if not self.ram:
@@ -164,6 +166,7 @@ class MBC1(MBC):
         bank = self.ram_bank if self.mode == 1 else 0
         real_address = (bank * RAM_BANK_SIZE) + (address - ERAM_START)
         self.ram[real_address % len(self.ram)] = value
+        self.ram_dirty = True
 
 
 class MBC3(MBC):
@@ -248,6 +251,7 @@ class MBC3(MBC):
                 return
             real_address = (self.ram_bank * RAM_BANK_SIZE) + (address - ERAM_START)
             self.ram[real_address % len(self.ram)] = value
+            self.ram_dirty = True
         elif self.RTC_REGISTER_START <= self.ram_bank <= self.RTC_REGISTER_END:
             self.rtc_registers[self.ram_bank - self.RTC_REGISTER_START] = value
 
@@ -316,6 +320,7 @@ class MBC5(MBC):
             return
         real_address = (self.ram_bank * RAM_BANK_SIZE) + (address - ERAM_START)
         self.ram[real_address % len(self.ram)] = value
+        self.ram_dirty = True
 
 
 class MBC2(MBC):
@@ -368,3 +373,4 @@ class MBC2(MBC):
         if not self.ram_enabled:
             return
         self.ram[(address - ERAM_START) % self.RAM_SIZE] = value & LOW_NIBBLE_MASK
+        self.ram_dirty = True
