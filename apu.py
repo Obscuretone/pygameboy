@@ -79,7 +79,7 @@ class PulseChannel:
 
     def __init__(self) -> None:
         self.enabled: bool = False
-        self.timer: int = 0
+        self.timer: float = 0.0
         self.frequency: int = 0
         self.duty: int = 0
         self.duty_step: int = 0
@@ -176,7 +176,7 @@ class WaveChannel:
 
     def __init__(self):
         self.enabled: bool = False
-        self.timer: int = 0
+        self.timer: float = 0.0
         self.frequency: int = 0
         self.sample_index: int = 0
         self.output: int = 0
@@ -255,7 +255,7 @@ class NoiseChannel:
 
     def __init__(self):
         self.enabled: bool = False
-        self.timer: int = 0
+        self.timer: float = 0.0
         self.lfsr: int = self.LFSR_INITIAL
         self.output: int = 0
         self.volume: int = 0
@@ -377,7 +377,7 @@ class APU:
         self.ch4: NoiseChannel = NoiseChannel()
 
         self.cycles: float = 0.0
-        self.frame_sequencer_clock: int = 0
+        self.frame_sequencer_clock: float = 0.0
         self.frame_sequencer_step: int = 0
 
         self.left_output: float = 0.0
@@ -500,6 +500,36 @@ class APU:
         if not self.sound_enabled:
             return
 
+        remaining = float(cycles)
+        while remaining > 0:
+            cycles_until_sample = self.SAMPLE_PERIOD - self.cycles
+            cycles_until_frame = FRAME_SEQUENCER_PERIOD - self.frame_sequencer_clock
+            step_cycles = min(remaining, cycles_until_sample, cycles_until_frame)
+
+            if step_cycles <= 0:
+                if self.cycles >= self.SAMPLE_PERIOD:
+                    self.cycles -= self.SAMPLE_PERIOD
+                    self.sample()
+                if self.frame_sequencer_clock >= FRAME_SEQUENCER_PERIOD:
+                    self.frame_sequencer_clock -= FRAME_SEQUENCER_PERIOD
+                    self.step_frame_sequencer()
+                continue
+
+            self._step_channels(step_cycles)
+            remaining -= step_cycles
+            self.cycles += step_cycles
+            self.frame_sequencer_clock += step_cycles
+
+            if self.frame_sequencer_clock >= FRAME_SEQUENCER_PERIOD:
+                self.frame_sequencer_clock -= FRAME_SEQUENCER_PERIOD
+                self.step_frame_sequencer()
+
+            if self.cycles >= self.SAMPLE_PERIOD:
+                self.cycles -= self.SAMPLE_PERIOD
+                self.sample()
+
+    def _step_channels(self, cycles: float) -> None:
+        """Advance active oscillator timers without sampling."""
         # Optimization: only step active channels
         if self.ch1.enabled:
             self.ch1.step(cycles)
@@ -509,16 +539,6 @@ class APU:
             self.ch3.step(cycles)
         if self.ch4.enabled:
             self.ch4.step(cycles)
-
-        self.frame_sequencer_clock += cycles
-        while self.frame_sequencer_clock >= FRAME_SEQUENCER_PERIOD:
-            self.frame_sequencer_clock -= FRAME_SEQUENCER_PERIOD
-            self.step_frame_sequencer()
-
-        self.cycles += cycles
-        while self.cycles >= self.SAMPLE_PERIOD:
-            self.cycles -= self.SAMPLE_PERIOD
-            self.sample()
 
     def step_frame_sequencer(self) -> None:
         """Advance the APU frame sequencer (512Hz)."""
