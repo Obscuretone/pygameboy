@@ -124,6 +124,26 @@ class TestAPUOscillators(unittest.TestCase):
 
         self.assertEqual((self.apu.ch4.lfsr >> 6) & 1, 0)
 
+    def test_apu_samples_before_later_noise_edges_in_large_steps(self):
+        self.memory.write_byte(0xFF26, 0x80)
+        self.memory.write_byte(0xFF24, 0x77)
+        self.memory.write_byte(0xFF25, 0x88)
+        self.memory.write_byte(0xFF21, 0xF0)
+        self.memory.write_byte(0xFF22, 0x07)
+        self.memory.write_byte(0xFF23, 0x80)
+
+        self.apu.step(120)
+
+        self.assertEqual(self.apu.buffer_size, 1)
+        self.assertEqual(self.apu.left_output, 0.25)
+        self.assertEqual(self.apu.right_output, 0.25)
+
+        self.apu.step(80)
+
+        self.assertEqual(self.apu.buffer_size, 2)
+        self.assertEqual(self.apu.left_output, 0.0)
+        self.assertEqual(self.apu.right_output, 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()
