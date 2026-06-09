@@ -27,6 +27,7 @@ from constants import (
     REG_NR34,
     REG_NR41,
     REG_NR42,
+    REG_NR43,
     REG_NR44,
     REG_NR50,
     REG_NR51,
@@ -244,9 +245,13 @@ class NoiseChannel:
 
     MAX_LENGTH: Final[int] = 64
     MAX_VOLUME: Final[int] = 15
-    TIMER_BASE: Final[int] = 128
+    DIVISORS: Final[List[int]] = [8, 16, 32, 48, 64, 80, 96, 112]
     LFSR_INITIAL: Final[int] = 0x7FFF
     LFSR_BIT_COUNT: Final[int] = 14
+    LFSR_WIDTH_BIT: Final[int] = 6
+    CLOCK_SHIFT_MASK: Final[int] = 0xF0
+    WIDTH_MODE_MASK: Final[int] = 0x08
+    DIVISOR_CODE_MASK: Final[int] = 0x07
 
     def __init__(self):
         self.enabled: bool = False
@@ -260,6 +265,9 @@ class NoiseChannel:
         self.envelope_timer: int = 0
         self.envelope_period: int = 0
         self.envelope_direction: int = 0
+        self.clock_shift: int = 0
+        self.width_mode: bool = False
+        self.divisor_code: int = 0
 
     def step(self, cycles: Cycles) -> None:
         """Advance the noise timer and update output."""
@@ -269,11 +277,26 @@ class NoiseChannel:
 
         self.timer -= cycles
         while self.timer <= 0:
-            self.timer += self.TIMER_BASE
+            self.timer += self.period
 
             res = (self.lfsr & BIT_0) ^ ((self.lfsr & BIT_1) >> 1)
             self.lfsr = (self.lfsr >> 1) | (res << self.LFSR_BIT_COUNT)
+            if self.width_mode:
+                self.lfsr = (self.lfsr & ~(1 << self.LFSR_WIDTH_BIT)) | (
+                    res << self.LFSR_WIDTH_BIT
+                )
             self.output = self.volume if (self.lfsr & BIT_0) == 0 else 0
+
+    @property
+    def period(self) -> int:
+        """Return the current NR43-derived noise timer period in CPU cycles."""
+        return self.DIVISORS[self.divisor_code] << self.clock_shift
+
+    def set_polynomial_counter(self, nr43: int) -> None:
+        """Update noise frequency and LFSR width from NR43."""
+        self.clock_shift = (nr43 & self.CLOCK_SHIFT_MASK) >> 4
+        self.width_mode = bool(nr43 & self.WIDTH_MODE_MASK)
+        self.divisor_code = nr43 & self.DIVISOR_CODE_MASK
 
     def step_length(self) -> None:
         """Advance the length counter."""
@@ -301,14 +324,18 @@ class NoiseChannel:
                 else:
                     self.envelope_enabled = False
 
-    def trigger(self, nr42: int, nr44: int) -> None:
+    def trigger(self, nr42: int, nr43: int, nr44: int) -> None:
         """Trigger (restart) the noise channel."""
         self.enabled = True
+        self.set_polynomial_counter(nr43)
         self.volume = (nr42 & APU_ENVELOPE_INITIAL_VOL_MASK) >> 4
         self.envelope_direction = 1 if (nr42 & APU_ENVELOPE_DIR_BIT) else 0
         self.envelope_period = nr42 & APU_ENVELOPE_PERIOD_MASK
         self.envelope_timer = self.envelope_period
         self.envelope_enabled = True
+        self.lfsr = self.LFSR_INITIAL
+        self.timer = self.period
+        self.output = self.volume
 
         if self.length_counter == 0:
             self.length_counter = self.MAX_LENGTH
@@ -459,8 +486,14 @@ class APU:
                 self.ch4.length_counter = self.ch4.MAX_LENGTH - (
                     value & AUDIO_LENGTH_MASK
                 )
+            elif address == REG_NR43:
+                self.ch4.set_polynomial_counter(value)
             elif address == REG_NR44 and (value & AUDIO_TRIGGER_BIT):
-                self.ch4.trigger(self.registers[REG_NR42 - REG_NR10], value)
+                self.ch4.trigger(
+                    self.registers[REG_NR42 - REG_NR10],
+                    self.registers[REG_NR43 - REG_NR10],
+                    value,
+                )
 
     def step(self, cycles: Cycles) -> None:
         """Advance the APU state by the specified number of cycles."""
