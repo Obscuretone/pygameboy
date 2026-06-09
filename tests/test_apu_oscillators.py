@@ -98,6 +98,32 @@ class TestAPUOscillators(unittest.TestCase):
         self.assertEqual(self.apu.left_output, 0.25)
         self.assertEqual(self.apu.right_output, 0.25)
 
+    def test_noise_oscillator_uses_nr43_period(self):
+        self.memory.write_byte(0xFF26, 0x80)
+        self.memory.write_byte(0xFF21, 0xF0)
+        self.memory.write_byte(0xFF22, 0x00)
+        self.memory.write_byte(0xFF23, 0x80)
+
+        self.assertEqual(self.apu.ch4.period, 8)
+        self.apu.step(7)
+        self.assertEqual(self.apu.ch4.lfsr, self.apu.ch4.LFSR_INITIAL)
+
+        self.apu.step(1)
+        self.assertNotEqual(self.apu.ch4.lfsr, self.apu.ch4.LFSR_INITIAL)
+
+        self.memory.write_byte(0xFF22, 0x17)
+        self.assertEqual(self.apu.ch4.period, 224)
+
+    def test_noise_oscillator_uses_width_mode(self):
+        self.memory.write_byte(0xFF26, 0x80)
+        self.memory.write_byte(0xFF21, 0xF0)
+        self.memory.write_byte(0xFF22, 0x08)
+        self.memory.write_byte(0xFF23, 0x80)
+
+        self.apu.step(8)
+
+        self.assertEqual((self.apu.ch4.lfsr >> 6) & 1, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
