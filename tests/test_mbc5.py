@@ -1,4 +1,5 @@
 import unittest
+
 from mbc import MBC5
 
 
@@ -37,6 +38,15 @@ class TestMBC5(unittest.TestCase):
         # Switch to RAM bank 0
         self.mbc.write_rom(0x4000, 0)
         self.assertEqual(self.mbc.read_ram(0xA000), 0)
+
+    def test_rumble_bit_does_not_become_ram_bank_bit(self):
+        mbc = MBC5(self.rom_data, ram_size=0x10000, has_rumble=True)
+        mbc.write_rom(0x0000, 0x0A)
+
+        mbc.write_rom(0x4000, 0x0B)
+
+        self.assertTrue(mbc.rumble_enabled)
+        self.assertEqual(mbc.ram_bank, 3)
 
 
 if __name__ == "__main__":

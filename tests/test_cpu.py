@@ -1,6 +1,7 @@
 import unittest
-from memory import Memory
+
 from cpu import CPU
+from memory import Memory
 from video import VideoChip
 
 
@@ -945,6 +946,23 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(self.cpu.read_register("A"), 0x00)
         self.assertTrue(self.cpu.get_flag("z"))
         self.assertTrue(self.cpu.get_flag("h"))
+
+    def test_fast_and_a_self_only_updates_flags(self):
+        """Test optimized AND A,A preserves A and sets both flag outcomes."""
+        for value, zero in ((0x42, False), (0x00, True)):
+            with self.subTest(value=value):
+                self.ram.write_byte(0x0000, 0xA7)
+                self.cpu.write_register("PC", 0)
+                self.cpu.write_register("A", value)
+                self.cpu.write_register("F", 0xF0)
+
+                opcode, cycles = self.cpu.step_fast()
+
+                self.assertEqual(opcode, 0xA7)
+                self.assertEqual(cycles, 4)
+                self.assertEqual(self.cpu.read_register("A"), value)
+                self.assertEqual(self.cpu.read_register("PC"), 1)
+                self.assertEqual(self.cpu.read_register("F"), 0xA0 if zero else 0x20)
 
     def test_fast_or_a_register_updates_flags(self):
         """Test fast OR A,r updates A and clears N/H/C."""
@@ -1903,6 +1921,34 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(cycles, 12)
         self.assertEqual(self.cpu.read_register("A"), 0x90)
 
+    def test_fast_ldh_reads_mirrored_ly_with_video_connected(self):
+        """Test the optimized LY path reads the video-updated flat register."""
+        video = VideoChip(self.cpu.clock, self.ram)
+        self.ram.video = video
+        self.cpu.video = video
+        self.ram.write_byte(0x0000, 0xF0)
+        self.ram.write_byte(0x0001, 0x44)
+        self.ram.storage[0xFF44] = 0x53
+
+        opcode, cycles = self.cpu.step_fast()
+
+        self.assertEqual(opcode, 0xF0)
+        self.assertEqual(cycles, 12)
+        self.assertEqual(self.cpu.read_register("A"), 0x53)
+        self.assertEqual(self.cpu.read_register("PC"), 2)
+
+    def test_fast_ldh_reads_hram_from_flat_memory(self):
+        """Test optimized LDH A,(a8) reads the mirrored HRAM byte."""
+        self.ram.write_byte(0x0000, 0xF0)
+        self.ram.write_byte(0x0001, 0x85)
+        self.ram.storage[0xFF85] = 0xA6
+
+        opcode, cycles = self.cpu.step_fast()
+
+        self.assertEqual(opcode, 0xF0)
+        self.assertEqual(cycles, 12)
+        self.assertEqual(self.cpu.read_register("A"), 0xA6)
+
     def test_fast_ldh_ff50_disables_boot_rom_overlay(self):
         """Test fast LDH (FF50),A restores cartridge boot area bytes."""
         cartridge_boot_area = bytearray([0xAA, 0xBB, 0xCC, 0xDD])
@@ -2225,6 +2271,30 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(self.ram.read_byte(0xFF05), 0x42)
         self.assertEqual(self.ram.read_byte(0xFF0F) & 0x04, 0x04)
 
+    def test_fast_max_cycles_services_timer_interrupt_without_frame_delay(self):
+        """Test fast frame path services timer interrupts as soon as cycles elapse."""
+        self.ram.write_byte(0x0000, 0x00)
+        self.ram.write_byte(0xFF05, 0xFF)
+        self.ram.write_byte(0xFF06, 0x42)
+        self.ram.write_byte(0xFFFF, 0x04)
+        self.cpu._write_memory_byte(0xFF07, 0x05)
+        self.cpu.write_register("SP", 0xFFFE)
+        self.cpu.interrupts.ime = True
+
+        executed, cycles = self.cpu.run(
+            max_cycles=20,
+            realtime=False,
+            profile_opcodes=False,
+            fast=True,
+            announce=False,
+        )
+
+        self.assertEqual(executed, 5)
+        self.assertEqual(cycles, 36)
+        self.assertEqual(self.cpu.read_register("PC"), 0x50)
+        self.assertEqual(self.ram.read_byte(0xFF05), 0x43)
+        self.assertEqual(self.ram.read_byte(0xFF0F) & 0x04, 0)
+
     def test_pc_boundary_wrap_around(self):
         """Test that PC wraps correctly when executing at the 64KB boundary."""
         self.cpu.registers.PC = 0xFFFF
@@ -2232,13 +2302,43 @@ class TestCPU(unittest.TestCase):
 
         # Execute 2 instructions.
         # 1. PC=0xFFFF, opcode=0x00, PC becomes 0x0000
-        # 2. PC=0x0000, executes whatever is there
+        # 2. PC=0x0000, executes the initialized NOP
         self.cpu.run(max_instructions=2, realtime=False, fast=True, announce=False)
 
         self.assertLess(self.cpu.registers.PC, 0x10000)
         self.assertEqual(
             self.cpu.registers.PC, 1
         )  # Assuming next instruction is 1 byte NOP
+
+    def test_debug_dispatch_path_executes_and_profiles_opcodes(self):
+        self.ram.storage[0:3] = bytes([0x00, 0x00, 0x00])
+
+        executed, cycles = self.cpu.run(
+            max_instructions=3,
+            realtime=False,
+            profile_opcodes=True,
+            fast=False,
+            announce=False,
+        )
+
+        self.assertEqual((executed, cycles), (3, 12))
+        self.assertEqual(self.cpu.opcode_profile[0x00], 3)
+        self.assertEqual(self.cpu.hottest_opcodes(1), [(0x00, 3)])
+
+        self.cpu.reset_opcode_profile()
+        self.assertEqual(sum(self.cpu.opcode_profile), 0)
+
+    def test_non_positive_execution_limits_do_not_execute(self):
+        self.ram.storage[0] = 0x00
+
+        self.assertEqual(
+            self.cpu.run(max_instructions=0, realtime=False, announce=False),
+            (0, 0),
+        )
+        self.assertEqual(
+            self.cpu.run(max_cycles=0, realtime=False, announce=False),
+            (0, 0),
+        )
 
 
 if __name__ == "__main__":

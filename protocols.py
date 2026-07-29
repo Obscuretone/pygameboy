@@ -1,4 +1,5 @@
-from typing import Protocol, runtime_checkable, Any, ClassVar
+from typing import Any, ClassVar, Protocol, runtime_checkable
+
 from gb_types import Address, Byte, Cycles
 
 
@@ -16,10 +17,17 @@ class MemoryBankController(Protocol):
     rom: Any
     ram: Any
     ram_enabled: bool
+    ram_dirty: bool
+    on_bank_change: Any
+    on_ram_bank_change: Any
+    on_ram_write: Any
+
     def read_rom(self, address: Address) -> Byte: ...
     def write_rom(self, address: Address, value: Byte) -> None: ...
     def read_ram(self, address: Address) -> Byte: ...
     def write_ram(self, address: Address, value: Byte) -> None: ...
+    def visible_ram_window(self) -> bytes: ...
+
 
 @runtime_checkable
 class VideoDevice(Protocol):
@@ -58,6 +66,7 @@ class SerialDevice(Protocol):
 @runtime_checkable
 class ClockDevice(Protocol):
     cycles_elapsed: Cycles
+
     def update(self, cycles: Cycles) -> None: ...
     def get_cycles_elapsed(self) -> Cycles: ...
     def wait_for_next_cycle(self, cycles: Cycles) -> None: ...

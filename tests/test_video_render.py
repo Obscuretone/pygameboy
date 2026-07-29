@@ -1,12 +1,12 @@
 import unittest
-from video import VideoChip
+
 from clock import SystemClock
+from video import VideoChip
 
 
 class MockMemory:
-    storage = bytearray(0x10000)
-
     def __init__(self):
+        self.storage = bytearray(0x10000)
         self.interrupts = 0
 
     def request_interrupt(self, mask):
@@ -66,6 +66,36 @@ class TestVideoRender(unittest.TestCase):
         # Palette mapping 1 -> 1
         for i in range(8):
             self.assertEqual(self.video.frame_buffer[i], 1)
+
+    def test_window_replaces_background_at_wx_minus_seven(self):
+        # LCD on, window on, unsigned tiles, BG map 1, window map 0, BG on.
+        self.video.LCDC = 0x80 | 0x20 | 0x10 | 0x08 | 0x01
+        self.video.BGP = 0xE4
+        self.video.LY = 0
+        self.video.WY = 0
+        self.video.WX = 15
+
+        # Tile 0 is BG color 1 and tile 1 is window color 2.
+        self.video.vram[0:2] = [0xFF, 0x00]
+        self.video.vram[16:18] = [0x00, 0xFF]
+        self.video.vram[0x9C00 - 0x8000] = 0
+        self.video.vram[0x9800 - 0x8000] = 1
+
+        self.video.render_scanline()
+
+        self.assertEqual(self.video.frame_buffer[:8].tolist(), [1] * 8)
+        self.assertEqual(self.video.frame_buffer[8:16].tolist(), [2] * 8)
+        self.assertEqual(self.video.window_line, 1)
+
+    def test_window_line_does_not_advance_when_window_is_off_screen(self):
+        self.video.LCDC = 0x80 | 0x20 | 0x10 | 0x01
+        self.video.LY = 0
+        self.video.WY = 0
+        self.video.WX = 167
+
+        self.video.render_scanline()
+
+        self.assertEqual(self.video.window_line, 0)
 
 
 if __name__ == "__main__":

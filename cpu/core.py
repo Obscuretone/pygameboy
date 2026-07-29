@@ -1,23 +1,25 @@
-from typing import Tuple, Final, Optional, Any, overload, Union, List
+from typing import Any, Final, List, Optional, Tuple, Union, overload
+
 from clock import SystemClock
-from protocols import MemoryBus, ClockDevice, VideoDevice, AudioDevice
-from .registers import RegisterFile
-from .opcodes import CPUOpcodes
-from .interrupts import InterruptManager
-from .timer import Timer
+from constants import (
+    GB_CLOCK_HZ,
+    OPCODE_COUNT,
+    REG_DIV,
+)
 from gb_types import (
-    FLAG_Z,
-    FLAG_N,
-    FLAG_H,
     FLAG_C,
+    FLAG_H,
+    FLAG_N,
+    FLAG_Z,
     Address,
     Byte,
 )
-from constants import (
-    REG_DIV,
-    GB_CLOCK_HZ,
-    OPCODE_COUNT,
-)
+from protocols import AudioDevice, ClockDevice, MemoryBus, VideoDevice
+
+from .interrupts import InterruptManager
+from .opcodes import CPUOpcodes
+from .registers import RegisterFile
+from .timer import Timer
 
 
 class CPU(CPUOpcodes):
@@ -95,6 +97,9 @@ class CPU(CPUOpcodes):
         self.registers = RegisterFile()
         self.halted, self.stopped = False, False
         self._dispatch_table = self._build_dispatch_table()
+        self.opcode_profile: List[int] = [0] * self.OPCODE_COUNT
+        self._bus_timing_active = False
+        self._instruction_elapsed_cycles = 0
 
     def _build_dispatch_table(self):
         table: List[Any] = [None] * self.OPCODE_COUNT
@@ -109,13 +114,24 @@ class CPU(CPUOpcodes):
 
     def run(
         self,
-        max_instructions=None,
-        max_cycles=None,
-        realtime=True,
-        profile_opcodes=False,
-        fast=True,
-        announce=True,
+        max_instructions: Optional[int] = None,
+        max_cycles: Optional[int] = None,
+        realtime: bool = True,
+        profile_opcodes: bool = False,
+        fast: bool = True,
+        announce: bool = True,
     ):
+        """Execute until a requested limit, STOP, or the next completed frame.
+
+        ``fast=False`` intentionally uses the public single-step path. It is useful
+        for debugging and instrumentation; normal emulation should keep the direct
+        dispatch fast path.
+        """
+        if max_instructions is not None and max_instructions <= 0:
+            return 0, 0
+        if max_cycles is not None and max_cycles <= 0:
+            return 0, 0
+
         clock, video, apu, interrupts, timer = (
             self.clock,
             self.video,
@@ -124,9 +140,11 @@ class CPU(CPUOpcodes):
             self.timer,
         )
         reg, mem, dispatch = self.registers, self.memory, self._dispatch_table
+        serial = getattr(self.ram, "serial", None)
 
         v_step = video.step if video else None
         a_step = apu.step if apu else None
+        s_step = serial.step if serial else None
         t_step = timer.step
         i_service = interrupts.service
 
@@ -134,9 +152,10 @@ class CPU(CPUOpcodes):
         halt_cycles = self.HALT_CYCLES
 
         apu_accumulated = 0
-        APU_STEP_THRESHOLD = 256
+        APU_STEP_THRESHOLD = 64
         V_STEP_THRESHOLD = 114
         v_accumulated = 0
+        self._bus_timing_active = True
 
         try:
             # Fast path for standard frame execution
@@ -155,25 +174,71 @@ class CPU(CPUOpcodes):
                             cyc = halt_cycles
                         else:
                             reg.PC &= 0xFFFF
-                            cyc = dispatch[mem[reg.PC]]()
+                            opcode = mem[reg.PC]
+                            if profile_opcodes:
+                                self.opcode_profile[opcode] += 1
+                            if fast and opcode == 0xA7:
+                                # AND A,A is a flags-only operation and dominates
+                                # common busy-wait loops.
+                                reg.data[1] = (
+                                    FLAG_Z if reg.data[0] == 0 else 0
+                                ) | FLAG_H
+                                reg.PC += 1
+                                cyc = 4
+                            elif (
+                                fast
+                                and opcode == 0xF0
+                                and mem[(reg.PC + 1) & 0xFFFF] >= 0x80
+                            ):
+                                # LDH A,(a8) is commonly used to poll HRAM. This
+                                # range is flat memory, but retain the timer's
+                                # exact M-cycle bus-access phase.
+                                n8 = mem[(reg.PC + 1) & 0xFFFF]
+                                t_step(4)
+                                self._instruction_elapsed_cycles = 4
+                                reg.data[0] = mem[0xFF00 + n8]
+                                reg.PC += 2
+                                cyc = 12
+                            elif fast and opcode == 0x28:
+                                # Keep the paired JR Z polling branch in the
+                                # dispatch loop to avoid another Python call.
+                                if reg.data[1] & FLAG_Z:
+                                    n8 = mem[(reg.PC + 1) & 0xFFFF]
+                                    offset = n8 - 256 if n8 >= 128 else n8
+                                    reg.PC += 2 + offset
+                                    cyc = 12
+                                else:
+                                    reg.PC += 2
+                                    cyc = 8
+                            else:
+                                cyc = (
+                                    dispatch[opcode]() if fast else self.step()[1]
+                                )
 
                     executed += 1
                     total_cyc += cyc
 
+                    instruction_elapsed = self._instruction_elapsed_cycles
+                    t_step(cyc - instruction_elapsed)
+                    if instruction_elapsed:
+                        self._instruction_elapsed_cycles = 0
+                    if s_step:
+                        s_step(cyc)
+
+                    if a_step:
+                        apu_accumulated += cyc
+                        if apu_accumulated >= APU_STEP_THRESHOLD:
+                            a_step(apu_accumulated)
+                            apu_accumulated = 0
+
                     v_accumulated += cyc
                     if v_accumulated >= V_STEP_THRESHOLD:
-                        t_step(v_accumulated)
                         if v_step:
                             v_step(v_accumulated)
-                        v_accumulated = 0
-                        
-                        if a_step:
-                            apu_accumulated += V_STEP_THRESHOLD
-                            if apu_accumulated >= APU_STEP_THRESHOLD:
-                                a_step(apu_accumulated)
-                                apu_accumulated = 0
 
-                        if getattr(self.video, 'frame_done', False):
+                        v_accumulated = 0
+
+                        if getattr(self.video, "frame_done", False):
                             self.video.frame_done = False
                             break
 
@@ -201,11 +266,19 @@ class CPU(CPUOpcodes):
                             cyc = halt_cycles
                         else:
                             reg.PC &= 0xFFFF
-                            cyc = dispatch[mem[reg.PC]]()
+                            opcode = mem[reg.PC]
+                            if profile_opcodes:
+                                self.opcode_profile[opcode] += 1
+                            cyc = dispatch[opcode]() if fast else self.step()[1]
 
                     executed += 1
                     total_cyc += cyc
-                    t_step(cyc)
+                    instruction_elapsed = self._instruction_elapsed_cycles
+                    t_step(cyc - instruction_elapsed)
+                    if instruction_elapsed:
+                        self._instruction_elapsed_cycles = 0
+                    if s_step:
+                        s_step(cyc)
 
                     v_accumulated += cyc
                     if v_accumulated >= V_STEP_THRESHOLD:
@@ -218,7 +291,7 @@ class CPU(CPUOpcodes):
                             a_step(apu_accumulated)
                             apu_accumulated = 0
 
-                    if getattr(self.video, 'frame_done', False):
+                    if getattr(self.video, "frame_done", False):
                         self.video.frame_done = False
                         break
 
@@ -230,27 +303,48 @@ class CPU(CPUOpcodes):
 
                     if self.stopped:
                         break
-                    if max_instructions and executed >= max_instructions:
+                    if max_instructions is not None and executed >= max_instructions:
                         break
-                    if max_cycles and total_cyc >= max_cycles:
+                    if max_cycles is not None and total_cyc >= max_cycles:
                         break
 
             # Flush remaining accumulators
-            if v_accumulated > 0 and max_cycles is not None and max_instructions is None:
-                t_step(v_accumulated)
+            if (
+                v_accumulated > 0
+                and max_cycles is not None
+                and max_instructions is None
+            ):
                 if v_step:
                     v_step(v_accumulated)
-                if a_step:
-                    a_step(v_accumulated)
-            
+            if (
+                apu_accumulated > 0
+                and a_step
+                and max_cycles is not None
+                and max_instructions is None
+            ):
+                a_step(apu_accumulated)
+
             clock.cycles_elapsed += total_cyc
-            
-        except KeyboardInterrupt:
-            pass
-        
+
+        except BaseException:
+            self._bus_timing_active = False
+            raise
+
+        self._bus_timing_active = False
         if realtime and total_cyc:
             clock.wait_for_next_cycle(total_cyc)
+        if announce:
+            print(f"Executed {executed:,} instructions / {total_cyc:,} cycles")
         return executed, total_cyc
+
+    def reset_opcode_profile(self) -> None:
+        """Clear all accumulated opcode execution counts."""
+        self.opcode_profile[:] = [0] * self.OPCODE_COUNT
+
+    def hottest_opcodes(self, limit: int = 20) -> List[Tuple[int, int]]:
+        """Return the most frequently executed opcodes."""
+        ranked = enumerate(self.opcode_profile)
+        return sorted(ranked, key=lambda item: item[1], reverse=True)[:limit]
 
     def step(self):
         pc = self.registers.PC
@@ -303,6 +397,16 @@ class CPU(CPUOpcodes):
             self.registers.data[1] &= 0xF0
 
     # --- Hardware Helpers (Optimized for Flat Memory) ---
+    def _advance_to_memory_access(self, target: int) -> None:
+        """Advance TIMA to a bus access's T-cycle offset within an instruction."""
+        if not self._bus_timing_active:
+            return
+
+        delta = target - self._instruction_elapsed_cycles
+        if delta:
+            self.timer.step(delta)
+            self._instruction_elapsed_cycles = target
+
     def _read_memory_byte(self, address: Address) -> Byte:
         addr = address & 0xFFFF
         if addr >= 0xFF00:
@@ -436,20 +540,51 @@ class CPU(CPUOpcodes):
         return value - 256 if value >= 128 else value
 
     # --- Legacy Aliases ---
-    def _inc(self, r): return self._inc_reg(r, len(r) == 1 or r == "AF")
-    def _dec(self, r): return self._dec_reg(r, len(r) == 1 or r == "AF")
-    def _ld_reg_reg(self, r1, r2): return self.write_register(r1, self.read_register(r2))
-    def _ld_reg_int(self, r, v): return self.write_register(r, v)
-    def _sub_reg_reg(self, r1, r2): return self._sub_reg(r1, r2)
-    def _rl_reg(self, r): return self._rl_cb_helper(r)
-    def _rlc_reg(self, r): return self._rlc_cb_helper(r)
-    def _bit_n__reg(self, b, v): return self._set_bit_flags(self.read_register(v), b)
-    def _bit_n__mem(self, b, a): return self._set_bit_flags(self.ram.read_byte(a & 0xFFFF), b)
-    def _ld_mem_reg(self, ar, r): return self.ram.write_byte(self.read_register(ar), self.read_register(r))
-    def _ld_memffxx_reg_reg(self, r1, r2): return self.ram.write_byte(0xFF00 + self.read_register(r1), self.read_register(r2))
-    def _ld_memffxx_int_reg(self, i, r): return self.ram.write_byte(0xFF00 + i, self.read_register(r))
-    def _ld_reg_mem(self, r, ar): return self.write_register(r, self.ram.read_byte(self.read_register(ar) & 0xFFFF))
-    def _write_storage_byte(self, a, v): return self.ram.write_byte(a, v)
+    def _inc(self, r):
+        return self._inc_reg(r, len(r) == 1 or r == "AF")
+
+    def _dec(self, r):
+        return self._dec_reg(r, len(r) == 1 or r == "AF")
+
+    def _ld_reg_reg(self, r1, r2):
+        return self.write_register(r1, self.read_register(r2))
+
+    def _ld_reg_int(self, r, v):
+        return self.write_register(r, v)
+
+    def _sub_reg_reg(self, r1, r2):
+        return self._sub_reg(r1, r2)
+
+    def _rl_reg(self, r):
+        return self._rl_cb_helper(r)
+
+    def _rlc_reg(self, r):
+        return self._rlc_cb_helper(r)
+
+    def _bit_n__reg(self, b, v):
+        return self._set_bit_flags(self.read_register(v), b)
+
+    def _bit_n__mem(self, b, a):
+        return self._set_bit_flags(self.ram.read_byte(a & 0xFFFF), b)
+
+    def _ld_mem_reg(self, ar, r):
+        return self.ram.write_byte(self.read_register(ar), self.read_register(r))
+
+    def _ld_memffxx_reg_reg(self, r1, r2):
+        return self.ram.write_byte(
+            0xFF00 + self.read_register(r1), self.read_register(r2)
+        )
+
+    def _ld_memffxx_int_reg(self, i, r):
+        return self.ram.write_byte(0xFF00 + i, self.read_register(r))
+
+    def _ld_reg_mem(self, r, ar):
+        return self.write_register(
+            r, self.ram.read_byte(self.read_register(ar) & 0xFFFF)
+        )
+
+    def _write_storage_byte(self, a, v):
+        return self.ram.write_byte(a, v)
 
     def _rl_cb_helper(self, r):
         v = self.read_register(r)
@@ -580,7 +715,9 @@ class CPU(CPUOpcodes):
     def _add_reg_mem(self, r1: Any, r2: Any):
         a, b = (
             self.read_register(r1),
-            self._read_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7])),
+            self._read_memory_byte(
+                ((self.registers.data[6] << 8) | self.registers.data[7])
+            ),
         )
         res = a + b
         self.write_register(r1, res & 0xFF)
@@ -589,7 +726,9 @@ class CPU(CPUOpcodes):
     def _adc_reg_mem(self, r1: Any, r2: Any):
         a, b, c = (
             self.read_register(r1),
-            self._read_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7])),
+            self._read_memory_byte(
+                ((self.registers.data[6] << 8) | self.registers.data[7])
+            ),
             (1 if self.registers.data[1] & 0x10 else 0),
         )
         res = a + b + c
@@ -599,7 +738,9 @@ class CPU(CPUOpcodes):
     def _sub_reg_mem(self, r1: Any, r2: Any):
         a, b = (
             self.read_register(r1),
-            self._read_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7])),
+            self._read_memory_byte(
+                ((self.registers.data[6] << 8) | self.registers.data[7])
+            ),
         )
         res = a - b
         self.write_register(r1, res & 0xFF)
@@ -608,7 +749,9 @@ class CPU(CPUOpcodes):
     def _sbc_reg_mem(self, r1: Any, r2: Any):
         a, b, c = (
             self.read_register(r1),
-            self._read_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7])),
+            self._read_memory_byte(
+                ((self.registers.data[6] << 8) | self.registers.data[7])
+            ),
             (1 if self.registers.data[1] & 0x10 else 0),
         )
         res = a - b - c
@@ -616,24 +759,32 @@ class CPU(CPUOpcodes):
         self._set_sbc_flags(a, b, c, res)
 
     def _xor_reg_mem(self, r1: Any, r2: Any):
-        res = self.read_register(r1) ^ self._read_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]))
+        res = self.read_register(r1) ^ self._read_memory_byte(
+            ((self.registers.data[6] << 8) | self.registers.data[7])
+        )
         self.write_register(r1, res)
         self.registers.data[1] = 0x80 if res == 0 else 0
 
     def _and_reg_mem(self, r1: Any, r2: Any):
-        res = self.read_register(r1) & self._read_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]))
+        res = self.read_register(r1) & self._read_memory_byte(
+            ((self.registers.data[6] << 8) | self.registers.data[7])
+        )
         self.write_register(r1, res)
         self.registers.data[1] = (0x80 if res == 0 else 0) | 0x20
 
     def _or_reg_mem(self, r1: Any, r2: Any):
-        res = self.read_register(r1) | self._read_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]))
+        res = self.read_register(r1) | self._read_memory_byte(
+            ((self.registers.data[6] << 8) | self.registers.data[7])
+        )
         self.write_register(r1, res)
         self.registers.data[1] = 0x80 if res == 0 else 0
 
     def _cp_reg_mem(self, r1: Any, r2: Any):
         a, b = (
             self.read_register(r1),
-            self._read_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7])),
+            self._read_memory_byte(
+                ((self.registers.data[6] << 8) | self.registers.data[7])
+            ),
         )
         self._set_sub_flags(a, b, a - b)
 

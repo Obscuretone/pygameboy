@@ -1,143 +1,162 @@
 # PyGameBoy
 
-A GameBoy (DMG-01) emulator written in Python using Pygame and NumPy.
+[![CI](https://github.com/Obscuretone/pygameboy/actions/workflows/ci.yml/badge.svg)](https://github.com/Obscuretone/pygameboy/actions/workflows/ci.yml)
+[![Coverage: 100%](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)](pyproject.toml)
+[![Test ROM conformance](https://img.shields.io/endpoint?url=https%3A%2F%2Fobscuretone.com%2Fpygameboy%2Fbadge.json)](https://obscuretone.com/pygameboy/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-## Features
+A performance-focused Nintendo Game Boy (DMG) emulator written in Python,
+Pygame, and NumPy.
 
-- **CPU**: Accurate LR35902 instruction set implementation with a fast opcode dispatch table.
-- **Memory**: Support for common Memory Bank Controllers (MBC0, MBC1, MBC2, MBC3, MBC5).
-- **Video**: PPU with support for Background, Window, and Sprites (OBJ). High-performance rendering using NumPy vectorization.
-- **Audio**: APU implementation with 4 channels (Pulse 1, Pulse 2, Wave, Noise), stereo output, and volume envelopes.
-- **Input**: Configurable keyboard mapping via Pygame.
-- **Bootloader**: Support for original DMG boot ROM (`DMG_ROM.bin`).
+![PyGameBoy diagnostic demo](docs/demo.gif)
 
+PyGameBoy explores a specific engineering question: how far can a readable,
+tested CPython emulator go when its hottest paths are designed around Python's
+cost model? The result combines a flat 64 KiB memory bus, pre-bound opcode
+dispatch, vectorized scanline rendering, and audio-clock pacing.
 
-## Technical Architecture
+## Highlights
 
-Writing an emulator in pure CPython that maintains an unthrottled 60 FPS is notoriously difficult due to the Global Interpreter Lock (GIL) and function-call overhead. 
+- Complete legal LR35902 base-opcode dispatch with interrupt and timer support.
+- MBC0, MBC1, MBC2, MBC3, and MBC5 cartridge banking.
+- Background, window, and DMG sprite rendering.
+- Four-channel APU with bipolar DMG DAC mixing, AC coupling, stereo routing,
+  and a lock-protected audio ring buffer.
+- Battery-backed cartridge saves written with atomic file replacement.
+- Fast frame execution plus an instrumentable single-step/profile path.
+- Toggleable live register, PPU, audio-buffer, and timing overlay.
+- Unit, integration, headless CLI, and real test-ROM checks on Python 3.10–3.13.
 
-To achieve real-time performance, we relied on an arsenal of aggressive, non-idiomatic optimizations, including:
-- **Meta-Programmed Register Inlining:** Regex scripts that rewrite the emulator's Python source code to strip out dictionary and property lookups.
-- **Flat-Earth Memory:** Shadowing MBC ROM banks and Echo RAM into a monolithic C-backed `bytearray` to eliminate bounds-checking overhead.
-- **Vectorized Scanlines:** Offloading PPU pixel and sprite rendering to bulk array operations in C via NumPy.
-- **Audio-Slaved Synchronization:** Hooking the emulator's execution loop directly to the soundcard's hardware DAC clock via PyAudio ring buffers to eliminate OS sleep drift.
+The emulator is intentionally DMG-focused. Pixel-FIFO timing, a running MBC3
+real-time clock, channel-1 frequency sweep, save states, and Game Boy Color
+features remain future work.
 
-Read the full technical breakdown in **[ARCHITECTURE.md](ARCHITECTURE.md)**.
-
-## Performance Benchmarks
-
-The emulator includes a synthetic CPU benchmark suite (`benchmark_cpu.py`) to measure the raw throughput of the execution engine. Measurements are taken on an M-class processor using standard CPython 3.9 (no JIT, no C-extensions for the CPU).
-
-To achieve 100% real-time emulation, the CPU must sustain **4.19 million cycles per second**. 
-
-The engine currently comfortably exceeds real-time requirements across all execution branches:
-
-| Instruction Category | Operations per second | Emulated Cycles per second | Real-time Multiple |
-| :--- | :--- | :--- | :--- |
-| **NOP Dispatch (Peak throughput)** | ~1.6 Million ops/s | ~6.3 Million Hz | **1.5x speed** |
-| **JUMP Dispatch (Control Flow)** | ~1.4 Million ops/s | ~18.9 Million Hz | **4.5x speed** |
-| **CALL/RET Trampoline (Stack)** | ~875,000 ops/s | ~17.5 Million Hz | **4.1x speed** |
-| **16-bit Math (HL, BC, DE)** | ~820,000 ops/s | ~7.7 Million Hz | **1.8x speed** |
-| **8-bit Math (ADD, SUB, XOR)** | ~880,000 ops/s | ~5.3 Million Hz | **1.2x speed** |
-| **High I/O Load (Hardware Regs)** | ~890,000 ops/s | ~9.8 Million Hz | **2.3x speed** |
-
-*Note: Real-world emulation throughput is bounded by the PPU rendering speed and audio-sync thread locks. Without an audio sink restricting the frame-rate, the raw logic engine will naturally exceed 60 FPS.*
-
-## Installation
-
-### Prerequisites
-
-- Python 3.10+
-- [Optional] `sounddevice` for audio support.
-
-### Setup
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/yourusername/pygameboy.git
-   cd pygameboy
-   ```
-
-2. Create and activate a virtual environment:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-
-3. Install dependencies:
-   ```bash
-   pip install pygame numpy sounddevice
-   ```
-
-4. [Optional] Place the original GameBoy boot ROM in the root directory as `DMG_ROM.bin`.
-
-## Usage
-
-Run the emulator by providing a path to a GameBoy ROM:
+## Quick start
 
 ```bash
-python emulator.py path/to/your/rom.gb
+git clone https://github.com/Obscuretone/pygameboy.git
+cd pygameboy
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ".[audio]"
+pygameboy path/to/game.gb
 ```
 
-### Controls
+Audio is optional. Install without the `audio` extra and pass `--no-audio` if
+PortAudio or an output device is unavailable.
 
-| GameBoy | Keyboard |
-|---------|----------|
-| D-Pad   | Arrow Keys |
-| A       | Z |
-| B       | X |
-| Start   | Enter |
-| Select  | Space / Right Shift |
+PyGameBoy does not include commercial game ROMs or Nintendo firmware. Supply
+ROMs that you are legally entitled to use. The original boot animation is
+optional and requires a user-supplied 256-byte image:
 
-### Command Line Options
+```bash
+pygameboy --boot-rom /path/to/DMG_ROM.bin path/to/game.gb
+```
 
-- `--scale N`: Set the window scale factor (default: 4).
-- `--no-audio`: Disable audio output.
-- `--verbose`: Enable verbose CPU logging.
-- `--profile`: Enable opcode profiling.
+Without a boot ROM, PyGameBoy starts from the documented post-boot DMG register
+state. Maintainers should also follow the
+[firmware/history policy](docs/firmware.md) before publishing a repository that
+previously contained firmware.
 
-## Project Structure
+## Controls
 
-- `emulator.py`: Main entry point, UI loop, and system integration.
-- `cpu/`: CPU core and opcode definitions.
-- `memory.py`: Memory bus and mapping logic.
-- `video.py`: PPU implementation and scanline renderer.
-- `apu.py`: APU implementation and audio synthesis.
-- `mbc.py`: Memory Bank Controller implementations.
-- `joypad.py`: Input handling.
-- `clock.py`: System timing and synchronization.
+| Game Boy | Keyboard |
+|---|---|
+| D-pad | Arrow keys |
+| A | Z |
+| B | X |
+| Start | Enter |
+| Select | Space or Right Shift |
+| Debug overlay | F1 |
 
-## References
+Useful runtime options:
 
-### CPU & Opcodes
-- [GB Opcodes Table (Interactive)](https://izik1.github.io/gbops/index.html)
-- [GameBoy Opcode Summary](https://pastraiser.com/cpu/gameboy/gameboy_opcodes.html)
-- [Opcodes JSON](https://gbdev.io/gb-opcodes/Opcodes.json)
-- [RGBDS Instruction Reference](https://rgbds.gbdev.io/docs/v0.7.0/gbz80.7#JP_n16)
-- [GameBoy CPU Manual (Gekkio)](https://gekkio.fi/files/gb-docs/gbctr.pdf)
+```text
+--scale N              Integer display scale
+--no-audio             Disable audio output
+--no-realtime          Run without host-clock throttling
+--profile              Print the hottest executed opcodes on exit
+--slow-step            Use the instrumentable dispatch path
+--max-frames N         Stop after N host frames
+--max-instructions N   Stop after N CPU dispatches
+--max-cycles N         Stop after N emulated cycles
+```
 
-### Hardware & Documentation
-- [PanDocs](https://gbdev.io/pandocs/)
-- [GameBoy Memory Map](https://gbdev.io/pandocs/Memory_Map.html)
-- [GameBoy Hardware Lesson 1](http://gameboy.mongenel.com/dmg/lesson1.html)
+Run `pygameboy --help` for the complete command reference.
 
-### Boot Sequence
-- [GameBoy Boot Sequence (Detailed)](https://knight.sc/reverse%20engineering/2018/11/19/game-boy-boot-sequence.html)
-- [Gameboy Bootstrap ROM (Wiki)](https://gbdev.gg8.se/wiki/articles/Gameboy_Bootstrap_ROM)
-- [DMG Boot ROM Source](https://www.neviksti.com/DMG/DMG_ROM.asm)
+## Architecture
 
-### Tools
-- [Opcode Description Generator](https://meganesu.github.io/generate-gb-oE2)
+```mermaid
+flowchart LR
+    ROM["Cartridge + MBC"] --> BUS["Flat 64 KiB memory bus"]
+    INPUT["Pygame input"] --> BUS
+    BUS --> CPU["LR35902 CPU"]
+    CPU --> TIMER["Timer + interrupts"]
+    CPU --> PPU["PPU / NumPy renderer"]
+    CPU --> APU["APU / audio ring buffer"]
+    PPU --> DISPLAY["Pygame display"]
+    APU --> DAC["Host audio clock"]
+    DAC -. pacing .-> CPU
+```
 
-## TODO
+The performance model and its correctness invariants are documented in
+[ARCHITECTURE.md](ARCHITECTURE.md). The important design choice is that reads
+stay flat while side-effecting writes are routed through a 256-entry page table.
+MBC callbacks keep the visible ROM and cartridge-RAM windows synchronized after
+bank changes and controller-specific writes.
 
-- [ ] Improve PPU timing accuracy (Pixel FIFO).
-- [ ] Complete STAT interrupt implementation.
-- [ ] Implement Pulse 1 Sweep in APU.
-- [ ] Support for MBC3 Real-Time Clock (RTC).
-- [ ] GameBoy Color (CGB) support.
-- [ ] Save state support.
+## Quality and benchmarks
+
+Install the development tools and run the same checks used in CI:
+
+```bash
+python -m pip install "uv==0.12.0"
+uv sync --frozen --extra dev
+uv run --frozen ruff check .
+uv run --frozen pytest --cov=. --cov-report=term-missing
+uv run --frozen python audit_cpu.py
+uv run --frozen pygameboy-conformance tests/roms/mooneye
+```
+
+CI enforces 100% statement and branch coverage across every production module.
+The suite combines exhaustive opcode matrices with synthetic-ROM system tests,
+hardware state-machine tests, renderer checks, host failure-path coverage, and
+pinned Mooneye acceptance ROMs.
+
+CPU microbenchmarks use one warm-up followed by median measured runs. Results
+include interpreter, platform, clock target, and raw JSON so comparisons remain
+auditable:
+
+```bash
+uv run python benchmark_cpu.py \
+  --repeats 5 \
+  --json benchmarks/latest.json \
+  --markdown BENCHMARKS.md
+```
+
+See the checked-in [benchmark report](BENCHMARKS.md). It measures isolated CPU
+dispatch throughput, not whole-emulator compatibility or frame rate.
+
+## Compatibility philosophy
+
+Passing project tests is necessary but not sufficient for emulator accuracy.
+New hardware behavior should be tested through the integrated `Memory`/`CPU`
+path, not only through a component in isolation. The headless conformance
+runner understands Mooneye register signatures plus Blargg serial and memory
+reports. The published floor covers CPU instructions, instruction timing,
+memory-access timing, DMA, timer, serial-clock, and register behavior.
+
+See [test-ROM conformance](docs/conformance.md) for the pinned provenance,
+current scope, external-suite commands, result semantics, and the GitHub Pages
+compatibility-dashboard deployment.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow and the
+performance-change checklist.
 
 ## License
 
-This project is open-source and available under the MIT License.
+PyGameBoy source code is available under the [MIT License](LICENSE). Nintendo,
+Game Boy, and related marks belong to their respective owners.

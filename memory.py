@@ -1,58 +1,58 @@
-from typing import Optional, Union, List, Callable
+from typing import Callable, List, Optional, Union
 
-from protocols import (
-    MemoryBankController,
-    VideoDevice,
-    ClockDevice,
-)
 from apu import APU
-from serial_cable import Serial
-from joypad import Joypad
-from gb_types import (
-    MemoryData,
-    Address,
-    Byte,
-    UNMAPPED_BYTE,
-    BYTE_MASK,
-    WORD_MASK,
-    WORD_VALUE_COUNT,
-    INTERRUPT_MASK,
-    TIMER_CONTROL_MASK,
-)
 from constants import (
-    ECHO_OFFSET,
     BOOT_ROM_SIZE,
-    ROM_START,
-    ROM_END,
-    ERAM_START,
-    ERAM_END,
-    RAM_BANK_SIZE,
-    OAM_END,
-    UNUSABLE_START,
-    UNUSABLE_END,
-    ECHO_START,
     ECHO_END,
-    IO_START,
+    ECHO_OFFSET,
+    ECHO_START,
+    ERAM_END,
+    ERAM_START,
     HRAM_START,
-    WRAM_START,
+    IE_REG,
+    IO_START,
+    MAX_SCANLINE,
+    OAM_END,
+    PAGE_COUNT,
+    RAM_BANK_SIZE,
+    REG_BOOT,
+    REG_DIV,
+    REG_DMA,
+    REG_IF,
     REG_JOYP,
+    REG_LY,
+    REG_NR10,
     REG_SB,
     REG_SC,
-    REG_DIV,
     REG_TAC,
     REG_TIMA,
     REG_TMA,
-    REG_IF,
-    REG_LY,
-    REG_BOOT,
-    REG_DMA,
-    REG_NR10,
     REG_WAVE_RAM_END,
-    MAX_SCANLINE,
-    PAGE_COUNT,
     ROM_BANK_SIZE,
-    IE_REG,
+    ROM_END,
+    ROM_START,
+    UNUSABLE_END,
+    UNUSABLE_START,
+    WRAM_START,
 )
+from gb_types import (
+    BYTE_MASK,
+    INTERRUPT_MASK,
+    TIMER_CONTROL_MASK,
+    UNMAPPED_BYTE,
+    WORD_MASK,
+    WORD_VALUE_COUNT,
+    Address,
+    Byte,
+    MemoryData,
+)
+from joypad import Joypad
+from protocols import (
+    ClockDevice,
+    MemoryBankController,
+    VideoDevice,
+)
+from serial_cable import Serial
 
 # Type for page handlers
 WriteHandler = Callable[[Address, Byte], None]
@@ -70,7 +70,6 @@ class Memory:
         self,
         clock: Optional[Union[ClockDevice, MemoryData]] = None,
         data: Optional[MemoryData] = None,
-        backend: str = "bytearray",
     ):
         # 1. Physical 64KB Memory
         self.storage = bytearray(WORD_VALUE_COUNT)
@@ -144,6 +143,7 @@ class Memory:
             # Register bank change callbacks for performance mirroring
             setattr(value, "on_bank_change", self._on_mbc_bank_change)
             setattr(value, "on_ram_bank_change", self._on_mbc_ram_bank_change)
+            setattr(value, "on_ram_write", self._on_mbc_ram_write)
 
             # Sync Initial ROM Banks
             # Cartridge Bank 0 always at 0x0000-0x3FFF
@@ -167,7 +167,7 @@ class Memory:
 
             # Sync Initial RAM Bank if enabled
             if value.ram_enabled:
-                self.storage[ERAM_START : ERAM_END + 1] = value.ram[0:RAM_BANK_SIZE]
+                self._on_mbc_ram_bank_change(0, value.visible_ram_window())
             else:
                 for i in range(ERAM_START, ERAM_END + 1):
                     self.storage[i] = UNMAPPED_BYTE
@@ -176,11 +176,29 @@ class Memory:
 
     def _on_mbc_bank_change(self, start_addr: int, bank_num: int, data: bytes) -> None:
         """Mirror MBC ROM bank changes into local storage for fast CPU access."""
+        if (
+            start_addr == 0
+            and not self.boot_rom_disabled
+            and self.cartridge_boot_area is not None
+        ):
+            shadow_size = min(len(data), BOOT_ROM_SIZE)
+            self.cartridge_boot_area[:shadow_size] = data[:shadow_size]
+            self.storage[BOOT_ROM_SIZE : len(data)] = data[BOOT_ROM_SIZE:]
+            return
         self.storage[start_addr : start_addr + len(data)] = data
 
     def _on_mbc_ram_bank_change(self, bank_num: int, data: bytes) -> None:
         """Mirror MBC RAM bank changes."""
-        self.storage[ERAM_START : ERAM_START + len(data)] = data
+        visible_size = min(len(data), RAM_BANK_SIZE)
+        self.storage[ERAM_START : ERAM_START + visible_size] = data[:visible_size]
+        if visible_size < RAM_BANK_SIZE:
+            self.storage[ERAM_START + visible_size : ERAM_END + 1] = bytes(
+                [UNMAPPED_BYTE]
+            ) * (RAM_BANK_SIZE - visible_size)
+
+    def _on_mbc_ram_write(self, address: int, value: int) -> None:
+        """Keep the flat external-RAM window in sync with an MBC write."""
+        self.storage[address] = value & BYTE_MASK
 
     def set_mbc(self, mbc: MemoryBankController) -> None:
         self.mbc = mbc
@@ -236,16 +254,13 @@ class Memory:
     def _write_mbc_ram(self, address: Address, value: Byte) -> None:
         if self._mbc:
             self._mbc.write_ram(address, value)
-            if self._mbc.ram_enabled:
-                self.storage[address] = value
         else:
             self.storage[address] = value
 
     def _write_wram_mirrored(self, address: Address, value: Byte) -> None:
         """Write to WRAM and mirror to Echo RAM."""
         self.storage[address] = value
-        if address <= 0xDDFF:
-            self.storage[address + ECHO_OFFSET] = value
+        self.storage[address + ECHO_OFFSET] = value
 
     def _write_echo_ram(self, address: Address, value: Byte) -> None:
         """Write to Echo RAM and mirror to WRAM."""
@@ -313,6 +328,9 @@ class Memory:
         addr = address & WORD_MASK
         if UNUSABLE_START <= addr <= UNUSABLE_END:
             return 0x00
+
+        if REG_NR10 <= addr <= REG_WAVE_RAM_END:
+            return self.apu.read_byte(addr)
 
         # Fast scanline fallback if video disabled
         if addr == REG_LY and self.clock is not None and not self._video:

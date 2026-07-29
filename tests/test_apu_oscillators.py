@@ -1,13 +1,14 @@
 import unittest
-from memory import Memory
+
 from clock import SystemClock
+from memory import Memory
 
 
 class TestAPUOscillators(unittest.TestCase):
     def setUp(self):
         self.clock = SystemClock(4194304)
         self.mem_data = bytearray(0x10000)
-        self.memory = Memory(self.clock, self.mem_data, backend="bytearray")
+        self.memory = Memory(self.clock, self.mem_data)
         self.apu = self.memory.apu
 
     def test_pulse_oscillator(self):
@@ -40,6 +41,18 @@ class TestAPUOscillators(unittest.TestCase):
         # Step 2, output 0
         self.assertEqual(self.apu.ch2.output, 0)
 
+    def test_pulse_oscillator_large_batch_advances_multiple_edges(self):
+        self.memory.write_byte(0xFF26, 0x80)
+        self.memory.write_byte(0xFF16, 0x80)
+        self.memory.write_byte(0xFF17, 0xA0)
+        self.memory.write_byte(0xFF18, 0x00)
+        self.memory.write_byte(0xFF19, 0x80 | 0x07)
+
+        self.apu.step(2048)
+
+        self.assertEqual(self.apu.ch2.duty_step, 2)
+        self.assertEqual(self.apu.ch2.output, 0)
+
     def test_wave_oscillator(self):
         self.memory.write_byte(0xFF26, 0x80)
 
@@ -48,6 +61,7 @@ class TestAPUOscillators(unittest.TestCase):
             self.memory.write_byte(0xFF30 + i, 0x42)
 
         # Trigger Ch 3
+        self.memory.write_byte(0xFF1A, 0x80)
         self.memory.write_byte(0xFF1C, 0x20)
         self.memory.write_byte(0xFF1E, 0x80)
 
@@ -72,19 +86,81 @@ class TestAPUOscillators(unittest.TestCase):
         self.memory.write_byte(0xFF12, 0xA0)  # Vol A
         self.memory.write_byte(0xFF14, 0x80)  # Trigger
 
-        # Trigger Ch 2 with volume 5
+        # Trigger Ch 2 with volume 15
         self.memory.write_byte(0xFF16, 0x80)
-        self.memory.write_byte(0xFF17, 0x50)  # Vol 5
+        self.memory.write_byte(0xFF17, 0xF0)  # Vol F
         self.memory.write_byte(0xFF19, 0x80)  # Trigger
 
         # Step until a sample is taken (95 cycles)
         self.apu.step(100)
 
-        # Ch 1 output: 10, Ch 2 output: 5.
-        # Total = 15.
-        # Master volume 7 -> (15 * 7) // 8 = 105 // 8 = 13
+        # The bipolar DAC maps 10 to +1/3 and 15 to +1. With both routed
+        # through a full-volume mixer, the first AC-coupled sample is +1/3.
+        self.assertAlmostEqual(self.apu.left_output, 1 / 3)
+        self.assertAlmostEqual(self.apu.right_output, 1 / 3)
+
+    def test_noise_oscillator_uses_nr43_period(self):
+        self.memory.write_byte(0xFF26, 0x80)
+        self.memory.write_byte(0xFF21, 0xF0)
+        self.memory.write_byte(0xFF22, 0x00)
+        self.memory.write_byte(0xFF23, 0x80)
+
+        self.assertEqual(self.apu.ch4.period, 8)
+        self.apu.step(7)
+        self.assertEqual(self.apu.ch4.lfsr, self.apu.ch4.LFSR_INITIAL)
+
+        self.apu.step(1)
+        self.assertNotEqual(self.apu.ch4.lfsr, self.apu.ch4.LFSR_INITIAL)
+
+        self.memory.write_byte(0xFF22, 0x17)
+        self.assertEqual(self.apu.ch4.period, 224)
+
+    def test_noise_oscillator_uses_width_mode(self):
+        self.memory.write_byte(0xFF26, 0x80)
+        self.memory.write_byte(0xFF21, 0xF0)
+        self.memory.write_byte(0xFF22, 0x08)
+        self.memory.write_byte(0xFF23, 0x80)
+
+        self.apu.step(8)
+
+        self.assertEqual((self.apu.ch4.lfsr >> 6) & 1, 0)
+
+    def test_noise_oscillator_batches_many_exact_lfsr_edges(self):
+        self.memory.write_byte(0xFF26, 0x80)
+        self.memory.write_byte(0xFF21, 0xF0)
+        self.memory.write_byte(0xFF22, 0x00)
+        self.memory.write_byte(0xFF23, 0x80)
+
+        expected = self.apu.ch4.lfsr
+        for _ in range(13):
+            feedback = (expected & 1) ^ ((expected >> 1) & 1)
+            expected = (expected >> 1) | (feedback << 14)
+
+        self.apu.ch4.step(13 * self.apu.ch4.period)
+
+        self.assertEqual(self.apu.ch4.lfsr, expected)
+        self.assertEqual(self.apu.ch4.timer, self.apu.ch4.period)
+
+    def test_apu_samples_before_later_noise_edges_in_large_steps(self):
+        self.memory.write_byte(0xFF26, 0x80)
+        self.memory.write_byte(0xFF24, 0x77)
+        self.memory.write_byte(0xFF25, 0x88)
+        self.memory.write_byte(0xFF21, 0xF0)
+        self.memory.write_byte(0xFF22, 0x07)
+        self.memory.write_byte(0xFF23, 0x80)
+
+        self.apu.step(120)
+
+        self.assertEqual(self.apu.buffer_size, 1)
         self.assertEqual(self.apu.left_output, 0.25)
         self.assertEqual(self.apu.right_output, 0.25)
+
+        self.apu.step(80)
+
+        self.assertEqual(self.apu.buffer_size, 2)
+        expected = -0.25 - (0.25 * (1 - self.apu.HPF_CHARGE_FACTOR))
+        self.assertAlmostEqual(self.apu.left_output, expected)
+        self.assertAlmostEqual(self.apu.right_output, expected)
 
 
 if __name__ == "__main__":

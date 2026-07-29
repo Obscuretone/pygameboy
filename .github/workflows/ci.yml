@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    env:
+      SDL_AUDIODRIVER: dummy
+      SDL_VIDEODRIVER: dummy
+      PYGAME_HIDE_SUPPORT_PROMPT: "1"
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        run: python -m pip install "uv==0.12.0"
+
+      - name: Sync locked environment
+        run: uv sync --frozen --extra dev
+
+      - name: Lint
+        run: uv run --frozen ruff check .
+
+      - name: Test (including conformance ROMs)
+        run: uv run --frozen pytest --cov=. --cov-report=term-missing
+
+      - name: Publishable conformance report
+        if: matrix.python-version == '3.13'
+        run: >
+          uv run --frozen pygameboy-conformance tests/roms/mooneye
+          --json /tmp/mooneye-conformance.json
+
+      - name: Validate CPU opcode coverage tool
+        run: uv run --frozen python audit_cpu.py
+
+      - name: Validate benchmark harness
+        if: matrix.python-version == '3.13'
+        run: >
+          uv run --frozen python benchmark_cpu.py
+          --repeats 1
+          --json /tmp/benchmark.json

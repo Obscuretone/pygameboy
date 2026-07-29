@@ -1,14 +1,15 @@
 from typing import Any, Final, Tuple
-from gb_types import Cycles
+
 from constants import (
+    INT_TIMER_BIT,
     REG_DIV,
+    REG_TAC,
     REG_TIMA,
     REG_TMA,
-    REG_TAC,
-    TAC_ENABLE_BIT,
     TAC_CLOCK_SELECT_MASK,
-    INT_TIMER_BIT,
+    TAC_ENABLE_BIT,
 )
+from gb_types import Cycles
 from protocols import MemoryBus
 
 
