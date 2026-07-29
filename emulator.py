@@ -2,6 +2,7 @@
 
 import argparse
 import sys
+import time
 from pathlib import Path
 from typing import Dict, Final, Optional, Sequence, Union
 
@@ -429,12 +430,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     audio_buffer_size = apu.buffer_size
                 while audio_buffer_size > 4096 and stream.active:
                     pygame.event.pump()
-                    pygame.time.delay(1)
+                    # pygame.time.delay busy-waits on some platforms, starving the
+                    # Python audio callback of the GIL and effectively halving the
+                    # emulator's speed. sleep() yields so playback drains in
+                    # parallel with emulation.
+                    time.sleep(0.001)
                     with apu.buffer_lock:
                         audio_buffer_size = apu.buffer_size
 
                 if stream.active:
-                    video.skip_render = audio_buffer_size < 1024
+                    # A small queue is the desired low-latency steady state, not a
+                    # reason to suppress every subsequent video frame.
+                    video.skip_render = video.force_skip
                 else:
                     print(
                         "Warning: audio stream stopped; switching to display-clock "

@@ -73,10 +73,11 @@ class SoundDevice:
         return self.stream
 
 
-def test_module_entrypoint_and_non_macos_import_path(capsys) -> None:
+def test_module_entrypoint_and_optional_audio_import_path(capsys) -> None:
     with (
         patch.object(sys, "platform", "linux"),
         patch.object(sys, "argv", ["emulator.py", "--help"]),
+        patch.dict(sys.modules, {"sounddevice": None}),
         pytest.raises(SystemExit) as exit_info,
     ):
         runpy.run_path(emulator.__file__, run_name="__main__")
@@ -327,7 +328,7 @@ def test_main_audio_backpressure_and_stopped_stream_fallback(tmp_path) -> None:
         patch("emulator.sd", SoundDevice(stream)),
         patch("emulator.Memory", side_effect=memory_with_full_audio),
         patch("emulator.pygame.event.pump") as pump,
-        patch("emulator.pygame.time.delay") as delay,
+        patch("emulator.time.sleep") as sleep,
         redirect_stderr(stderr := io.StringIO()),
     ):
         assert (
@@ -342,7 +343,7 @@ def test_main_audio_backpressure_and_stopped_stream_fallback(tmp_path) -> None:
         )
 
     pump.assert_called_once()
-    delay.assert_called_once_with(1)
+    sleep.assert_called_once_with(0.001)
     assert stream.closed
     assert "audio stream stopped" in stderr.getvalue()
 
@@ -352,7 +353,10 @@ def test_main_active_realtime_stream_uses_audio_buffer_render_policy(tmp_path) -
     write_rom(rom_path)
     stream = Stream(active=True)
 
-    with patch("emulator.sd", SoundDevice(stream)):
+    with (
+        patch("emulator.sd", SoundDevice(stream)),
+        patch("emulator.pygame.display.flip") as flip,
+    ):
         assert (
             emulator.main(
                 [
@@ -365,6 +369,7 @@ def test_main_active_realtime_stream_uses_audio_buffer_render_policy(tmp_path) -
         )
 
     assert stream.started and stream.stopped and stream.closed
+    flip.assert_called_once()
 
 
 def test_main_loop_limits_verbose_debug_quit_zero_work_and_fps(tmp_path) -> None:
@@ -408,6 +413,19 @@ def test_main_loop_limits_verbose_debug_quit_zero_work_and_fps(tmp_path) -> None
         assert emulator.main([*common, "--max-frames", "1", str(rom_path)]) == 0
     assert caption.call_count == 2
     assert "FPS" in caption.call_args.args[0]
+
+    with (
+        patch("emulator.CPU.run", return_value=(1, 4)),
+        patch(
+            "emulator.pygame.time.Clock",
+            return_value=SimpleNamespace(tick_busy_loop=lambda _fps: 18),
+        ),
+        patch("emulator.pygame.display.flip") as flip,
+    ):
+        assert (
+            emulator.main(["--no-audio", "--max-frames", "2", str(rom_path)]) == 0
+        )
+    flip.assert_called_once()
 
 
 def test_main_periodic_final_save_keyboard_interrupt_and_existing_error(
