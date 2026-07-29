@@ -43,6 +43,7 @@ class CPUOpcodes:
         halted: bool
         stopped: bool
 
+        def _advance_to_memory_access(self, target: int) -> None: ...
         def _read_memory_byte(self, address: Address) -> Byte: ...
         def _write_memory_byte(self, address: Address, value: Byte) -> None: ...
         def _read_memory_word(self, address: Address) -> int: ...
@@ -225,7 +226,9 @@ class CPUOpcodes:
             self.memory[(self.registers.PC + 2) & 0xFFFF] << 8
         )
         sp = self.registers.SP
+        self._advance_to_memory_access(8)
         self._write_memory_byte(n16, sp & BYTE_MASK)
+        self._advance_to_memory_access(12)
         self._write_memory_byte((n16 + 1) & WORD_MASK, sp >> 8)
         self.registers.PC += 3
         return 20
@@ -1017,8 +1020,10 @@ class CPUOpcodes:
         bytes = 1
         """
         addr = ((self.registers.data[6] << 8) | self.registers.data[7])
+        self._advance_to_memory_access(0)
         v = self._read_memory_byte(addr)
         res = (v + 1) & BYTE_MASK
+        self._advance_to_memory_access(4)
         self._write_memory_byte(addr, res)
         self._set_inc_flags(v, res)
         self.registers.PC += 1
@@ -1036,8 +1041,10 @@ class CPUOpcodes:
         bytes = 1
         """
         addr = ((self.registers.data[6] << 8) | self.registers.data[7])
+        self._advance_to_memory_access(0)
         v = self._read_memory_byte(addr)
         res = (v - 1) & BYTE_MASK
+        self._advance_to_memory_access(4)
         self._write_memory_byte(addr, res)
         self._set_dec_flags(v, res)
         self.registers.PC += 1
@@ -1055,6 +1062,7 @@ class CPUOpcodes:
         bytes = 2
         """
         n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
+        self._advance_to_memory_access(4)
         self._write_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]), n8)
         self.registers.PC += 2
         return 12
@@ -3581,6 +3589,7 @@ class CPUOpcodes:
     def _ldh_n8_a(self):
         """Opcode 0xE0 (LDH 'a8','A',)"""
         n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
+        self._advance_to_memory_access(4)
         self._write_memory_byte(int(0xFF00 + n8), self.registers.data[0])
         self.registers.PC += 2
         return 12
@@ -3640,6 +3649,7 @@ class CPUOpcodes:
         n16 = self.memory[(self.registers.PC + 1) & 0xFFFF] | (
             self.memory[(self.registers.PC + 2) & 0xFFFF] << 8
         )
+        self._advance_to_memory_access(8)
         self._write_memory_byte(n16, self.registers.data[0])
         self.registers.PC += 3
         return 16
@@ -3661,6 +3671,7 @@ class CPUOpcodes:
     def _ldh_a_n8(self):
         """Opcode HIGH_NIBBLE_MASK (LDH 'A','a8',)"""
         n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
+        self._advance_to_memory_access(4)
         self.registers.data[0] = self._read_memory_byte(int(0xFF00 + n8))
         self.registers.PC += 2
         return 12
@@ -3728,6 +3739,7 @@ class CPUOpcodes:
         n16 = self.memory[(self.registers.PC + 1) & 0xFFFF] | (
             self.memory[(self.registers.PC + 2) & 0xFFFF] << 8
         )
+        self._advance_to_memory_access(8)
         self.registers.data[0] = self._read_memory_byte(n16)
         self.registers.PC += 3
         return 16
@@ -3778,11 +3790,13 @@ class CPUOpcodes:
 
         def get_val():
             if reg_id == REG_HL:
+                self._advance_to_memory_access(4)
                 return self._read_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]))
             return self.registers.data[reg_id]
 
         def set_val(v):
             if reg_id == REG_HL:
+                self._advance_to_memory_access(8)
                 self._write_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]), v)
             else:
                 self.registers.data[reg_id] = v

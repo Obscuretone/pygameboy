@@ -48,13 +48,15 @@ jobs:
       - name: Sync locked environment
         run: uv sync --frozen --extra dev
 
-      - name: Run serial conformance floor
+      - name: Run conformance floor
         run: |
           mkdir -p conformance-site
           uv run --frozen pygameboy-conformance \
             tests/roms/mooneye \
             .conformance/blargg/cpu_instrs/individual \
             .conformance/blargg/instr_timing/instr_timing.gb \
+            .conformance/blargg/mem_timing/mem_timing.gb \
+            .conformance/blargg/mem_timing-2/rom_singles \
             --max-instructions 10000000 \
             --json conformance-site/results.json \
             --badge conformance-site/badge.json \

@@ -142,8 +142,9 @@ dispatch throughput, not whole-emulator compatibility or frame rate.
 Passing project tests is necessary but not sufficient for emulator accuracy.
 New hardware behavior should be tested through the integrated `Memory`/`CPU`
 path, not only through a component in isolation. The headless conformance
-runner understands Mooneye register signatures and Blargg serial reports; the
-bundled Mooneye fixtures establish an honest compatibility floor in CI.
+runner understands Mooneye register signatures plus Blargg serial and memory
+reports. The published floor covers CPU instructions, instruction timing,
+memory-access timing, DMA, timer, serial-clock, and register behavior.
 
 See [test-ROM conformance](docs/conformance.md) for the pinned provenance,
 current scope, external-suite commands, result semantics, and the GitHub Pages

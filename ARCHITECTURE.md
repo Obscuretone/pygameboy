@@ -72,6 +72,12 @@ inlined, which improves throughput at the cost of repetition. `refactor.py` is
 a guarded, dry-run-by-default historical rewrite tool; importing it never
 changes source code.
 
+Instructions with externally observable multi-cycle bus activity advance the
+timer at their actual read and write phases. This covers immediate-address,
+CB-prefixed, and read-modify-write timing without turning every opcode into a
+micro-op interpreter. Blargg's `mem_timing` and `mem_timing-2` suites lock those
+phases at the system level.
+
 ## 3. PPU rendering
 
 The PPU advances through OAM search, pixel transfer, HBlank, and VBlank using
@@ -147,5 +153,5 @@ The highest-value remaining hardware work is:
 1. Dot-accurate PPU/FIFO timing and memory-access restrictions.
 2. MBC1 multicart variants and a running MBC3 RTC.
 3. Channel-1 frequency sweep and register read masks.
-4. Sub-instruction memory-access timing and OAM corruption behavior.
+4. OAM corruption behavior and remaining timer/interrupt edge cases.
 5. Save states with a versioned serialization format.
