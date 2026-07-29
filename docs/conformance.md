@@ -57,7 +57,13 @@ The test ROMs intentionally use a hybrid layout rather than a Git submodule:
   `c240dd7d700e5c0b00a7bbba52b53e4ee67b5f15`.
 - Only Blargg ROMs that currently pass gate the published report. The floor
   includes its 11 individual CPU groups, `instr_timing`, and the cycle-level
-  memory-access timing suites.
+  memory-access timing suites. It also includes the OAM bug suite's
+  `non_causes` and `timing_no_bug` guardrails.
+
+The broader OAM corruption/scanline cases and `dmg_sound` remain diagnostic
+targets rather than release gates. They execute to machine-readable results,
+but are not counted in the compatibility floor until their underlying hardware
+behavior passes.
 
 The `Conformance report` workflow produces three views of the same run:
 
