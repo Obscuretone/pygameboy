@@ -57,6 +57,8 @@ jobs:
             .conformance/blargg/instr_timing/instr_timing.gb \
             .conformance/blargg/mem_timing/mem_timing.gb \
             .conformance/blargg/mem_timing-2/rom_singles \
+            .conformance/blargg/oam_bug/rom_singles/3-non_causes.gb \
+            .conformance/blargg/oam_bug/rom_singles/6-timing_no_bug.gb \
             --max-instructions 10000000 \
             --json conformance-site/results.json \
             --badge conformance-site/badge.json \
