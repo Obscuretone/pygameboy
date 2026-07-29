@@ -104,6 +104,12 @@ The APU advances oscillator state in CPU-cycle units and emits 44.1 kHz stereo
 samples into a fixed-size NumPy ring buffer. A lock protects read/write
 positions shared with the `sounddevice` callback.
 
+Before samples reach the host device, the callback applies a block-vectorized
+model of the DMG output capacitor. Its sample-rate-adjusted charge factor comes
+from Pan Docs' measured DMG high-pass filter, which removes the DC bias produced
+by inactive channels and off-center waveforms. Empty or partially empty host
+buffers are padded with zero rather than holding a stale sample.
+
 With audio enabled, buffer depth acts as the pacing signal:
 
 - A deep buffer pauses CPU production while the audio device drains it.
@@ -155,3 +161,18 @@ The highest-value remaining hardware work is:
 3. Channel-1 frequency sweep and register read masks.
 4. OAM corruption behavior and remaining timer/interrupt edge cases.
 5. Save states with a versioned serialization format.
+
+## 8. Hardware and test references
+
+These references are retained alongside the implementation so timing,
+electrical-model, and conformance decisions remain auditable:
+
+- [Pan Docs: Audio overview](https://gbdev.io/pandocs/Audio.html)
+- [Pan Docs: Audio details, DACs, mixing, and DMG high-pass filter](https://gbdev.io/pandocs/Audio_details.html)
+- [Pan Docs: Audio registers](https://gbdev.io/pandocs/Audio_Registers.html)
+- [Mooneye Test Suite](https://github.com/Gekkio/mooneye-test-suite), with
+  the exact vendored commit and fixture checksums recorded in
+  [`tests/roms/mooneye/README.md`](tests/roms/mooneye/README.md)
+- [Blargg Game Boy test ROM collection](https://github.com/retrio/gb-test-roms/tree/c240dd7d700e5c0b00a7bbba52b53e4ee67b5f15),
+  pinned to the same commit used by the conformance workflow
+- [PyGameBoy test-ROM conformance and deployment policy](docs/conformance.md)

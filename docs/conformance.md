@@ -18,7 +18,8 @@ Seven MIT-licensed Mooneye acceptance ROMs are pinned under
 access, basic DMA, DMA register reads, reset-aligned DMG serial-clock timing,
 and timer frequency selection. Every ROM runs through the real cartridge
 controller, memory bus, CPU, timer, PPU, APU, and serial components. Their
-provenance and checksums are recorded beside the fixtures.
+provenance and checksums are recorded in the
+[vendored-fixture manifest](../tests/roms/mooneye/README.md).
 
 The bundled set is deliberately a floor, not a claim that the entire Mooneye
 suite passes. Cycle-exact CPU, DMA, timer, and pixel-FIFO behavior remain active
@@ -53,7 +54,8 @@ The test ROMs intentionally use a hybrid layout rather than a Git submodule:
 
 - The small, MIT-licensed Mooneye compatibility floor is vendored with its
   upstream commit, archive checksum, per-ROM checksums, and license.
-- The larger Blargg suite is checked out directly by GitHub Actions at commit
+- The larger [Blargg suite](https://github.com/retrio/gb-test-roms/tree/c240dd7d700e5c0b00a7bbba52b53e4ee67b5f15)
+  is checked out directly by GitHub Actions at commit
   `c240dd7d700e5c0b00a7bbba52b53e4ee67b5f15`.
 - Only Blargg ROMs that currently pass gate the published report. The floor
   includes its 11 individual CPU groups, `instr_timing`, and the cycle-level
