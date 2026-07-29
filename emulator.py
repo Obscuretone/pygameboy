@@ -51,6 +51,8 @@ from video import VideoChip
 GB_PALETTE: Final[np.ndarray] = np.array(DMG_PALETTE_COLORS, dtype=np.uint8)
 SAVE_FLUSH_FRAMES: Final[int] = 60
 MINIMUM_ROM_SIZE: Final[int] = 32 * 1024
+AUDIO_BUFFER_LOW_WATER: Final[int] = 1024
+AUDIO_BUFFER_HIGH_WATER: Final[int] = 4096
 
 # Pygame to Joypad mapping
 PYGAME_MAP: Final[Dict[int, str]] = {
@@ -428,7 +430,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             if stream is not None and not args.no_realtime:
                 with apu.buffer_lock:
                     audio_buffer_size = apu.buffer_size
-                while audio_buffer_size > 4096 and stream.active:
+                while audio_buffer_size > AUDIO_BUFFER_HIGH_WATER and stream.active:
                     pygame.event.pump()
                     # pygame.time.delay busy-waits on some platforms, starving the
                     # Python audio callback of the GIL and effectively halving the
@@ -439,9 +441,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                         audio_buffer_size = apu.buffer_size
 
                 if stream.active:
-                    # A small queue is the desired low-latency steady state, not a
-                    # reason to suppress every subsequent video frame.
-                    video.skip_render = video.force_skip
+                    # Spend the host-rendering budget on refilling audio when the
+                    # callback is close to underrunning. Rendering resumes as soon
+                    # as the queue recovers.
+                    video.skip_render = audio_buffer_size < AUDIO_BUFFER_LOW_WATER
                 else:
                     print(
                         "Warning: audio stream stopped; switching to display-clock "
