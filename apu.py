@@ -433,6 +433,8 @@ class APU:
                 self.ch2.enabled = False
                 self.ch3.enabled = False
                 self.ch4.enabled = False
+                self.left_output = 0.0
+                self.right_output = 0.0
             self.sound_enabled = new_sound_enabled
             self.registers[offset] = (self.registers[offset] & self.NR52_READ_MASK) | (
                 value & AUDIO_TRIGGER_BIT

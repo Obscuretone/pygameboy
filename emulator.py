@@ -53,6 +53,7 @@ SAVE_FLUSH_FRAMES: Final[int] = 60
 MINIMUM_ROM_SIZE: Final[int] = 32 * 1024
 AUDIO_BUFFER_LOW_WATER: Final[int] = 1024
 AUDIO_BUFFER_HIGH_WATER: Final[int] = 4096
+DMG_HPF_BASE_CHARGE: Final[float] = 0.999958
 
 # Pygame to Joypad mapping
 PYGAME_MAP: Final[Dict[int, str]] = {
@@ -246,9 +247,37 @@ def draw_debug_overlay(
     screen.blit(panel, (8, 8))
 
 
-def make_audio_callback(apu, verbose: bool = False):
+def make_audio_callback(apu, verbose: bool = False, high_pass: bool = True):
     """Build a sounddevice callback backed by the APU's stereo ring buffer."""
-    last_audio_sample = np.array([0.0, 0.0], dtype=np.float32)
+    charge_factor = DMG_HPF_BASE_CHARGE ** (apu.CPU_CLOCK_HZ / apu.SAMPLE_RATE)
+    capacitor = np.zeros(2, dtype=np.float64)
+    filter_cache = {}
+
+    def apply_high_pass(samples) -> None:
+        """Remove DC with a block-vectorized model of the DMG output capacitor."""
+        frames = len(samples)
+        cached = filter_cache.get(frames)
+        if cached is None:
+            exponents = np.arange(1, frames + 1, dtype=np.float64)
+            powers = np.power(charge_factor, exponents)
+            cached = (
+                powers,
+                np.empty(frames, dtype=np.float64),
+                np.empty(frames, dtype=np.float64),
+            )
+            filter_cache[frames] = cached
+
+        powers, weighted, capacitors = cached
+        for channel in range(2):
+            previous_capacitor = capacitor[channel]
+            np.divide(samples[:, channel], powers, out=weighted)
+            np.cumsum(weighted, out=weighted)
+            weighted *= 1.0 - charge_factor
+            weighted += previous_capacitor
+            np.multiply(weighted, powers, out=capacitors)
+            samples[0, channel] -= previous_capacitor
+            samples[1:, channel] -= capacitors[:-1]
+            capacitor[channel] = capacitors[-1]
 
     def audio_callback(outdata, frames, time, status):
         if status and verbose:
@@ -269,7 +298,6 @@ def make_audio_callback(apu, verbose: bool = False):
 
                 apu.buffer_read_pos = (read_pos + frames) % apu.BUFFER_MAX
                 apu.buffer_size -= frames
-                last_audio_sample[:] = outdata[-1]
             elif size > 0:
                 if read_pos + size <= apu.BUFFER_MAX:
                     outdata[:size] = apu.buffer[read_pos : read_pos + size]
@@ -278,12 +306,14 @@ def make_audio_callback(apu, verbose: bool = False):
                     chunk2 = size - chunk1
                     outdata[:chunk1] = apu.buffer[read_pos:]
                     outdata[chunk1:size] = apu.buffer[:chunk2]
-                outdata[size:] = outdata[size - 1]
+                outdata[size:] = 0.0
                 apu.buffer_read_pos = (read_pos + size) % apu.BUFFER_MAX
                 apu.buffer_size = 0
-                last_audio_sample[:] = outdata[-1]
             else:
-                outdata[:] = last_audio_sample
+                outdata[:] = 0.0
+
+        if high_pass:
+            apply_high_pass(outdata)
 
     return audio_callback
 
