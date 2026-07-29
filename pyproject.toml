@@ -59,6 +59,7 @@ py-modules = [
   "mbc",
   "memory",
   "protocols",
+  "pygame_environment",
   "serial_cable",
   "video",
 ]

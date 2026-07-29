@@ -23,6 +23,7 @@ from emulator import (
 )
 from mbc import MBC0
 from memory import Memory
+from pygame_environment import configure_pygame_environment
 from video import VideoChip
 
 
@@ -42,6 +43,21 @@ def write_smoke_rom(
 
 
 class TestEmulatorCLI(unittest.TestCase):
+    def test_pygame_environment_defaults_are_platform_specific(self):
+        with patch.dict(os.environ, {}, clear=True):
+            configure_pygame_environment("darwin")
+            self.assertEqual(os.environ["SDL_VIDEODRIVER"], "cocoa")
+            self.assertEqual(os.environ["PYGAME_HIDE_SUPPORT_PROMPT"], "1")
+
+        with patch.dict(
+            os.environ,
+            {"SDL_VIDEODRIVER": "dummy"},
+            clear=True,
+        ):
+            configure_pygame_environment("linux")
+            self.assertEqual(os.environ["SDL_VIDEODRIVER"], "dummy")
+            self.assertNotIn("PYGAME_HIDE_SUPPORT_PROMPT", os.environ)
+
     def test_missing_rom_reports_a_user_error(self):
         stderr = io.StringIO()
 
