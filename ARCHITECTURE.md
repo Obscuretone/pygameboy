@@ -104,11 +104,10 @@ The APU advances oscillator state in CPU-cycle units and emits 44.1 kHz stereo
 samples into a fixed-size NumPy ring buffer. A lock protects read/write
 positions shared with the `sounddevice` callback.
 
-Before samples reach the host device, the callback applies a block-vectorized
-model of the DMG output capacitor. Its sample-rate-adjusted charge factor comes
-from Pan Docs' measured DMG high-pass filter, which removes the DC bias produced
-by inactive channels and off-center waveforms. Empty or partially empty host
-buffers are padded with zero rather than holding a stale sample.
+Pan Docs documents the DMG DAC, mixer, and analog high-pass capacitor in the
+hardware references below. Those sources are retained for future sound-fidelity
+work; the current real-time path intentionally keeps host processing minimal
+while APU timing and channel behavior are still being completed.
 
 With audio enabled, buffer depth acts as the pacing signal:
 
