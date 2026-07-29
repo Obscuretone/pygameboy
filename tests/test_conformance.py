@@ -42,6 +42,22 @@ def mooneye_program(signature: bytes) -> bytes:
     return bytes(program)
 
 
+def blargg_memory_program(message: bytes, status: int) -> bytes:
+    values = (
+        (0xA000, 0x80),
+        (0xA001, 0xDE),
+        (0xA002, 0xB0),
+        (0xA003, 0x61),
+        *((0xA004 + index, value) for index, value in enumerate(message + b"\0")),
+        (0xA000, status),
+    )
+    program = bytearray()
+    for address, value in values:
+        program.extend((0x3E, value, 0xEA, address & 0xFF, address >> 8))
+    program.append(0x76)
+    return bytes(program)
+
+
 def test_result_serialization_and_passed_property() -> None:
     passed = conformance.ConformanceResult("test.gb", "mooneye", "pass", 4, 16)
     failed = conformance.ConformanceResult("test.gb", "mooneye", "fail", 4, 16)
@@ -109,6 +125,50 @@ def test_run_rom_detects_blargg_serial_reports(
     assert result.protocol == conformance.BLARGG
     assert result.serial_output == message.decode()
     assert "Blargg" in result.detail
+
+
+@pytest.mark.parametrize(
+    ("status", "expected_status"),
+    [(0, conformance.PASS), (1, conformance.FAIL)],
+)
+def test_run_rom_detects_blargg_memory_reports(
+    tmp_path: Path,
+    status: int,
+    expected_status: str,
+) -> None:
+    message = b"Memory report"
+    rom = make_rom(blargg_memory_program(message, status))
+    rom[0x0147] = 0x08
+    rom[0x0149] = 0x02
+    rom_path = tmp_path / "blargg-memory.gb"
+    rom_path.write_bytes(rom)
+
+    result = conformance.run_rom(
+        rom_path,
+        protocol=conformance.BLARGG,
+        batch_size=1,
+        max_instructions=100,
+    )
+
+    assert result.status == expected_status
+    assert result.protocol == conformance.BLARGG
+    assert result.serial_output == message.decode()
+    assert "memory report" in result.detail
+
+
+def test_blargg_memory_report_waits_for_a_final_status() -> None:
+    cpu, memory = conformance.create_headless_system(make_rom())
+    memory.storage[0xA000:0xA004] = bytes((0x80, 0xDE, 0xB0, 0x61))
+
+    assert (
+        conformance._detect_result(
+            cpu,
+            memory,
+            bytearray(),
+            conformance.BLARGG,
+        )
+        is None
+    )
 
 
 def test_protocol_filtering_timeout_and_stopped_rom(tmp_path: Path) -> None:

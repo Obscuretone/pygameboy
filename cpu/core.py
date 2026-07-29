@@ -98,6 +98,8 @@ class CPU(CPUOpcodes):
         self.halted, self.stopped = False, False
         self._dispatch_table = self._build_dispatch_table()
         self.opcode_profile: List[int] = [0] * self.OPCODE_COUNT
+        self._bus_timing_active = False
+        self._instruction_elapsed_cycles = 0
 
     def _build_dispatch_table(self):
         table: List[Any] = [None] * self.OPCODE_COUNT
@@ -153,6 +155,7 @@ class CPU(CPUOpcodes):
         APU_STEP_THRESHOLD = 64
         V_STEP_THRESHOLD = 114
         v_accumulated = 0
+        self._bus_timing_active = True
 
         try:
             # Fast path for standard frame execution
@@ -179,7 +182,10 @@ class CPU(CPUOpcodes):
                     executed += 1
                     total_cyc += cyc
 
-                    t_step(cyc)
+                    instruction_elapsed = self._instruction_elapsed_cycles
+                    t_step(cyc - instruction_elapsed)
+                    if instruction_elapsed:
+                        self._instruction_elapsed_cycles = 0
                     if s_step:
                         s_step(cyc)
 
@@ -231,7 +237,10 @@ class CPU(CPUOpcodes):
 
                     executed += 1
                     total_cyc += cyc
-                    t_step(cyc)
+                    instruction_elapsed = self._instruction_elapsed_cycles
+                    t_step(cyc - instruction_elapsed)
+                    if instruction_elapsed:
+                        self._instruction_elapsed_cycles = 0
                     if s_step:
                         s_step(cyc)
 
@@ -281,9 +290,11 @@ class CPU(CPUOpcodes):
 
             clock.cycles_elapsed += total_cyc
 
-        except KeyboardInterrupt:
+        except BaseException:
+            self._bus_timing_active = False
             raise
 
+        self._bus_timing_active = False
         if realtime and total_cyc:
             clock.wait_for_next_cycle(total_cyc)
         if announce:
@@ -350,6 +361,16 @@ class CPU(CPUOpcodes):
             self.registers.data[1] &= 0xF0
 
     # --- Hardware Helpers (Optimized for Flat Memory) ---
+    def _advance_to_memory_access(self, target: int) -> None:
+        """Advance TIMA to a bus access's T-cycle offset within an instruction."""
+        if not self._bus_timing_active:
+            return
+
+        delta = target - self._instruction_elapsed_cycles
+        if delta:
+            self.timer.step(delta)
+            self._instruction_elapsed_cycles = target
+
     def _read_memory_byte(self, address: Address) -> Byte:
         addr = address & 0xFFFF
         if addr >= 0xFF00:

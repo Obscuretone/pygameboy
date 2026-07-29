@@ -30,6 +30,11 @@ ERROR: Final = "error"
 
 MOONEYE_PASS_SIGNATURE: Final = bytes((3, 5, 8, 13, 21, 34))
 MOONEYE_FAIL_SIGNATURE: Final = bytes((0x42,) * 6)
+BLARGG_RESULT_ADDRESS: Final = 0xA000
+BLARGG_RESULT_RUNNING: Final = 0x80
+BLARGG_RESULT_SIGNATURE: Final = bytes((0xDE, 0xB0, 0x61))
+BLARGG_OUTPUT_ADDRESS: Final = 0xA004
+BLARGG_OUTPUT_END: Final = 0xC000
 
 
 @dataclass(frozen=True)
@@ -70,22 +75,55 @@ def _register_signature(cpu: CPU) -> bytes:
 
 def _detect_result(
     cpu: CPU,
+    memory: Memory,
     serial_bytes: bytearray,
     protocol: str,
-) -> Optional[tuple[str, str, str]]:
+) -> Optional[tuple[str, str, str, str]]:
     signature = _register_signature(cpu)
+    serial_output = serial_bytes.decode("latin-1")
     if protocol in (AUTO, MOONEYE):
         if signature == MOONEYE_PASS_SIGNATURE:
-            return PASS, MOONEYE, "Mooneye Fibonacci register signature received"
+            return (
+                PASS,
+                MOONEYE,
+                "Mooneye Fibonacci register signature received",
+                serial_output,
+            )
         if signature == MOONEYE_FAIL_SIGNATURE:
-            return FAIL, MOONEYE, "Mooneye failure register signature received"
+            return (
+                FAIL,
+                MOONEYE,
+                "Mooneye failure register signature received",
+                serial_output,
+            )
 
     if protocol in (AUTO, BLARGG):
-        output = serial_bytes.decode("latin-1")
-        if "Failed" in output:
-            return FAIL, BLARGG, "Blargg reported failure"
-        if "Passed" in output:
-            return PASS, BLARGG, "Blargg reported success"
+        if "Failed" in serial_output:
+            return FAIL, BLARGG, "Blargg serial report indicated failure", serial_output
+        if "Passed" in serial_output:
+            return PASS, BLARGG, "Blargg serial report indicated success", serial_output
+
+        storage = memory.storage
+        memory_signature = bytes(
+            storage[
+                BLARGG_RESULT_ADDRESS + 1 : BLARGG_RESULT_ADDRESS + 4
+            ]
+        )
+        if memory_signature != BLARGG_RESULT_SIGNATURE:
+            return None
+
+        result_code = storage[BLARGG_RESULT_ADDRESS]
+        if result_code == BLARGG_RESULT_RUNNING:
+            return None
+
+        memory_output = (
+            bytes(storage[BLARGG_OUTPUT_ADDRESS:BLARGG_OUTPUT_END])
+            .partition(b"\0")[0]
+            .decode("latin-1")
+        )
+        status = PASS if result_code == 0 else FAIL
+        detail = f"Blargg memory report indicated {status}"
+        return status, BLARGG, detail, memory_output
     return None
 
 
@@ -121,16 +159,16 @@ def run_rom(
         instructions += executed
         cycles += elapsed_cycles
 
-        detected = _detect_result(cpu, serial_bytes, protocol)
+        detected = _detect_result(cpu, memory, serial_bytes, protocol)
         if detected is not None:
-            status, detected_protocol, detail = detected
+            status, detected_protocol, detail, captured_output = detected
             return ConformanceResult(
                 path=str(rom_path),
                 protocol=detected_protocol,
                 status=status,
                 instructions=instructions,
                 cycles=cycles,
-                serial_output=serial_bytes.decode("latin-1"),
+                serial_output=captured_output,
                 detail=detail,
             )
         if executed == 0 or cpu.stopped:
@@ -387,7 +425,7 @@ def render_html(results: Sequence[ConformanceResult]) -> str:
         "<th>Protocol</th><th>ROM</th><th>Instructions</th><th>Cycles</th>"
         f"<th>Evidence</th></tr></thead>\n<tbody>{''.join(rows)}</tbody>\n"
         "</table></div>\n<footer><p>This pinned suite is a compatibility floor. "
-        "Cycle-exact timer, memory-bus, OAM-bug, and APU suites remain separate "
+        "Broader timer, pixel-FIFO, OAM-corruption, and APU suites remain separate "
         f"accuracy targets.</p>{run_link}</footer>\n</main>\n</body>\n</html>\n"
     )
 

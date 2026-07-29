@@ -7,8 +7,9 @@ Boy?” PyGameBoy supports both major machine-readable conventions:
 - Mooneye reports success with `3, 5, 8, 13, 21, 34` in registers
   B/C/D/E/H/L and over the serial port; it reports failure with six `0x42`
   bytes.
-- Blargg mirrors its screen report to the serial port, where the runner detects
-  `Passed` or `Failed`.
+- Blargg reports through either its serial stream or its documented
+  `$A000-$A004` memory protocol. The runner supports both, including the
+  signature and final-status handshake used by suites without serial output.
 
 ## Bundled CI floor
 
@@ -54,8 +55,9 @@ The test ROMs intentionally use a hybrid layout rather than a Git submodule:
   upstream commit, archive checksum, per-ROM checksums, and license.
 - The larger Blargg suite is checked out directly by GitHub Actions at commit
   `c240dd7d700e5c0b00a7bbba52b53e4ee67b5f15`.
-- Only Blargg ROMs that currently pass—its 11 individual CPU groups and
-  `instr_timing`—gate the published report.
+- Only Blargg ROMs that currently pass gate the published report. The floor
+  includes its 11 individual CPU groups, `instr_timing`, and the cycle-level
+  memory-access timing suites.
 
 The `Conformance report` workflow produces three views of the same run:
 

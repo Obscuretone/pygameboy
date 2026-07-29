@@ -203,6 +203,26 @@ def test_run_reraises_keyboard_interrupt() -> None:
     cpu._dispatch_table[0] = interrupt
     with pytest.raises(KeyboardInterrupt):
         cpu.run(max_instructions=1, realtime=False, announce=False)
+    assert not cpu._bus_timing_active
+
+
+def test_read_modify_write_preserves_separate_bus_phases() -> None:
+    for limit in ({"max_instructions": 1}, {"max_cycles": 12}):
+        cpu, memory, _ = make_cpu()
+        memory.storage[0:2] = bytes((0x34, 0x00))  # INC (HL)
+        memory.storage[0xC000] = 0x0F
+        cpu.registers["HL"] = 0xC000
+
+        executed, cycles = cpu.run(
+            **limit,
+            realtime=False,
+            announce=False,
+        )
+
+        assert (executed, cycles) == (1, 12)
+        assert memory.storage[0xC000] == 0x10
+        assert cpu.timer.divider_cycles == 12
+        assert not cpu._bus_timing_active
 
 
 def test_dynamic_register_access_aliases_and_unknown_attribute() -> None:
