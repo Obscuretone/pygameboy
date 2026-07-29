@@ -105,9 +105,14 @@ samples into a fixed-size NumPy ring buffer. A lock protects read/write
 positions shared with the `sounddevice` callback.
 
 Pan Docs documents the DMG DAC, mixer, and analog high-pass capacitor in the
-hardware references below. Those sources are retained for future sound-fidelity
-work; the current real-time path intentionally keeps host processing minimal
-while APU timing and channel behavior are still being completed.
+hardware references below. The sample producer maps each active 4-bit channel
+DAC to its bipolar analog range, applies NR50's `(volume + 1)` gain, and advances
+the DMG high-pass capacitor at the 44.1 kHz sample cadence. Keeping that state in
+the APU makes the waveform independent of host callback block size; the callback
+only drains already-formed stereo samples. Channel-1 sweep and the remaining
+cycle-level length, envelope, and wave-RAM behavior are still being completed.
+NR52 power-off periods still produce clocked silence for stable host pacing, and
+a true host underrun is zero-filled rather than extending a stale DC sample.
 
 With audio enabled, buffer depth acts as the pacing signal:
 
@@ -157,7 +162,7 @@ The highest-value remaining hardware work is:
 
 1. Dot-accurate PPU/FIFO timing and memory-access restrictions.
 2. MBC1 multicart variants and a running MBC3 RTC.
-3. Channel-1 frequency sweep and register read masks.
+3. Channel-1 frequency sweep and cycle-exact length/envelope behavior.
 4. OAM corruption behavior and remaining timer/interrupt edge cases.
 5. Save states with a versioned serialization format.
 

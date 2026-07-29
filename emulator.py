@@ -248,8 +248,6 @@ def draw_debug_overlay(
 
 def make_audio_callback(apu, verbose: bool = False):
     """Build a sounddevice callback backed by the APU's stereo ring buffer."""
-    last_audio_sample = np.array([0.0, 0.0], dtype=np.float32)
-
     def audio_callback(outdata, frames, time, status):
         if status and verbose:
             print(status)
@@ -269,7 +267,6 @@ def make_audio_callback(apu, verbose: bool = False):
 
                 apu.buffer_read_pos = (read_pos + frames) % apu.BUFFER_MAX
                 apu.buffer_size -= frames
-                last_audio_sample[:] = outdata[-1]
             elif size > 0:
                 if read_pos + size <= apu.BUFFER_MAX:
                     outdata[:size] = apu.buffer[read_pos : read_pos + size]
@@ -278,12 +275,11 @@ def make_audio_callback(apu, verbose: bool = False):
                     chunk2 = size - chunk1
                     outdata[:chunk1] = apu.buffer[read_pos:]
                     outdata[chunk1:size] = apu.buffer[:chunk2]
-                outdata[size:] = outdata[size - 1]
+                outdata[size:] = 0.0
                 apu.buffer_read_pos = (read_pos + size) % apu.BUFFER_MAX
                 apu.buffer_size = 0
-                last_audio_sample[:] = outdata[-1]
             else:
-                outdata[:] = last_audio_sample
+                outdata[:] = 0.0
 
     return audio_callback
 

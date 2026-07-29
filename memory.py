@@ -329,6 +329,9 @@ class Memory:
         if UNUSABLE_START <= addr <= UNUSABLE_END:
             return 0x00
 
+        if REG_NR10 <= addr <= REG_WAVE_RAM_END:
+            return self.apu.read_byte(addr)
+
         # Fast scanline fallback if video disabled
         if addr == REG_LY and self.clock is not None and not self._video:
             return (self.clock.get_cycles_elapsed() // 456) % MAX_SCANLINE

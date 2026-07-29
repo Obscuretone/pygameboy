@@ -21,7 +21,8 @@ dispatch, vectorized scanline rendering, and audio-clock pacing.
 - Complete legal LR35902 base-opcode dispatch with interrupt and timer support.
 - MBC0, MBC1, MBC2, MBC3, and MBC5 cartridge banking.
 - Background, window, and DMG sprite rendering.
-- Four-channel APU with stereo routing and a lock-protected audio ring buffer.
+- Four-channel APU with bipolar DMG DAC mixing, AC coupling, stereo routing,
+  and a lock-protected audio ring buffer.
 - Battery-backed cartridge saves written with atomic file replacement.
 - Fast frame execution plus an instrumentable single-step/profile path.
 - Toggleable live register, PPU, audio-buffer, and timing overlay.

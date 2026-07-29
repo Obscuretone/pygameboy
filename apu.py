@@ -33,6 +33,7 @@ from constants import (
     REG_NR22,
     REG_NR23,
     REG_NR24,
+    REG_NR30,
     REG_NR31,
     REG_NR32,
     REG_NR33,
@@ -143,6 +144,7 @@ class PulseChannel:
             self.length_counter -= 1
             if self.length_counter == 0:
                 self.enabled = False
+                self.output = 0
 
     def step_envelope(self) -> None:
         """Advance the volume envelope."""
@@ -213,6 +215,7 @@ class WaveChannel:
     def step(self, cycles: Cycles) -> None:
         """Advance the wave timer and update output."""
         if not self.enabled:
+            self.output = 0
             return
 
         self.timer -= cycles
@@ -241,6 +244,7 @@ class WaveChannel:
             self.length_counter -= 1
             if self.length_counter == 0:
                 self.enabled = False
+                self.output = 0
 
     def trigger(self, freq_lo: int, freq_hi: int, nr32: int, nr34: int) -> None:
         """Trigger (restart) the wave channel."""
@@ -334,6 +338,7 @@ class NoiseChannel:
             self.length_counter -= 1
             if self.length_counter == 0:
                 self.enabled = False
+                self.output = 0
 
     def step_envelope(self) -> None:
         """Advance the volume envelope."""
@@ -384,16 +389,39 @@ class APU:
 
     NR52_READ_MASK: Final[int] = 0x7F
     NR52_REG_COUNT: Final[int] = 0x16
+    REGISTER_READ_MASKS: Final[dict[int, int]] = {
+        0xFF10: 0x80,
+        0xFF11: 0x3F,
+        0xFF12: 0x00,
+        0xFF13: 0xFF,
+        0xFF14: 0xBF,
+        0xFF15: 0xFF,
+        0xFF16: 0x3F,
+        0xFF17: 0x00,
+        0xFF18: 0xFF,
+        0xFF19: 0xBF,
+        0xFF1A: 0x7F,
+        0xFF1B: 0xFF,
+        0xFF1C: 0x9F,
+        0xFF1D: 0xFF,
+        0xFF1E: 0xBF,
+        0xFF1F: 0xFF,
+        0xFF20: 0xFF,
+        0xFF21: 0x00,
+        0xFF22: 0x00,
+        0xFF23: 0xBF,
+        0xFF24: 0x00,
+        0xFF25: 0x00,
+    }
 
-    # Normalization constants
-    CHANNEL_COUNT: Final[float] = 4.0
-    MAX_VOLUME_LEVEL: Final[float] = 15.0
-    MAX_MASTER_VOLUME_LEVEL: Final[float] = 7.0
-
-    # Pre-calculated normalization divisor
-    NORM_DIVISOR: Final[float] = (
-        MAX_VOLUME_LEVEL * CHANNEL_COUNT * MAX_MASTER_VOLUME_LEVEL
+    # Each enabled DAC converts its 4-bit input into the bipolar analog range
+    # documented for DMG hardware: 0 -> -1.0 and 15 -> +1.0.
+    DAC_OUTPUTS: Final[tuple[float, ...]] = tuple(
+        (level / 7.5) - 1.0 for level in range(16)
     )
+    MIX_DIVISOR: Final[float] = 4.0 * 8.0
+    DMG_HPF_BASE_CHARGE: Final[float] = 0.999958
+    HPF_CHARGE_FACTOR: Final[float] = DMG_HPF_BASE_CHARGE**SAMPLE_PERIOD
 
     FRAME_SEQUENCER_STEPS: Final[int] = 8
     ENVELOPE_STEP: Final[int] = 7
@@ -412,6 +440,8 @@ class APU:
 
         self.left_output: float = 0.0
         self.right_output: float = 0.0
+        self.left_capacitor: float = 0.0
+        self.right_capacitor: float = 0.0
         self.buffer = np.zeros((self.BUFFER_MAX, 2), dtype=np.float32)
         self.buffer_lock = threading.Lock()
         self.buffer_write_pos = 0
@@ -420,14 +450,21 @@ class APU:
 
     def read_byte(self, address: Address) -> Byte:
         """Read an APU register or Wave RAM byte."""
-        if not self.sound_enabled and address != REG_NR52:
-            return UNMAPPED_BYTE
-
         offset = address - REG_NR10
+        if REG_WAVE_RAM_START <= address <= REG_WAVE_RAM_END:
+            return self.ch3.wave_ram[address - REG_WAVE_RAM_START]
+        if address == REG_NR52:
+            status = (
+                int(self.ch1.enabled)
+                | (int(self.ch2.enabled) << 1)
+                | (int(self.ch3.enabled) << 2)
+                | (int(self.ch4.enabled) << 3)
+            )
+            return 0x70 | (AUDIO_TRIGGER_BIT if self.sound_enabled else 0) | status
         if 0 <= offset < APU_REG_SIZE:
-            if REG_WAVE_RAM_START <= address <= REG_WAVE_RAM_END:
-                return self.ch3.wave_ram[address - REG_WAVE_RAM_START]
-            return self.registers[offset]
+            return self.registers[offset] | self.REGISTER_READ_MASKS.get(
+                address, UNMAPPED_BYTE
+            )
         return UNMAPPED_BYTE
 
     def write_byte(self, address: Address, value: Byte) -> None:
@@ -463,6 +500,8 @@ class APU:
                 self.ch4.enabled = False
                 self.left_output = 0.0
                 self.right_output = 0.0
+                self.left_capacitor = 0.0
+                self.right_capacitor = 0.0
             self.sound_enabled = new_sound_enabled
             self.registers[offset] = (self.registers[offset] & self.NR52_READ_MASK) | (
                 value & AUDIO_TRIGGER_BIT
@@ -477,39 +516,90 @@ class APU:
                 self.ch1.length_counter = self.ch1.MAX_LENGTH - (
                     value & AUDIO_LENGTH_MASK
                 )
-            elif address == REG_NR14 and (value & AUDIO_TRIGGER_BIT):
-                self.ch1.trigger(
-                    self.registers[REG_NR13 - REG_NR10],
-                    value,
-                    self.registers[REG_NR11 - REG_NR10],
-                    self.registers[REG_NR12 - REG_NR10],
-                    value,
+            elif address == REG_NR12 and not (value & 0xF8):
+                self.ch1.enabled = False
+            elif address == REG_NR13:
+                self.ch1.frequency = (self.ch1.frequency & 0x700) | value
+            elif address == REG_NR14:
+                self.ch1.frequency = ((value & APU_FREQ_HI_MASK) << 8) | (
+                    self.ch1.frequency & 0xFF
                 )
+                length_enabled = bool(value & AUDIO_LENGTH_ENABLE_BIT)
+                self._apply_length_enable(self.ch1, length_enabled)
+                if value & AUDIO_TRIGGER_BIT:
+                    length_was_zero = self.ch1.length_counter == 0
+                    self.ch1.trigger(
+                        self.registers[REG_NR13 - REG_NR10],
+                        value,
+                        self.registers[REG_NR11 - REG_NR10],
+                        self.registers[REG_NR12 - REG_NR10],
+                        value,
+                    )
+                    self._clock_triggered_zero_length(
+                        self.ch1, length_enabled, length_was_zero
+                    )
+                    if not (self.registers[REG_NR12 - REG_NR10] & 0xF8):
+                        self.ch1.enabled = False
 
             # Channel 2
             elif address == REG_NR21:
                 self.ch2.length_counter = self.ch2.MAX_LENGTH - (
                     value & AUDIO_LENGTH_MASK
                 )
-            elif address == REG_NR24 and (value & AUDIO_TRIGGER_BIT):
-                self.ch2.trigger(
-                    self.registers[REG_NR23 - REG_NR10],
-                    value,
-                    self.registers[REG_NR21 - REG_NR10],
-                    self.registers[REG_NR22 - REG_NR10],
-                    value,
+            elif address == REG_NR22 and not (value & 0xF8):
+                self.ch2.enabled = False
+            elif address == REG_NR23:
+                self.ch2.frequency = (self.ch2.frequency & 0x700) | value
+            elif address == REG_NR24:
+                self.ch2.frequency = ((value & APU_FREQ_HI_MASK) << 8) | (
+                    self.ch2.frequency & 0xFF
                 )
+                length_enabled = bool(value & AUDIO_LENGTH_ENABLE_BIT)
+                self._apply_length_enable(self.ch2, length_enabled)
+                if value & AUDIO_TRIGGER_BIT:
+                    length_was_zero = self.ch2.length_counter == 0
+                    self.ch2.trigger(
+                        self.registers[REG_NR23 - REG_NR10],
+                        value,
+                        self.registers[REG_NR21 - REG_NR10],
+                        self.registers[REG_NR22 - REG_NR10],
+                        value,
+                    )
+                    self._clock_triggered_zero_length(
+                        self.ch2, length_enabled, length_was_zero
+                    )
+                    if not (self.registers[REG_NR22 - REG_NR10] & 0xF8):
+                        self.ch2.enabled = False
 
             # Channel 3
+            elif address == REG_NR30:
+                if not (value & AUDIO_TRIGGER_BIT):
+                    self.ch3.enabled = False
             elif address == REG_NR31:
                 self.ch3.length_counter = self.ch3.MAX_LENGTH - value
-            elif address == REG_NR34 and (value & AUDIO_TRIGGER_BIT):
-                self.ch3.trigger(
-                    self.registers[REG_NR33 - REG_NR10],
-                    value,
-                    self.registers[REG_NR32 - REG_NR10],
-                    value,
+            elif address == REG_NR33:
+                self.ch3.frequency = (self.ch3.frequency & 0x700) | value
+            elif address == REG_NR34:
+                self.ch3.frequency = ((value & APU_FREQ_HI_MASK) << 8) | (
+                    self.ch3.frequency & 0xFF
                 )
+                length_enabled = bool(value & AUDIO_LENGTH_ENABLE_BIT)
+                self._apply_length_enable(self.ch3, length_enabled)
+                if value & AUDIO_TRIGGER_BIT:
+                    length_was_zero = self.ch3.length_counter == 0
+                    self.ch3.trigger(
+                        self.registers[REG_NR33 - REG_NR10],
+                        value,
+                        self.registers[REG_NR32 - REG_NR10],
+                        value,
+                    )
+                    self._clock_triggered_zero_length(
+                        self.ch3, length_enabled, length_was_zero
+                    )
+                    if not (
+                        self.registers[REG_NR30 - REG_NR10] & AUDIO_TRIGGER_BIT
+                    ):
+                        self.ch3.enabled = False
             elif REG_WAVE_RAM_START <= address <= REG_WAVE_RAM_END:
                 self.ch3.wave_ram[address - REG_WAVE_RAM_START] = value
 
@@ -518,18 +608,54 @@ class APU:
                 self.ch4.length_counter = self.ch4.MAX_LENGTH - (
                     value & AUDIO_LENGTH_MASK
                 )
+            elif address == REG_NR42 and not (value & 0xF8):
+                self.ch4.enabled = False
             elif address == REG_NR43:
                 self.ch4.set_polynomial_counter(value)
-            elif address == REG_NR44 and (value & AUDIO_TRIGGER_BIT):
-                self.ch4.trigger(
-                    self.registers[REG_NR42 - REG_NR10],
-                    self.registers[REG_NR43 - REG_NR10],
-                    value,
-                )
+            elif address == REG_NR44:
+                length_enabled = bool(value & AUDIO_LENGTH_ENABLE_BIT)
+                self._apply_length_enable(self.ch4, length_enabled)
+                if value & AUDIO_TRIGGER_BIT:
+                    length_was_zero = self.ch4.length_counter == 0
+                    self.ch4.trigger(
+                        self.registers[REG_NR42 - REG_NR10],
+                        self.registers[REG_NR43 - REG_NR10],
+                        value,
+                    )
+                    self._clock_triggered_zero_length(
+                        self.ch4, length_enabled, length_was_zero
+                    )
+                    if not (self.registers[REG_NR42 - REG_NR10] & 0xF8):
+                        self.ch4.enabled = False
+
+    def _apply_length_enable(self, channel, enabled: bool) -> None:
+        """Apply the DMG extra length clock on a disabled-to-enabled edge."""
+        was_enabled = channel.length_enabled
+        channel.length_enabled = enabled
+        if enabled and not was_enabled and (self.frame_sequencer_step & 1):
+            channel.step_length()
+
+    def _clock_triggered_zero_length(
+        self, channel, length_enabled: bool, length_was_zero: bool
+    ) -> None:
+        """Clock a just-reloaded zero length in the non-length sequencer phase."""
+        if (
+            length_enabled
+            and length_was_zero
+            and (self.frame_sequencer_step & 1)
+        ):
+            channel.step_length()
 
     def step(self, cycles: Cycles) -> None:
         """Advance the APU state by the specified number of cycles."""
         if not self.sound_enabled:
+            # Host playback still needs clocked silence while NR52 is off;
+            # otherwise the ring buffer empties and audio can no longer pace
+            # an intentionally silent game.
+            self.cycles += cycles
+            while self.cycles >= self.SAMPLE_PERIOD:
+                self.cycles -= self.SAMPLE_PERIOD
+                self.sample()
             return
 
         remaining = float(cycles)
@@ -594,33 +720,48 @@ class APU:
         nr50 = regs[REG_NR50 - REG_NR10]
         nr51 = regs[REG_NR51 - REG_NR10]
 
-        l_vol = (nr50 & APU_VOL_LEFT_MASK) >> 4
-        r_vol = nr50 & APU_VOL_RIGHT_MASK
+        l_vol = ((nr50 & APU_VOL_LEFT_MASK) >> 4) + 1
+        r_vol = (nr50 & APU_VOL_RIGHT_MASK) + 1
 
         left = 0.0
         right = 0.0
+        dac = self.DAC_OUTPUTS
 
-        if nr51 & APU_MIX_CH1_LEFT:
-            left += self.ch1.output
-        if nr51 & APU_MIX_CH2_LEFT:
-            left += self.ch2.output
-        if nr51 & APU_MIX_CH3_LEFT:
-            left += self.ch3.output
-        if nr51 & APU_MIX_CH4_LEFT:
-            left += self.ch4.output
+        ch1_dac = bool(regs[REG_NR12 - REG_NR10] & 0xF8)
+        ch2_dac = bool(regs[REG_NR22 - REG_NR10] & 0xF8)
+        ch3_dac = bool(regs[REG_NR30 - REG_NR10] & AUDIO_TRIGGER_BIT)
+        ch4_dac = bool(regs[REG_NR42 - REG_NR10] & 0xF8)
 
-        if nr51 & APU_MIX_CH1_RIGHT:
-            right += self.ch1.output
-        if nr51 & APU_MIX_CH2_RIGHT:
-            right += self.ch2.output
-        if nr51 & APU_MIX_CH3_RIGHT:
-            right += self.ch3.output
-        if nr51 & APU_MIX_CH4_RIGHT:
-            right += self.ch4.output
+        if nr51 & APU_MIX_CH1_LEFT and ch1_dac:
+            left += dac[self.ch1.output]
+        if nr51 & APU_MIX_CH2_LEFT and ch2_dac:
+            left += dac[self.ch2.output]
+        if nr51 & APU_MIX_CH3_LEFT and ch3_dac:
+            left += dac[self.ch3.output]
+        if nr51 & APU_MIX_CH4_LEFT and ch4_dac:
+            left += dac[self.ch4.output]
 
-        # Final scaling using pre-calculated divisor
-        self.left_output = (left * l_vol) / self.NORM_DIVISOR
-        self.right_output = (right * r_vol) / self.NORM_DIVISOR
+        if nr51 & APU_MIX_CH1_RIGHT and ch1_dac:
+            right += dac[self.ch1.output]
+        if nr51 & APU_MIX_CH2_RIGHT and ch2_dac:
+            right += dac[self.ch2.output]
+        if nr51 & APU_MIX_CH3_RIGHT and ch3_dac:
+            right += dac[self.ch3.output]
+        if nr51 & APU_MIX_CH4_RIGHT and ch4_dac:
+            right += dac[self.ch4.output]
+
+        raw_left = (left * l_vol) / self.MIX_DIVISOR
+        raw_right = (right * r_vol) / self.MIX_DIVISOR
+
+        # DMG output is AC-coupled. Model the hardware capacitor at the native
+        # sample cadence so callback block size cannot alter the waveform.
+        filtered_left = raw_left - self.left_capacitor
+        filtered_right = raw_right - self.right_capacitor
+        charge = self.HPF_CHARGE_FACTOR
+        self.left_capacitor = raw_left - (filtered_left * charge)
+        self.right_capacitor = raw_right - (filtered_right * charge)
+        self.left_output = filtered_left
+        self.right_output = filtered_right
 
         with self.buffer_lock:
             if self.buffer_size >= self.BUFFER_MAX:
