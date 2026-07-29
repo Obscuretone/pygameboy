@@ -1,89 +1,91 @@
-from typing import Any, TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, Any, Union
+
+from constants import REG_LY
 from gb_types import (
-    FLAG_Z,
+    BIT_0,
+    BIT_7,
+    BYTE_MASK,
+    DAA_HIGH_ADJUST,
+    DAA_HIGH_THRESHOLD,
+    DAA_LOW_ADJUST,
+    DAA_LOW_THRESHOLD,
     FLAG_C,
-    REG_SP,
+    FLAG_Z,
+    HIGH_NIBBLE_MASK,
+    LOW_NIBBLE_MASK,
     REG_A,
-    REG_F,
     REG_B,
     REG_C,
     REG_D,
     REG_E,
+    REG_F,
     REG_H,
-    REG_L,
-    REG_BC,
-    REG_DE,
     REG_HL,
+    REG_L,
+    WORD_MASK,
     Address,
     Byte,
-    BYTE_MASK,
-    WORD_MASK,
-    LOW_NIBBLE_MASK,
-    HIGH_NIBBLE_MASK,
-    DAA_LOW_THRESHOLD,
-    DAA_HIGH_THRESHOLD,
-    DAA_LOW_ADJUST,
-    DAA_HIGH_ADJUST,
-    BIT_0,
-    BIT_7,
 )
 
 if TYPE_CHECKING:
-    from .registers import RegisterFile
-    from .interrupts import InterruptManager
     from protocols import MemoryBus
+
+    from .interrupts import InterruptManager
+    from .registers import RegisterFile
 
 
 class CPUOpcodes:
-    # These must be provided by the actual CPU class
-    registers: "RegisterFile"
-    ram: "MemoryBus"
-    interrupts: "InterruptManager"
-    memory: Any
-    halted: bool
-    stopped: bool
+    if TYPE_CHECKING:
+        # These operations are supplied by the concrete CPU implementation.
+        registers: "RegisterFile"
+        ram: "MemoryBus"
+        interrupts: "InterruptManager"
+        memory: Any
+        halted: bool
+        stopped: bool
 
-    def _read_memory_byte(self, address: Address) -> Byte: return 0
-    def _write_memory_byte(self, address: Address, value: Byte) -> None: pass
-    def _read_memory_word(self, address: Address) -> int: return 0
-    def _push_stack(self, value: int) -> None: pass
-    def _pop_stack(self) -> int: return 0
-    def push_stack(self, value: int) -> None: pass
-    def pop_stack(self) -> int: return 0
-    def _set_inc_flags(self, v: Byte, res: Byte) -> None: pass
-    def _set_dec_flags(self, v: Byte, res: Byte) -> None: pass
-    def _set_add_hl_flags(self, left: int, right: int, res: int) -> None: pass
-    def _add_int(self, a: Any, b: Byte, carry: bool = False) -> int: return 0
-    def _sub_int(self, a: Any, b: Byte, carry: bool = False) -> int: return 0
-    def _and_int(self, a: Any, b: Byte) -> int: return 0
-    def _or_int(self, a: Any, b: Byte) -> int: return 0
-    def _xor_int(self, a: Any, b: Byte) -> int: return 0
-    def _cp_int(self, a: Any, b: Byte) -> None: pass
-    def _add(self, r1: Any, r2: Any) -> None: pass
-    def _adc(self, r1: Any, r2: Any) -> None: pass
-    def _sub_reg(self, r1: Any, r2: Any) -> None: pass
-    def _sbc(self, r1: Any, r2: Any) -> None: pass
-    def _and_reg(self, r1: Any, r2: Any) -> None: pass
-    def _xor_reg(self, r1: Any, r2: Any) -> None: pass
-    def _or_reg(self, r1: Any, r2: Any) -> None: pass
-    def _cp_reg(self, r1: Any, r2: Any) -> None: pass
-    def _add_reg_mem(self, r1: Any, r2: Any) -> None: pass
-    def _adc_reg_mem(self, r1: Any, r2: Any) -> None: pass
-    def _sub_reg_mem(self, r1: Any, r2: Any) -> None: pass
-    def _sbc_reg_mem(self, r1: Any, r2: Any) -> None: pass
-    def _and_reg_mem(self, r1: Any, r2: Any) -> None: pass
-    def _xor_reg_mem(self, r1: Any, r2: Any) -> None: pass
-    def _or_reg_mem(self, r1: Any, r2: Any) -> None: pass
-    def _cp_reg_mem(self, r1: Any, r2: Any) -> None: pass
-    def _add_reg_int(self, r1: Any, v: Byte) -> None: pass
-    def _adc_reg_int(self, r1: Any, v: Byte) -> None: pass
-    def _sbc_reg_int(self, r1: Any, v: Byte) -> None: pass
-    def _signed_e8(self, value: Byte) -> int: return 0
-    def _set_sp_e8_flags(self, sp: int, e8: int) -> None: pass
-    def _set_cb_result_flags(self, res: Byte, carry: bool) -> None: pass
-    def _set_bit_flags(self, val: Byte, bit: int) -> None: pass
-    def get_flag(self, flag: str) -> bool: return False
-    def set_flag(self, flag: str, value: Union[bool, int] = True) -> None: pass
+        def _advance_to_memory_access(self, target: int) -> None: ...
+        def _read_memory_byte(self, address: Address) -> Byte: ...
+        def _write_memory_byte(self, address: Address, value: Byte) -> None: ...
+        def _read_memory_word(self, address: Address) -> int: ...
+        def _push_stack(self, value: int) -> None: ...
+        def _pop_stack(self) -> int: ...
+        def push_stack(self, value: int) -> None: ...
+        def pop_stack(self) -> int: ...
+        def _set_inc_flags(self, v: Byte, res: Byte) -> None: ...
+        def _set_dec_flags(self, v: Byte, res: Byte) -> None: ...
+        def _set_add_hl_flags(self, left: int, right: int, res: int) -> None: ...
+        def _add_int(self, a: Any, b: Byte, carry: bool = False) -> int: ...
+        def _sub_int(self, a: Any, b: Byte, carry: bool = False) -> int: ...
+        def _and_int(self, a: Any, b: Byte) -> int: ...
+        def _or_int(self, a: Any, b: Byte) -> int: ...
+        def _xor_int(self, a: Any, b: Byte) -> int: ...
+        def _cp_int(self, a: Any, b: Byte) -> None: ...
+        def _add(self, r1: Any, r2: Any) -> None: ...
+        def _adc(self, r1: Any, r2: Any) -> None: ...
+        def _sub_reg(self, r1: Any, r2: Any) -> None: ...
+        def _sbc(self, r1: Any, r2: Any) -> None: ...
+        def _and_reg(self, r1: Any, r2: Any) -> None: ...
+        def _xor_reg(self, r1: Any, r2: Any) -> None: ...
+        def _or_reg(self, r1: Any, r2: Any) -> None: ...
+        def _cp_reg(self, r1: Any, r2: Any) -> None: ...
+        def _add_reg_mem(self, r1: Any, r2: Any) -> None: ...
+        def _adc_reg_mem(self, r1: Any, r2: Any) -> None: ...
+        def _sub_reg_mem(self, r1: Any, r2: Any) -> None: ...
+        def _sbc_reg_mem(self, r1: Any, r2: Any) -> None: ...
+        def _and_reg_mem(self, r1: Any, r2: Any) -> None: ...
+        def _xor_reg_mem(self, r1: Any, r2: Any) -> None: ...
+        def _or_reg_mem(self, r1: Any, r2: Any) -> None: ...
+        def _cp_reg_mem(self, r1: Any, r2: Any) -> None: ...
+        def _add_reg_int(self, r1: Any, v: Byte) -> None: ...
+        def _adc_reg_int(self, r1: Any, v: Byte) -> None: ...
+        def _sbc_reg_int(self, r1: Any, v: Byte) -> None: ...
+        def _signed_e8(self, value: Byte) -> int: ...
+        def _set_sp_e8_flags(self, sp: int, e8: int) -> None: ...
+        def _set_cb_result_flags(self, res: Byte, carry: bool) -> None: ...
+        def _set_bit_flags(self, val: Byte, bit: int) -> None: ...
+        def get_flag(self, flag: str) -> bool: ...
+        def set_flag(self, flag: str, value: Union[bool, int] = True) -> None: ...
 
     # 0x00 - LOW_NIBBLE_MASK
     def _nop(self):
@@ -225,7 +227,9 @@ class CPUOpcodes:
             self.memory[(self.registers.PC + 2) & 0xFFFF] << 8
         )
         sp = self.registers.SP
+        self._advance_to_memory_access(8)
         self._write_memory_byte(n16, sp & BYTE_MASK)
+        self._advance_to_memory_access(12)
         self._write_memory_byte((n16 + 1) & WORD_MASK, sp >> 8)
         self.registers.PC += 3
         return 20
@@ -1017,8 +1021,10 @@ class CPUOpcodes:
         bytes = 1
         """
         addr = ((self.registers.data[6] << 8) | self.registers.data[7])
+        self._advance_to_memory_access(0)
         v = self._read_memory_byte(addr)
         res = (v + 1) & BYTE_MASK
+        self._advance_to_memory_access(4)
         self._write_memory_byte(addr, res)
         self._set_inc_flags(v, res)
         self.registers.PC += 1
@@ -1036,8 +1042,10 @@ class CPUOpcodes:
         bytes = 1
         """
         addr = ((self.registers.data[6] << 8) | self.registers.data[7])
+        self._advance_to_memory_access(0)
         v = self._read_memory_byte(addr)
         res = (v - 1) & BYTE_MASK
+        self._advance_to_memory_access(4)
         self._write_memory_byte(addr, res)
         self._set_dec_flags(v, res)
         self.registers.PC += 1
@@ -1055,6 +1063,7 @@ class CPUOpcodes:
         bytes = 2
         """
         n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
+        self._advance_to_memory_access(4)
         self._write_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]), n8)
         self.registers.PC += 2
         return 12
@@ -2773,7 +2782,11 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self._and_reg(REG_A, REG_A)
+        # AND A leaves A unchanged, so this very common polling-loop opcode
+        # only needs to update flags. Avoid the generic two-read/one-write path.
+        self.registers.data[REG_F] = (
+            FLAG_Z if self.registers.data[REG_A] == 0 else 0
+        ) | 0x20
         self.registers.PC += 1
         return 4
 
@@ -3581,6 +3594,7 @@ class CPUOpcodes:
     def _ldh_n8_a(self):
         """Opcode 0xE0 (LDH 'a8','A',)"""
         n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
+        self._advance_to_memory_access(4)
         self._write_memory_byte(int(0xFF00 + n8), self.registers.data[0])
         self.registers.PC += 2
         return 12
@@ -3640,6 +3654,7 @@ class CPUOpcodes:
         n16 = self.memory[(self.registers.PC + 1) & 0xFFFF] | (
             self.memory[(self.registers.PC + 2) & 0xFFFF] << 8
         )
+        self._advance_to_memory_access(8)
         self._write_memory_byte(n16, self.registers.data[0])
         self.registers.PC += 3
         return 16
@@ -3660,9 +3675,20 @@ class CPUOpcodes:
     # HIGH_NIBBLE_MASK - BYTE_MASK
     def _ldh_a_n8(self):
         """Opcode HIGH_NIBBLE_MASK (LDH 'A','a8',)"""
-        n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
-        self.registers.data[0] = self._read_memory_byte(int(0xFF00 + n8))
-        self.registers.PC += 2
+        registers = self.registers
+        pc = registers.PC
+        n8 = self.memory[(pc + 1) & 0xFFFF]
+        self._advance_to_memory_access(4)
+        address = 0xFF00 + n8
+        if n8 >= 0x80 or (address == REG_LY and self.video is not None):
+            # HRAM/IE and a connected video device's LY register are already
+            # mirrored into flat memory. Games poll these locations heavily, so
+            # avoid a Python bus method call without bypassing the clock-derived
+            # headless LY fallback.
+            registers.data[REG_A] = self.memory[address]
+        else:
+            registers.data[REG_A] = self._read_memory_byte(address)
+        registers.PC = pc + 2
         return 12
 
     def _pop_af(self):
@@ -3728,6 +3754,7 @@ class CPUOpcodes:
         n16 = self.memory[(self.registers.PC + 1) & 0xFFFF] | (
             self.memory[(self.registers.PC + 2) & 0xFFFF] << 8
         )
+        self._advance_to_memory_access(8)
         self.registers.data[0] = self._read_memory_byte(n16)
         self.registers.PC += 3
         return 16
@@ -3778,11 +3805,13 @@ class CPUOpcodes:
 
         def get_val():
             if reg_id == REG_HL:
+                self._advance_to_memory_access(4)
                 return self._read_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]))
             return self.registers.data[reg_id]
 
         def set_val(v):
             if reg_id == REG_HL:
+                self._advance_to_memory_access(8)
                 self._write_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]), v)
             else:
                 self.registers.data[reg_id] = v
@@ -3826,7 +3855,7 @@ class CPUOpcodes:
                 res = ((val & LOW_NIBBLE_MASK) << 4) | ((val & HIGH_NIBBLE_MASK) >> 4)
                 set_val(res)
                 self.registers.data[REG_F] = FLAG_Z if res == 0 else 0
-            elif bit == 7:
+            else:
                 c = val & BIT_0
                 res = val >> 1
                 set_val(res)
@@ -3837,7 +3866,7 @@ class CPUOpcodes:
                 cycles = 12
         elif category == 2:
             set_val(get_val() & ((1 << bit) ^ BYTE_MASK))
-        elif category == 3:
+        else:
             set_val(get_val() | (1 << bit))
         self.registers.PC += 2
         return cycles

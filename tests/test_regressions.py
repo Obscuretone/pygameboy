@@ -1,6 +1,7 @@
 import unittest
-from memory import Memory
+
 from clock import SystemClock
+from memory import Memory
 from video import VideoChip
 
 
@@ -45,22 +46,20 @@ class TestRegressions(unittest.TestCase):
         """Verify APU registers are managed correctly during power toggles."""
         # Turn APU ON (NR52 Bit 7 = 1)
         self.memory.write_byte(0xFF26, 0x80)
-        # Verify registers are initialized to 0
-        self.assertEqual(self.memory.read_byte(0xFF10), 0x00)
+        # Writable bits initialize to 0; unused read bits retain their DMG mask.
+        self.assertEqual(self.memory.read_byte(0xFF10), 0x80)
 
         # Write to a register
         self.memory.write_byte(0xFF10, 0x55)
-        self.assertEqual(self.memory.read_byte(0xFF10), 0x55)
+        self.assertEqual(self.memory.read_byte(0xFF10), 0xD5)
 
         # Power OFF (NR52 Bit 7 = 0)
         self.memory.write_byte(0xFF26, 0x00)
-        # Registers should read as 0xFF when APU is off
-        self.assertEqual(self.memory.read_byte(0xFF10), 0xFF)
+        self.assertEqual(self.memory.read_byte(0xFF10), 0x80)
 
         # Power ON again
         self.memory.write_byte(0xFF26, 0x80)
-        # Should be reset to 0x00
-        self.assertEqual(self.memory.read_byte(0xFF10), 0x00)
+        self.assertEqual(self.memory.read_byte(0xFF10), 0x80)
 
 
 if __name__ == "__main__":

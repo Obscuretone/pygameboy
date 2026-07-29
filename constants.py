@@ -39,8 +39,22 @@ CART_TYPE_ADDR = 0x0147
 CART_ROM_SIZE_ADDR = 0x0148
 CART_RAM_SIZE_ADDR = 0x0149
 
-ROM_BASE_SIZE = 32768
+ROM_SIZE_MAP = {
+    0x00: 32 * 1024,
+    0x01: 64 * 1024,
+    0x02: 128 * 1024,
+    0x03: 256 * 1024,
+    0x04: 512 * 1024,
+    0x05: 1024 * 1024,
+    0x06: 2 * 1024 * 1024,
+    0x07: 4 * 1024 * 1024,
+    0x08: 8 * 1024 * 1024,
+    0x52: 72 * 16 * 1024,
+    0x53: 80 * 16 * 1024,
+    0x54: 96 * 16 * 1024,
+}
 RAM_SIZE_MAP = {
+    0x01: 2048,
     0x02: 8192,
     0x03: 32768,
     0x04: 131072,
@@ -48,11 +62,23 @@ RAM_SIZE_MAP = {
 }
 
 # MBC Type IDs
-MBC_TYPE_ROM_ONLY = 0x00
+MBC_TYPE_ROM_ONLY = {0x00, 0x08, 0x09}
 MBC_TYPE_MBC1 = [0x01, 0x02, 0x03]
 MBC_TYPE_MBC2 = [0x05, 0x06]
 MBC_TYPE_MBC3 = [0x0F, 0x10, 0x11, 0x12, 0x13]
 MBC_TYPE_MBC5 = [0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E]
+MBC5_RUMBLE_TYPES = {0x1C, 0x1D, 0x1E}
+BATTERY_BACKED_CART_TYPES = {
+    0x03,  # MBC1 + RAM + Battery
+    0x06,  # MBC2 + Battery
+    0x09,  # ROM + RAM + Battery
+    0x0D,  # MMM01 + RAM + Battery
+    0x0F,  # MBC3 + Timer + Battery
+    0x10,  # MBC3 + Timer + RAM + Battery
+    0x13,  # MBC3 + RAM + Battery
+    0x1B,  # MBC5 + RAM + Battery
+    0x1E,  # MBC5 + Rumble + RAM + Battery
+}
 
 # MBC Register Ranges
 MBC_RAM_ENABLE_END = 0x1FFF
@@ -160,8 +186,11 @@ APU_VOL_LEFT_MASK = 0x70
 # Serial Constants
 SERIAL_START_BIT = 0x80
 SERIAL_INTERNAL_CLOCK_BIT = 0x01
-SERIAL_TRANSFER_MASK = 0x81
 SERIAL_INTERRUPT_BIT = 0x08
+SERIAL_BIT_CYCLES = 512
+SERIAL_TRANSFER_BITS = 8
+# Reset-aligned serial divider phase after the DMG ABC boot ROM exits.
+DMG_POST_BOOT_SERIAL_PHASE = 460
 
 # Joypad Constants
 JOYPAD_DIRECTION_SELECT_BIT = 0x10
