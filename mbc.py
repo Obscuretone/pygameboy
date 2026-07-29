@@ -1,26 +1,25 @@
-from typing import List, Optional, Final, Callable, Union
-from gb_types import (
-    ROMData,
-    RAMData,
-    LOW_NIBBLE_MASK,
-    UNMAPPED_BYTE,
-    BIT_0,
-    BIT_5,
-    BIT_6,
-    BIT_8,
-    HIGH_NIBBLE_MASK,
-    BYTE_MASK,
-)
+from typing import Callable, Final, List, Optional, Union
+
 from constants import (
-    ROM_BANK_SIZE,
-    RAM_BANK_SIZE,
     ERAM_START,
-    ROM_END,
+    MBC5_ROM_BANK_LOW_END,
+    MBC_BANK_MODE_SEL_END,
+    MBC_RAM_BANK_SEL_END,
     MBC_RAM_ENABLE_END,
     MBC_ROM_BANK_SEL_END,
-    MBC_RAM_BANK_SEL_END,
-    MBC_BANK_MODE_SEL_END,
-    MBC5_ROM_BANK_LOW_END,
+    RAM_BANK_SIZE,
+    ROM_BANK_SIZE,
+    ROM_END,
+)
+from gb_types import (
+    BIT_0,
+    BIT_8,
+    BYTE_MASK,
+    HIGH_NIBBLE_MASK,
+    LOW_NIBBLE_MASK,
+    UNMAPPED_BYTE,
+    RAMData,
+    ROMData,
 )
 
 
@@ -42,32 +41,45 @@ class MBC:
         self.on_ram_bank_change: Optional[
             Callable[[int, Union[bytes, bytearray]], None]
         ] = None
+        self.on_ram_write: Optional[Callable[[int, int], None]] = None
 
     def read_rom(self, address: int) -> int:
         return self.rom[address]
 
     def write_rom(self, address: int, value: int) -> None:
-        pass
+        return
 
     def read_ram(self, address: int) -> int:
         if not self.ram_enabled or not self.ram:
             return UNMAPPED_BYTE
-        return self.ram[address - ERAM_START]
+        return self.ram[(address - ERAM_START) % len(self.ram)]
 
     def write_ram(self, address: int, value: int) -> None:
         if not self.ram_enabled or not self.ram:
             return
-        self.ram[address - ERAM_START] = value
+        offset = (address - ERAM_START) % len(self.ram)
+        self.ram[offset] = value
         self.ram_dirty = True
+        for mirror_offset in range(offset, RAM_BANK_SIZE, len(self.ram)):
+            self._trigger_ram_write(ERAM_START + mirror_offset, value)
 
     def _ram_bank_data(self, bank_num: int) -> Union[bytes, bytearray]:
         if not self.ram:
             return bytes([UNMAPPED_BYTE] * RAM_BANK_SIZE)
+        if len(self.ram) < RAM_BANK_SIZE:
+            repeats = (RAM_BANK_SIZE + len(self.ram) - 1) // len(self.ram)
+            return (self.ram * repeats)[:RAM_BANK_SIZE]
         start = (bank_num * RAM_BANK_SIZE) % len(self.ram)
         data = self.ram[start : start + RAM_BANK_SIZE]
         if len(data) < RAM_BANK_SIZE:
             return data + bytes([UNMAPPED_BYTE] * (RAM_BANK_SIZE - len(data)))
         return data
+
+    def visible_ram_window(self) -> bytes:
+        """Return exactly what CPU reads currently see at $A000-$BFFF."""
+        return bytes(
+            self.read_ram(ERAM_START + offset) for offset in range(RAM_BANK_SIZE)
+        )
 
     def _trigger_bank_change(
         self, start_addr: int, bank_num: int, data: Union[bytes, bytearray]
@@ -81,12 +93,17 @@ class MBC:
         if self.on_ram_bank_change:
             self.on_ram_bank_change(bank_num, data)
 
+    def _trigger_ram_write(self, address: int, value: int) -> None:
+        if self.on_ram_write:
+            self.on_ram_write(address, value)
+
 
 class MBC0(MBC):
-    """No Banking (ROM up to 32KB)"""
+    """No ROM banking, with optional directly mapped cartridge RAM."""
 
-    def __init__(self, rom_data: ROMData):
-        super().__init__(rom_data, 0)
+    def __init__(self, rom_data: ROMData, ram_size: int = 0):
+        super().__init__(rom_data, ram_size)
+        self.ram_enabled = ram_size > 0
 
 
 class MBC1(MBC):
@@ -95,8 +112,6 @@ class MBC1(MBC):
     """
 
     ROM_BANK_LOW_MASK: Final[int] = 0x1F
-    ROM_BANK_HIGH_MASK: Final[int] = BIT_5 | BIT_6
-    ROM_BANK_SELECT_MASK: Final[int] = 0x60
     RAM_BANK_MASK: Final[int] = 0x03
     MODE_MASK: Final[int] = 0x01
 
@@ -104,23 +119,34 @@ class MBC1(MBC):
 
     def __init__(self, rom_data: ROMData, ram_size: int = DEFAULT_RAM_SIZE):
         super().__init__(rom_data, ram_size)
+        self.rom_bank_low: int = 1
         self.rom_bank: int = 1
         self.ram_bank: int = 0
         self.mode: int = 0  # 0: ROM Banking, 1: RAM Banking
 
+    def _fixed_rom_bank(self) -> int:
+        return (self.ram_bank << 5) if self.mode == 1 else 0
+
+    def _switchable_rom_bank(self) -> int:
+        high_bits = (self.ram_bank << 5) if self.mode == 0 else 0
+        return high_bits | self.rom_bank_low
+
     def read_rom(self, address: int) -> int:
         if address < ROM_BANK_SIZE:
-            return self.rom[address]
+            real_address = self._fixed_rom_bank() * ROM_BANK_SIZE + address
+            return self.rom[real_address % len(self.rom)]
         elif address <= ROM_END:
-            bank = self.rom_bank
+            bank = self._switchable_rom_bank()
             real_address = (bank * ROM_BANK_SIZE) + (address - ROM_BANK_SIZE)
             return self.rom[real_address % len(self.rom)]
         return UNMAPPED_BYTE
 
     def write_rom(self, address: int, value: int) -> None:
-        old_rom_bank = self.rom_bank
+        old_rom_bank = self._switchable_rom_bank()
+        old_fixed_bank = self._fixed_rom_bank()
         old_ram_bank = self.ram_bank
         old_ram_enabled = self.ram_enabled
+        old_mode = self.mode
 
         if address <= MBC_RAM_ENABLE_END:
             self.ram_enabled = (value & LOW_NIBBLE_MASK) == self.RAM_ENABLE_VAL
@@ -128,24 +154,28 @@ class MBC1(MBC):
             bank = value & self.ROM_BANK_LOW_MASK
             if bank == 0:
                 bank = 1
-            self.rom_bank = (self.rom_bank & self.ROM_BANK_SELECT_MASK) | bank
+            self.rom_bank_low = bank
         elif address <= MBC_RAM_BANK_SEL_END:
             self.ram_bank = value & self.RAM_BANK_MASK
-            self.rom_bank = (self.rom_bank & self.ROM_BANK_LOW_MASK) | (
-                (value & self.RAM_BANK_MASK) << 5
-            )
         elif address <= MBC_BANK_MODE_SEL_END:
             self.mode = value & self.MODE_MASK
 
+        self.rom_bank = self._switchable_rom_bank()
         if self.rom_bank != old_rom_bank:
             start = (self.rom_bank * ROM_BANK_SIZE) % len(self.rom)
             data = self.rom[start : start + ROM_BANK_SIZE]
             self._trigger_bank_change(ROM_BANK_SIZE, self.rom_bank, data)
 
+        fixed_bank = self._fixed_rom_bank()
+        if fixed_bank != old_fixed_bank:
+            start = (fixed_bank * ROM_BANK_SIZE) % len(self.rom)
+            data = self.rom[start : start + ROM_BANK_SIZE]
+            self._trigger_bank_change(0, fixed_bank, data)
+
         if (
             self.ram_enabled != old_ram_enabled
             or self.ram_bank != old_ram_bank
-            or self.mode != 0
+            or self.mode != old_mode
         ):
             if not self.ram_enabled:
                 self._trigger_ram_bank_change(0, bytes([UNMAPPED_BYTE] * RAM_BANK_SIZE))
@@ -167,6 +197,7 @@ class MBC1(MBC):
         real_address = (bank * RAM_BANK_SIZE) + (address - ERAM_START)
         self.ram[real_address % len(self.ram)] = value
         self.ram_dirty = True
+        self._trigger_ram_write(address, self.read_ram(address))
 
 
 class MBC3(MBC):
@@ -187,6 +218,8 @@ class MBC3(MBC):
         self.rom_bank: int = 1
         self.ram_bank: int = 0
         self.rtc_registers: List[int] = [0] * self.RTC_REGISTER_COUNT
+        self.latched_rtc_registers: List[int] = [0] * self.RTC_REGISTER_COUNT
+        self.rtc_latched: bool = False
         self.latch_state: int = 0
 
     def read_rom(self, address: int) -> int:
@@ -201,6 +234,7 @@ class MBC3(MBC):
         old_rom_bank = self.rom_bank
         old_ram_bank = self.ram_bank
         old_ram_enabled = self.ram_enabled
+        latched_now = False
 
         if address <= MBC_RAM_ENABLE_END:
             self.ram_enabled = (value & LOW_NIBBLE_MASK) == self.RAM_ENABLE_VAL
@@ -213,7 +247,9 @@ class MBC3(MBC):
             self.ram_bank = value
         elif address <= MBC_BANK_MODE_SEL_END:
             if self.latch_state == 0 and value == 1:
-                pass
+                self.latched_rtc_registers[:] = self.rtc_registers
+                self.rtc_latched = True
+                latched_now = True
             self.latch_state = value
 
         if self.rom_bank != old_rom_bank:
@@ -221,12 +257,21 @@ class MBC3(MBC):
             data = self.rom[start : start + ROM_BANK_SIZE]
             self._trigger_bank_change(ROM_BANK_SIZE, self.rom_bank, data)
 
-        if self.ram_enabled != old_ram_enabled or self.ram_bank != old_ram_bank:
+        if (
+            self.ram_enabled != old_ram_enabled
+            or self.ram_bank != old_ram_bank
+            or latched_now
+        ):
             if not self.ram_enabled:
                 self._trigger_ram_bank_change(0, bytes([UNMAPPED_BYTE] * RAM_BANK_SIZE))
             elif 0 <= self.ram_bank <= self.RAM_BANK_SELECT_MASK:
                 self._trigger_ram_bank_change(
                     self.ram_bank, self._ram_bank_data(self.ram_bank)
+                )
+            elif self.RTC_REGISTER_START <= self.ram_bank <= self.RTC_REGISTER_END:
+                rtc_value = self.read_ram(ERAM_START)
+                self._trigger_ram_bank_change(
+                    self.ram_bank, bytes([rtc_value]) * RAM_BANK_SIZE
                 )
             else:
                 self._trigger_ram_bank_change(0, bytes([UNMAPPED_BYTE] * RAM_BANK_SIZE))
@@ -240,7 +285,10 @@ class MBC3(MBC):
             real_address = (self.ram_bank * RAM_BANK_SIZE) + (address - ERAM_START)
             return self.ram[real_address % len(self.ram)]
         elif self.RTC_REGISTER_START <= self.ram_bank <= self.RTC_REGISTER_END:
-            return self.rtc_registers[self.ram_bank - self.RTC_REGISTER_START]
+            registers = (
+                self.latched_rtc_registers if self.rtc_latched else self.rtc_registers
+            )
+            return registers[self.ram_bank - self.RTC_REGISTER_START]
         return UNMAPPED_BYTE
 
     def write_ram(self, address: int, value: int) -> None:
@@ -252,8 +300,13 @@ class MBC3(MBC):
             real_address = (self.ram_bank * RAM_BANK_SIZE) + (address - ERAM_START)
             self.ram[real_address % len(self.ram)] = value
             self.ram_dirty = True
+            self._trigger_ram_write(address, self.read_ram(address))
         elif self.RTC_REGISTER_START <= self.ram_bank <= self.RTC_REGISTER_END:
             self.rtc_registers[self.ram_bank - self.RTC_REGISTER_START] = value
+            visible_value = self.read_ram(address)
+            self._trigger_ram_bank_change(
+                self.ram_bank, bytes([visible_value]) * RAM_BANK_SIZE
+            )
 
 
 class MBC5(MBC):
@@ -267,10 +320,17 @@ class MBC5(MBC):
 
     DEFAULT_RAM_SIZE: Final[int] = 0x20000
 
-    def __init__(self, rom_data: ROMData, ram_size: int = DEFAULT_RAM_SIZE):
+    def __init__(
+        self,
+        rom_data: ROMData,
+        ram_size: int = DEFAULT_RAM_SIZE,
+        has_rumble: bool = False,
+    ):
         super().__init__(rom_data, ram_size)
         self.rom_bank: int = 1
         self.ram_bank: int = 0
+        self.has_rumble = has_rumble
+        self.rumble_enabled = False
 
     def read_rom(self, address: int) -> int:
         if address < ROM_BANK_SIZE:
@@ -294,7 +354,11 @@ class MBC5(MBC):
                 (value & BIT_0) << 8
             )
         elif address <= MBC_RAM_BANK_SEL_END:
-            self.ram_bank = value & self.RAM_BANK_MASK
+            if self.has_rumble:
+                self.rumble_enabled = bool(value & 0x08)
+                self.ram_bank = value & 0x07
+            else:
+                self.ram_bank = value & self.RAM_BANK_MASK
 
         if self.rom_bank != old_rom_bank:
             start = (self.rom_bank * ROM_BANK_SIZE) % len(self.rom)
@@ -321,6 +385,7 @@ class MBC5(MBC):
         real_address = (self.ram_bank * RAM_BANK_SIZE) + (address - ERAM_START)
         self.ram[real_address % len(self.ram)] = value
         self.ram_dirty = True
+        self._trigger_ram_write(address, self.read_ram(address))
 
 
 class MBC2(MBC):
@@ -360,7 +425,7 @@ class MBC2(MBC):
             self._trigger_bank_change(ROM_BANK_SIZE, self.rom_bank, data)
 
         if self.ram_enabled:
-            self._trigger_ram_bank_change(0, self.ram)
+            self._trigger_ram_bank_change(0, self._visible_ram_window())
         else:
             self._trigger_ram_bank_change(0, bytes([UNMAPPED_BYTE] * RAM_BANK_SIZE))
 
@@ -372,5 +437,13 @@ class MBC2(MBC):
     def write_ram(self, address: int, value: int) -> None:
         if not self.ram_enabled:
             return
-        self.ram[(address - ERAM_START) % self.RAM_SIZE] = value & LOW_NIBBLE_MASK
+        offset = (address - ERAM_START) % self.RAM_SIZE
+        self.ram[offset] = value & LOW_NIBBLE_MASK
         self.ram_dirty = True
+        visible_value = self.ram[offset] | HIGH_NIBBLE_MASK
+        for mirror_offset in range(offset, RAM_BANK_SIZE, self.RAM_SIZE):
+            self._trigger_ram_write(ERAM_START + mirror_offset, visible_value)
+
+    def _visible_ram_window(self) -> bytes:
+        visible = bytes(value | HIGH_NIBBLE_MASK for value in self.ram)
+        return visible * (RAM_BANK_SIZE // self.RAM_SIZE)

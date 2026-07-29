@@ -1,6 +1,7 @@
 import unittest
-from memory import Memory
+
 from cpu import CPU
+from memory import Memory
 from video import VideoChip
 
 
@@ -2256,13 +2257,43 @@ class TestCPU(unittest.TestCase):
 
         # Execute 2 instructions.
         # 1. PC=0xFFFF, opcode=0x00, PC becomes 0x0000
-        # 2. PC=0x0000, executes whatever is there
+        # 2. PC=0x0000, executes the initialized NOP
         self.cpu.run(max_instructions=2, realtime=False, fast=True, announce=False)
 
         self.assertLess(self.cpu.registers.PC, 0x10000)
         self.assertEqual(
             self.cpu.registers.PC, 1
         )  # Assuming next instruction is 1 byte NOP
+
+    def test_debug_dispatch_path_executes_and_profiles_opcodes(self):
+        self.ram.storage[0:3] = bytes([0x00, 0x00, 0x00])
+
+        executed, cycles = self.cpu.run(
+            max_instructions=3,
+            realtime=False,
+            profile_opcodes=True,
+            fast=False,
+            announce=False,
+        )
+
+        self.assertEqual((executed, cycles), (3, 12))
+        self.assertEqual(self.cpu.opcode_profile[0x00], 3)
+        self.assertEqual(self.cpu.hottest_opcodes(1), [(0x00, 3)])
+
+        self.cpu.reset_opcode_profile()
+        self.assertEqual(sum(self.cpu.opcode_profile), 0)
+
+    def test_non_positive_execution_limits_do_not_execute(self):
+        self.ram.storage[0] = 0x00
+
+        self.assertEqual(
+            self.cpu.run(max_instructions=0, realtime=False, announce=False),
+            (0, 0),
+        )
+        self.assertEqual(
+            self.cpu.run(max_cycles=0, realtime=False, announce=False),
+            (0, 0),
+        )
 
 
 if __name__ == "__main__":

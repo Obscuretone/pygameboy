@@ -1,12 +1,13 @@
 from typing import Any
-from gb_types import Byte, BIT_6, BIT_7
+
 from constants import (
-    JOYPAD_DIRECTION_SELECT_BIT,
-    JOYPAD_BUTTON_SELECT_BIT,
-    JOYPAD_KEYS_MASK,
     INT_JOYPAD_BIT,
+    JOYPAD_BUTTON_SELECT_BIT,
+    JOYPAD_DIRECTION_SELECT_BIT,
+    JOYPAD_KEYS_MASK,
     REG_JOYP,
 )
+from gb_types import BIT_6, BIT_7, Byte
 
 
 class Joypad:

@@ -1,9 +1,12 @@
+import argparse
 import re
+from pathlib import Path
 
 
-def refactor_opcodes(file_path):
-    with open(file_path, "r") as f:
-        content = f.read()
+def refactor_opcodes(file_path: Path, *, write: bool = False) -> bool:
+    """Apply the historical opcode rewrites, optionally writing the result."""
+    content = file_path.read_text()
+    original = content
 
     # 1. Remove `data=None` from method signatures
     content = re.sub(
@@ -25,8 +28,40 @@ def refactor_opcodes(file_path):
     e8_fast = r"e8 = self.memory[(self.registers.PC + 1) & 0xFFFF]"
     content = re.sub(e8_pattern, e8_fast, content)
 
-    with open(file_path, "w") as f:
-        f.write(content)
+    changed = content != original
+    if write and changed:
+        file_path.write_text(content)
+    return changed
 
 
-refactor_opcodes("cpu/opcodes.py")
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Preview or apply the legacy opcode source rewrites."
+    )
+    parser.add_argument(
+        "--write",
+        action="store_true",
+        help="write changes; without this flag the command is a dry run",
+    )
+    parser.add_argument(
+        "path",
+        nargs="?",
+        type=Path,
+        default=Path(__file__).parent / "cpu" / "opcodes.py",
+    )
+    args = parser.parse_args()
+
+    changed = refactor_opcodes(args.path, write=args.write)
+    action = (
+        "updated"
+        if args.write and changed
+        else "would update"
+        if changed
+        else "unchanged"
+    )
+    print(f"{args.path}: {action}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from cartridge_save import (
     get_save_path,
@@ -8,7 +9,9 @@ from cartridge_save import (
     load_cartridge_ram,
     save_cartridge_ram,
 )
-from mbc import MBC3
+from clock import SystemClock
+from mbc import MBC0, MBC3
+from memory import Memory
 
 
 class TestCartridgeSave(unittest.TestCase):
@@ -55,6 +58,53 @@ class TestCartridgeSave(unittest.TestCase):
 
             self.assertIsNone(saved_bytes)
             self.assertFalse(os.path.exists(save_path))
+
+    def test_force_saves_clean_ram(self):
+        mbc = MBC0(bytearray(0x8000), ram_size=0x0800)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            save_path = os.path.join(tmpdir, "cart.sav")
+
+            saved_bytes = save_cartridge_ram(mbc, save_path, force=True)
+
+            self.assertEqual(saved_bytes, 0x0800)
+            self.assertEqual(os.path.getsize(save_path), 0x0800)
+
+    def test_failed_atomic_replace_preserves_original_and_dirty_state(self):
+        mbc = MBC0(bytearray(0x8000), ram_size=0x0800)
+        mbc.ram[0] = 0x42
+        mbc.ram_dirty = True
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            save_path = os.path.join(tmpdir, "cart.sav")
+            with open(save_path, "wb") as save_file:
+                save_file.write(b"original")
+
+            with patch(
+                "cartridge_save.os.replace",
+                side_effect=OSError("replace failed"),
+            ):
+                with self.assertRaisesRegex(OSError, "replace failed"):
+                    save_cartridge_ram(mbc, save_path)
+
+            with open(save_path, "rb") as save_file:
+                self.assertEqual(save_file.read(), b"original")
+            self.assertFalse(os.path.exists(f"{save_path}.tmp"))
+            self.assertTrue(mbc.ram_dirty)
+
+    def test_loading_enabled_unbanked_ram_refreshes_memory_window(self):
+        memory = Memory(SystemClock(4_194_304))
+        memory.mbc = MBC0(bytearray(0x8000), ram_size=0x0800)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            save_path = os.path.join(tmpdir, "cart.sav")
+            with open(save_path, "wb") as save_file:
+                save_file.write(bytes([0x42]) + bytes(0x07FF))
+
+            load_cartridge_ram(memory.mbc, save_path)
+
+        for address in (0xA000, 0xA800, 0xB000, 0xB800):
+            self.assertEqual(memory.read_byte(address), 0x42)
 
 
 if __name__ == "__main__":

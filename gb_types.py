@@ -1,9 +1,5 @@
-from typing import Tuple, Union, Final
+from typing import Final, Tuple, TypeAlias, Union
 
-try:
-    from typing import TypeAlias
-except ImportError:
-    from typing_extensions import TypeAlias
 import numpy as np
 
 # Basic GameBoy types
@@ -91,7 +87,7 @@ COND_Z: Final[int] = 2
 COND_NC: Final[int] = 3
 COND_C: Final[int] = 4
 
-# Legacy Masks (to be cleaned up in final turn)
+# Shared hardware masks
 AUDIO_LENGTH_MASK: Final[int] = 0x3F
 TIMER_CONTROL_MASK: Final[int] = 0x07
 INTERRUPT_MASK: Final[int] = 0x1F

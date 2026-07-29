@@ -1,0 +1,9 @@
+include ARCHITECTURE.md
+include BENCHMARKS.md
+include CONTRIBUTING.md
+include LICENSE
+include readme.md
+include uv.lock
+recursive-include benchmarks *.json
+recursive-include docs *.gif *.md
+recursive-include tools *.py

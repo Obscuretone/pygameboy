@@ -1,11 +1,12 @@
-from typing import Union, Tuple, Dict, Final
+from typing import Dict, Final, Tuple, Union
+
 from gb_types import (
     REG_A,
-    REG_F,
     REG_B,
     REG_C,
     REG_D,
     REG_E,
+    REG_F,
     REG_H,
     REG_L,
     REG_PC,

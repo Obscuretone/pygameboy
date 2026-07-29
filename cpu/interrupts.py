@@ -1,15 +1,16 @@
 from typing import Any, Final, List
-from gb_types import Byte, Address, WORD_MASK, BYTE_MASK
+
 from constants import (
-    REG_IF,
     IE_REG,
-    VEC_VBLANK,
+    INTERRUPT_ALL_MASK,
+    REG_IF,
+    VEC_JOYPAD,
+    VEC_SERIAL,
     VEC_STAT,
     VEC_TIMER,
-    VEC_SERIAL,
-    VEC_JOYPAD,
-    INTERRUPT_ALL_MASK,
+    VEC_VBLANK,
 )
+from gb_types import BYTE_MASK, WORD_MASK, Address, Byte
 
 
 class InterruptManager:
@@ -62,25 +63,24 @@ class InterruptManager:
         if not self.ime or not requested:
             return 0
 
-        for bit in range(5):
-            mask = 1 << bit
-            if requested & mask:
-                self.ime = False
-                self.pending_ime_enable = False
-                self.ime_enable_delay = 0
+        # The lowest requested bit has hardware priority.
+        bit = (requested & -requested).bit_length() - 1
+        mask = 1 << bit
+        self.ime = False
+        self.pending_ime_enable = False
+        self.ime_enable_delay = 0
 
-                # Clear IF bit
-                self.storage[REG_IF] &= mask ^ BYTE_MASK
+        # Clear IF bit
+        self.storage[REG_IF] &= mask ^ BYTE_MASK
 
-                # Push PC to stack
-                pc = cpu.registers.PC
-                sp = (cpu.registers.SP - 1) & WORD_MASK
-                self.storage[sp] = (pc >> 8) & BYTE_MASK
-                sp = (sp - 1) & WORD_MASK
-                self.storage[sp] = pc & BYTE_MASK
-                cpu.registers.SP = sp
+        # Push PC to stack
+        pc = cpu.registers.PC
+        sp = (cpu.registers.SP - 1) & WORD_MASK
+        self.storage[sp] = (pc >> 8) & BYTE_MASK
+        sp = (sp - 1) & WORD_MASK
+        self.storage[sp] = pc & BYTE_MASK
+        cpu.registers.SP = sp
 
-                # Jump to vector
-                cpu.registers.PC = self.VECTORS[bit]
-                return 20
-        return 0
+        # Jump to vector
+        cpu.registers.PC = self.VECTORS[bit]
+        return 20

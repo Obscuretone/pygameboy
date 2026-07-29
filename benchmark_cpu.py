@@ -1,469 +1,268 @@
+"""Reproducible microbenchmarks for PyGameBoy's CPU dispatch loop."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import platform
+import sys
 import time
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from statistics import median
+from typing import Iterable, Mapping, Optional, Sequence
 
 from clock import SystemClock
+from constants import GB_CLOCK_HZ
 from cpu.core import CPU
 from memory import Memory
 
 
-def build_cpu(backend, program, setup=None):
-    clock = SystemClock(clock_speed_hz=4194304)
-    ram = Memory(clock, backend=backend)
-    ram.storage[: len(program)] = program
-    if setup is not None:
-        for address, value in setup.items():
-            ram.write_byte(address, value)
-    return CPU(clock, ram)
+@dataclass(frozen=True)
+class BenchmarkCase:
+    name: str
+    program: bytes
+    instructions: int
+    setup: Optional[Mapping[int, int]] = None
 
 
-def measure_case(backend, program, instructions, fast, setup=None):
-    cpu = build_cpu(backend, program, setup)
+@dataclass(frozen=True)
+class BenchmarkResult:
+    name: str
+    instructions: int
+    emulated_cycles: int
+    median_instructions_per_second: float
+    median_cycles_per_second: float
+    min_cycles_per_second: float
+    max_cycles_per_second: float
+    realtime_multiple: float
+
+
+def build_cpu(case: BenchmarkCase) -> CPU:
+    clock = SystemClock(clock_speed_hz=GB_CLOCK_HZ)
+    memory = Memory(clock)
+    if len(case.program) > len(memory.storage):
+        raise ValueError(f"{case.name} program exceeds the 64 KiB address space")
+    memory.storage[: len(case.program)] = case.program
+    if case.setup:
+        for address, value in case.setup.items():
+            memory.write_byte(address, value)
+    return CPU(clock, memory)
+
+
+def measure_case(case: BenchmarkCase) -> tuple[float, float, int]:
+    cpu = build_cpu(case)
     start = time.perf_counter()
     executed, cycles = cpu.run(
-        max_instructions=instructions,
+        max_instructions=case.instructions,
         realtime=False,
         profile_opcodes=False,
-        fast=fast,
+        fast=True,
         announce=False,
     )
     elapsed = time.perf_counter() - start
-    return executed / elapsed, cycles / elapsed
-
-
-def run_case(label, backend, program, instructions, fast, repeats=5, setup=None):
-    results = [
-        measure_case(backend, program, instructions, fast, setup)
-        for _ in range(repeats)
-    ]
-    best_instr, best_cycles = max(results, key=lambda result: result[0])
-    avg_instr = sum(result[0] for result in results) / repeats
-    print(
-        f"{label:24} {best_instr:12,.0f} instr/s best "
-        f"{avg_instr:12,.0f} instr/s avg "
-        f"{best_cycles:12,.0f} cycles/s best"
-    )
-
-
-def run_suite(name, program, instructions, include_normal=True, setup=None):
-    print(f"\n{name}: {instructions:,} instructions")
-    if include_normal:
-        run_case(
-            "numpy normal", "numpy", program, instructions, fast=False, setup=setup
+    if executed != case.instructions:
+        raise RuntimeError(
+            f"{case.name} executed {executed:,} instructions; "
+            f"expected {case.instructions:,}"
         )
-    run_case("numpy fast", "numpy", program, instructions, fast=True, setup=setup)
-    if include_normal:
-        run_case(
-            "bytearray normal",
-            "bytearray",
-            program,
-            instructions,
-            fast=False,
-            setup=setup,
-        )
-    run_case(
-        "bytearray fast", "bytearray", program, instructions, fast=True, setup=setup
+    return executed / elapsed, cycles / elapsed, cycles
+
+
+def run_case(case: BenchmarkCase, repeats: int) -> BenchmarkResult:
+    measure_case(case)  # warm the interpreter and allocation paths
+    measurements = [measure_case(case) for _ in range(repeats)]
+    instruction_rates = [measurement[0] for measurement in measurements]
+    cycle_rates = [measurement[1] for measurement in measurements]
+    emulated_cycles = measurements[0][2]
+    median_cycle_rate = median(cycle_rates)
+    return BenchmarkResult(
+        name=case.name,
+        instructions=case.instructions,
+        emulated_cycles=emulated_cycles,
+        median_instructions_per_second=median(instruction_rates),
+        median_cycles_per_second=median_cycle_rate,
+        min_cycles_per_second=min(cycle_rates),
+        max_cycles_per_second=max(cycle_rates),
+        realtime_multiple=median_cycle_rate / GB_CLOCK_HZ,
     )
 
 
-def run_timer_case(backend, instructions=50_000, repeats=5):
-    program = [0x00] * instructions
-    results = []
-    for _ in range(repeats):
-        cpu = build_cpu(backend, program, setup={0xFF07: 0x05})
-        start = time.perf_counter()
-        executed, cycles = cpu.run(
-            max_instructions=instructions,
-            realtime=False,
-            profile_opcodes=False,
-            fast=True,
-            announce=False,
-        )
-        elapsed = time.perf_counter() - start
-        results.append((executed / elapsed, cycles / elapsed))
-    best_instr, best_cycles = max(results, key=lambda result: result[0])
-    avg_instr = sum(result[0] for result in results) / repeats
-    print(
-        f"{backend + ' fast':24} {best_instr:12,.0f} instr/s best "
-        f"{avg_instr:12,.0f} instr/s avg "
-        f"{best_cycles:12,.0f} cycles/s best"
-    )
-
-
-def run_interrupt_case(backend, interrupts=5_000, repeats=5):
-    program = [0xD9] * 0x61
-    results = []
-    for _ in range(repeats):
-        cpu = build_cpu(backend, program, setup={0xFFFF: 0x04, 0xFF0F: 0x04})
-        cpu.registers["SP"] = 0xFFFE
-        cpu.interrupts.ime = True
-        start = time.perf_counter()
-        for _ in range(interrupts):
-            cpu.interrupts.request(0x04)
-            cpu.run(
-                max_instructions=1,
-                realtime=False,
-                profile_opcodes=False,
-                fast=True,
-                announce=False,
-            )
-        elapsed = time.perf_counter() - start
-        cycles = cpu.clock.get_cycles_elapsed()
-        results.append((interrupts / elapsed, cycles / elapsed))
-    best_instr, best_cycles = max(results, key=lambda result: result[0])
-    avg_instr = sum(result[0] for result in results) / repeats
-    print(
-        f"{backend + ' fast':24} {best_instr:12,.0f} irq/s best   "
-        f"{avg_instr:12,.0f} irq/s avg   "
-        f"{best_cycles:12,.0f} cycles/s best"
-    )
-
-
-def build_jp_next_program(repeats):
-    program = []
+def build_jp_next_program(repeats: int) -> bytes:
+    program = bytearray()
     for _ in range(repeats):
         next_address = len(program) + 3
         program.extend([0xC3, next_address & 0xFF, next_address >> 8])
-    return program
+    return bytes(program)
 
 
-def build_call_return_program(repeats):
+def build_call_return_program(repeats: int) -> bytes:
     subroutine_address = repeats * 3
-    program = []
+    program = bytearray()
     for _ in range(repeats):
         program.extend([0xCD, subroutine_address & 0xFF, subroutine_address >> 8])
     program.append(0xC9)
-    return program
+    return bytes(program)
 
 
-def main():
-    nop_instructions = 50_000
-    run_suite("NOP dispatch", [0x00] * nop_instructions, nop_instructions)
-
-    print(f"\nTimer NOP dispatch: {nop_instructions:,} instructions")
-    run_timer_case("numpy", nop_instructions)
-    run_timer_case("bytearray", nop_instructions)
-
-    print("\nInterrupt dispatch: 5,000 interrupts")
-    run_interrupt_case("numpy")
-    run_interrupt_case("bytearray")
-
-    register_mix_repeats = 10_000
-    register_mix = [0x06, 0x12, 0x04, 0x05] * register_mix_repeats
-    run_suite("Register mix", register_mix, register_mix_repeats * 3)
-
-    ld_register_repeats = 8_000
-    ld_register_mix = [0x47, 0x48, 0x51, 0x5A, 0x63, 0x6C, 0x7D] * ld_register_repeats
-    run_suite("LD register mix", ld_register_mix, len(ld_register_mix))
-
-    add_register_repeats = 10_000
-    add_register_mix = [0x06, 0x01, 0x3E, 0x10, 0x80, 0x87] * add_register_repeats
-    run_suite("ADD register mix", add_register_mix, add_register_repeats * 4)
-
-    sub_register_repeats = 10_000
-    sub_register_mix = [0x06, 0x01, 0x3E, 0x10, 0x90, 0x97] * sub_register_repeats
-    run_suite("SUB register mix", sub_register_mix, sub_register_repeats * 4)
-
-    xor_register_repeats = 10_000
-    xor_register_mix = [0x06, 0xA5, 0x3E, 0x5A, 0xA8, 0xAF] * xor_register_repeats
-    run_suite(
-        "XOR register mix",
-        xor_register_mix,
-        xor_register_repeats * 4,
-        include_normal=False,
+def benchmark_cases() -> list[BenchmarkCase]:
+    pair_math = bytes(
+        [
+            0x01,
+            0x01,
+            0x00,
+            0x11,
+            0xFF,
+            0xFF,
+            0x21,
+            0xFF,
+            0x0F,
+            0x31,
+            0x00,
+            0xF0,
+            0x03,
+            0x1B,
+            0x23,
+            0x33,
+            0x09,
+            0x19,
+            0x39,
+        ]
+        * 3_000
     )
-
-    and_register_repeats = 10_000
-    and_register_mix = [0x06, 0xA5, 0x3E, 0x5A, 0xA0, 0xA7] * and_register_repeats
-    run_suite(
-        "AND register mix",
-        and_register_mix,
-        and_register_repeats * 4,
-        include_normal=False,
+    alu_mix = bytes([0x06, 0x01, 0x3E, 0x10, 0x80, 0x90, 0xA8, 0xB0] * 7_000)
+    high_io = bytes(
+        [
+            0x3E,
+            0x42,
+            0x0E,
+            0x80,
+            0xE0,
+            0x80,
+            0xF0,
+            0x80,
+            0xE2,
+            0xF2,
+            0xEA,
+            0x00,
+            0xC5,
+            0xFA,
+            0x00,
+            0xC5,
+        ]
+        * 3_500
     )
+    return [
+        BenchmarkCase("NOP dispatch", bytes([0x00]) * 50_000, 50_000),
+        BenchmarkCase("JR dispatch", bytes([0x18, 0x00]) * 20_000, 20_000),
+        BenchmarkCase("JP dispatch", build_jp_next_program(10_000), 10_000),
+        BenchmarkCase(
+            "CALL/RET trampoline",
+            build_call_return_program(8_000),
+            16_000,
+        ),
+        BenchmarkCase("16-bit pair math", pair_math, 30_000),
+        BenchmarkCase("8-bit ALU mix", alu_mix, 35_000),
+        BenchmarkCase("High I/O load", high_io, 28_000),
+    ]
 
-    or_register_repeats = 10_000
-    or_register_mix = [0x06, 0xA5, 0x3E, 0x5A, 0xB0, 0xB7] * or_register_repeats
-    run_suite(
-        "OR register mix",
-        or_register_mix,
-        or_register_repeats * 4,
-        include_normal=False,
+
+def environment_metadata(repeats: int) -> dict[str, object]:
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "python": sys.version.split()[0],
+        "implementation": platform.python_implementation(),
+        "platform": platform.platform(),
+        "machine": platform.machine(),
+        "processor": platform.processor(),
+        "repeats": repeats,
+        "clock_target_hz": GB_CLOCK_HZ,
+    }
+
+
+def render_markdown(
+    metadata: Mapping[str, object], results: Iterable[BenchmarkResult]
+) -> str:
+    measured_runs = int(metadata["repeats"])
+    run_label = "run" if measured_runs == 1 else "runs"
+    lines = [
+        "# CPU benchmark results",
+        "",
+        "Generated by `python benchmark_cpu.py --markdown BENCHMARKS.md`.",
+        "",
+        (
+            f"Environment: {metadata['implementation']} {metadata['python']} on "
+            f"{metadata['platform']} ({metadata['machine']}); "
+            f"{measured_runs} measured {run_label} after one warm-up."
+        ),
+        "",
+        "| Case | Instructions/s (median) | Emulated cycles/s (median) | Real-time |",
+        "|---|---:|---:|---:|",
+    ]
+    for result in results:
+        lines.append(
+            f"| {result.name} | "
+            f"{result.median_instructions_per_second:,.0f} | "
+            f"{result.median_cycles_per_second:,.0f} | "
+            f"{result.realtime_multiple:.2f}× |"
+        )
+    lines.extend(
+        [
+            "",
+            "Real-time is measured against the DMG clock target of "
+            f"{GB_CLOCK_HZ:,} cycles/s. These are isolated CPU microbenchmarks, "
+            "not whole-emulator frame rates.",
+            "",
+        ]
     )
+    return "\n".join(lines)
 
-    cp_register_repeats = 10_000
-    cp_register_mix = [0x06, 0x01, 0x3E, 0x10, 0xB8, 0xBF] * cp_register_repeats
-    run_suite(
-        "CP register mix",
-        cp_register_mix,
-        cp_register_repeats * 4,
-        include_normal=False,
+
+def write_json(
+    path: Path,
+    metadata: Mapping[str, object],
+    results: Iterable[BenchmarkResult],
+) -> None:
+    payload = {
+        "metadata": dict(metadata),
+        "results": [asdict(result) for result in results],
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2) + "\n")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--repeats",
+        type=int,
+        default=5,
+        help="measured runs per case after one warm-up (default: 5)",
     )
+    parser.add_argument("--json", type=Path, help="write machine-readable results")
+    parser.add_argument("--markdown", type=Path, help="write a Markdown report")
+    return parser
 
-    immediate_alu_repeats = 4_000
-    immediate_alu_mix = [
-        0x3E,
-        0x5A,
-        0xC6,
-        0x01,
-        0xD6,
-        0x01,
-        0xE6,
-        0x0F,
-        0xEE,
-        0xFF,
-        0xF6,
-        0x10,
-        0xFE,
-        0xF0,
-    ] * immediate_alu_repeats
-    run_suite(
-        "Immediate ALU mix",
-        immediate_alu_mix,
-        immediate_alu_repeats * 7,
-        include_normal=False,
-    )
 
-    carry_alu_repeats = 5_000
-    carry_alu_mix = [
-        0x3E,
-        0x0F,
-        0x37,
-        0xCE,
-        0x00,
-        0x06,
-        0x10,
-        0x88,
-        0xDE,
-        0x01,
-        0x98,
-    ] * carry_alu_repeats
-    run_suite(
-        "Carry ALU mix",
-        carry_alu_mix,
-        carry_alu_repeats * 7,
-        include_normal=False,
-    )
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    args = build_parser().parse_args(argv)
+    if args.repeats <= 0:
+        print("Error: --repeats must be greater than zero", file=sys.stderr)
+        return 2
 
-    cb_register_repeats = 4_000
-    cb_register_mix = [
-        0x06,
-        0x80,
-        0x0E,
-        0x01,
-        0xCB,
-        0x00,
-        0xCB,
-        0x19,
-        0xCB,
-        0x37,
-        0xCB,
-        0x78,
-        0xCB,
-        0xC0,
-        0xCB,
-        0x80,
-    ] * cb_register_repeats
-    run_suite(
-        "CB register mix",
-        cb_register_mix,
-        cb_register_repeats * 8,
-        include_normal=False,
-    )
+    metadata = environment_metadata(args.repeats)
+    results = [run_case(case, repeats=args.repeats) for case in benchmark_cases()]
+    report = render_markdown(metadata, results)
+    print(report)
 
-    cb_storage_repeats = 5_000
-    cb_storage_mix = [
-        0x21,
-        0x00,
-        0xC3,
-        0x36,
-        0x80,
-        0xCB,
-        0x06,
-        0xCB,
-        0x46,
-        0xCB,
-        0xCE,
-        0xCB,
-        0x8E,
-    ] * cb_storage_repeats
-    run_suite(
-        "CB storage mix",
-        cb_storage_mix,
-        cb_storage_repeats * 6,
-        include_normal=False,
-    )
-
-    pair_math_repeats = 3_000
-    pair_math_mix = [
-        0x01,
-        0x01,
-        0x00,
-        0x11,
-        0xFF,
-        0xFF,
-        0x21,
-        0xFF,
-        0x0F,
-        0x31,
-        0x00,
-        0xF0,
-        0x03,
-        0x1B,
-        0x23,
-        0x33,
-        0x09,
-        0x19,
-        0x39,
-    ] * pair_math_repeats
-    run_suite(
-        "16-bit pair math mix",
-        pair_math_mix,
-        pair_math_repeats * 10,
-        include_normal=False,
-    )
-
-    high_io_repeats = 3_500
-    high_io_mix = [
-        0x3E,
-        0x42,
-        0x0E,
-        0x80,
-        0xE0,
-        0x80,
-        0xF0,
-        0x80,
-        0xE2,
-        0xF2,
-        0xEA,
-        0x00,
-        0xC5,
-        0xFA,
-        0x00,
-        0xC5,
-    ] * high_io_repeats
-    run_suite(
-        "High IO load mix",
-        high_io_mix,
-        high_io_repeats * 8,
-        include_normal=False,
-    )
-
-    hardware_io_repeats = 6_000
-    hardware_io_mix = [
-        0xF0,
-        0x44,
-        0xFE,
-        0x90,
-        0x3E,
-        0x01,
-        0xE0,
-        0x50,
-    ] * hardware_io_repeats
-    run_suite(
-        "Hardware IO mix",
-        hardware_io_mix,
-        hardware_io_repeats * 4,
-        include_normal=False,
-    )
-
-    sp_offset_repeats = 8_000
-    sp_offset_mix = [0x31, 0xFF, 0x00, 0xE8, 0x01, 0xF8, 0xFF, 0xF9] * sp_offset_repeats
-    run_suite(
-        "SP offset mix",
-        sp_offset_mix,
-        sp_offset_repeats * 4,
-        include_normal=False,
-    )
-
-    accumulator_control_repeats = 6_000
-    accumulator_control_mix = [
-        0x3E,
-        0x3C,
-        0x27,
-        0x2F,
-        0x07,
-        0x0F,
-        0x37,
-        0x17,
-        0x1F,
-    ] * accumulator_control_repeats
-    run_suite(
-        "Accumulator control mix",
-        accumulator_control_mix,
-        accumulator_control_repeats * 8,
-        include_normal=False,
-    )
-
-    storage_alu_repeats = 5_000
-    storage_alu_mix = [
-        0x21,
-        0x00,
-        0xC0,
-        0x3E,
-        0x5A,
-        0x86,
-        0x96,
-        0xA6,
-        0xAE,
-        0xB6,
-        0xBE,
-    ] * storage_alu_repeats
-    run_suite(
-        "ALU (HL) mix",
-        storage_alu_mix,
-        storage_alu_repeats * 8,
-        include_normal=False,
-        setup={0xC000: 0x24},
-    )
-
-    storage_transfer_repeats = 5_000
-    storage_transfer_mix = [
-        0x21,
-        0x00,
-        0xC0,
-        0x3E,
-        0x77,
-        0x22,
-        0x2A,
-        0x32,
-        0x3A,
-        0x36,
-        0x55,
-        0x34,
-        0x35,
-    ] * storage_transfer_repeats
-    run_suite(
-        "Memory transfer mix",
-        storage_transfer_mix,
-        storage_transfer_repeats * 9,
-        include_normal=False,
-    )
-
-    jr_repeats = 20_000
-    jr_mix = [0x18, 0x00] * jr_repeats
-    run_suite("JR dispatch", jr_mix, jr_repeats, include_normal=False)
-
-    conditional_jr_repeats = 10_000
-    conditional_jr_mix = [0xAF, 0x28, 0x00, 0x30, 0x00] * conditional_jr_repeats
-    run_suite(
-        "Conditional JR mix",
-        conditional_jr_mix,
-        conditional_jr_repeats * 3,
-        include_normal=False,
-    )
-
-    jp_repeats = 10_000
-    jp_next_mix = build_jp_next_program(jp_repeats)
-    run_suite("JP next dispatch", jp_next_mix, jp_repeats, include_normal=False)
-
-    call_return_repeats = 8_000
-    call_return_mix = build_call_return_program(call_return_repeats)
-    run_suite(
-        "CALL/RET trampoline",
-        call_return_mix,
-        call_return_repeats * 2,
-        include_normal=False,
-    )
+    if args.json:
+        write_json(args.json, metadata, results)
+    if args.markdown:
+        args.markdown.parent.mkdir(parents=True, exist_ok=True)
+        args.markdown.write_text(report)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

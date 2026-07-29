@@ -1,6 +1,7 @@
 import unittest
-from memory import Memory
+
 from clock import SystemClock
+from memory import Memory
 from video import VideoChip
 
 
