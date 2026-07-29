@@ -348,20 +348,32 @@ def test_main_audio_backpressure_and_stopped_stream_fallback(tmp_path) -> None:
     assert "audio stream stopped" in stderr.getvalue()
 
 
-def test_main_active_realtime_stream_uses_audio_buffer_render_policy(tmp_path) -> None:
+def test_main_active_realtime_stream_skips_then_resumes_rendering(tmp_path) -> None:
     rom_path = tmp_path / "game.gb"
     write_rom(rom_path)
     stream = Stream(active=True)
+    audio = {}
+
+    def capture_audio(clock):
+        memory = ActualMemory(clock)
+        audio["apu"] = memory.apu
+        return memory
+
+    def recover_audio_buffer(*_args, **_kwargs):
+        audio["apu"].buffer_size = emulator.AUDIO_BUFFER_LOW_WATER
+        return 1, 4
 
     with (
         patch("emulator.sd", SoundDevice(stream)),
+        patch("emulator.Memory", side_effect=capture_audio),
+        patch("emulator.CPU.run", side_effect=recover_audio_buffer),
         patch("emulator.pygame.display.flip") as flip,
     ):
         assert (
             emulator.main(
                 [
-                    "--max-instructions",
-                    "1",
+                    "--max-frames",
+                    "2",
                     str(rom_path),
                 ]
             )
