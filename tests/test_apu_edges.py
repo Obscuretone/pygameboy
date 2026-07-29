@@ -1,7 +1,7 @@
 import pytest
 
 from apu import APU, NoiseChannel, PulseChannel, WaveChannel
-from constants import FRAME_SEQUENCER_PERIOD
+from constants import FRAME_SEQUENCER_PERIOD, REG_NR52
 
 
 def test_pulse_channel_disabled_invalid_period_length_and_trigger_edges() -> None:
@@ -286,3 +286,19 @@ def test_apu_mixes_every_route_and_overwrites_oldest_full_buffer_sample() -> Non
     assert apu.right_output == pytest.approx(1 / 6)
     assert apu.buffer_read_pos == 0
     assert apu.buffer_size == apu.BUFFER_MAX
+
+
+def test_apu_power_off_resets_mixer_outputs() -> None:
+    apu = APU()
+    apu.sound_enabled = True
+    apu.registers[0x14] = 0x77  # NR50
+    apu.registers[0x15] = 0x11  # NR51: channel 1 to left and right
+    apu.ch1.output = 15
+
+    apu.sample()
+    assert apu.left_output == pytest.approx(0.25)
+    assert apu.right_output == pytest.approx(0.25)
+
+    apu.write_byte(REG_NR52, 0)
+    assert apu.left_output == 0
+    assert apu.right_output == 0

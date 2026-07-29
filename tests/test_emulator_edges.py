@@ -152,7 +152,7 @@ def test_audio_callback_consumes_contiguous_wrapped_partial_and_empty_buffers(
     capsys,
 ) -> None:
     apu = APU()
-    callback = emulator.make_audio_callback(apu, verbose=True)
+    callback = emulator.make_audio_callback(apu, verbose=True, high_pass=False)
 
     apu.buffer[0:2] = [[1, 2], [3, 4]]
     apu.buffer_read_pos = 0
@@ -165,7 +165,7 @@ def test_audio_callback_consumes_contiguous_wrapped_partial_and_empty_buffers(
 
     out = np.zeros((2, 2), dtype=np.float32)
     callback(out, 2, None, None)
-    assert out.tolist() == [[3, 4], [3, 4]]
+    assert out.tolist() == [[0, 0], [0, 0]]
 
     apu.buffer[apu.BUFFER_MAX - 1] = [5, 6]
     apu.buffer[0] = [7, 8]
@@ -180,7 +180,7 @@ def test_audio_callback_consumes_contiguous_wrapped_partial_and_empty_buffers(
     apu.buffer_size = 1
     out = np.zeros((3, 2), dtype=np.float32)
     callback(out, 3, None, None)
-    assert out.tolist() == [[9, 10], [9, 10], [9, 10]]
+    assert out.tolist() == [[9, 10], [0, 0], [0, 0]]
 
     apu.buffer[apu.BUFFER_MAX - 1] = [11, 12]
     apu.buffer[0] = [13, 14]
@@ -188,7 +188,22 @@ def test_audio_callback_consumes_contiguous_wrapped_partial_and_empty_buffers(
     apu.buffer_size = 2
     out = np.zeros((4, 2), dtype=np.float32)
     callback(out, 4, None, None)
-    assert out.tolist() == [[11, 12], [13, 14], [13, 14], [13, 14]]
+    assert out.tolist() == [[11, 12], [13, 14], [0, 0], [0, 0]]
+
+
+def test_audio_callback_high_pass_filter_removes_dc() -> None:
+    apu = APU()
+    callback = emulator.make_audio_callback(apu)
+    out = np.zeros((256, 2), dtype=np.float32)
+
+    for _ in range(8):
+        apu.buffer[:256] = 0.25
+        apu.buffer_read_pos = 0
+        apu.buffer_size = 256
+        callback(out, 256, None, None)
+
+    assert abs(out[-1, 0]) < 0.0001
+    assert abs(out[-1, 1]) < 0.0001
 
 
 def test_main_boot_rom_read_error_valid_boot_and_loaded_save(tmp_path) -> None:
