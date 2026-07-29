@@ -1,16 +1,12 @@
+# ruff: noqa: I001
+
 import argparse
-import os
 import sys
 from pathlib import Path
 from typing import Dict, Final, Optional, Sequence, Union
 
 import numpy as np
-
-# Fix pygame on macOS before importing
-if sys.platform == "darwin":
-    os.environ.setdefault("SDL_VIDEODRIVER", "cocoa")
-    os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
-
+import pygame_environment as _pygame_environment  # noqa: F401
 import pygame
 
 try:
