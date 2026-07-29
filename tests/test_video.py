@@ -1,12 +1,12 @@
 import unittest
-from video import VideoChip
+
 from clock import SystemClock
+from video import VideoChip
 
 
 class MockMemory:
-    storage = bytearray(0x10000)
-
     def __init__(self):
+        self.storage = bytearray(0x10000)
         self.interrupts = 0
 
     def request_interrupt(self, mask):
@@ -20,11 +20,7 @@ class TestVideo(unittest.TestCase):
         self.video = VideoChip(self.clock, self.mem)  # type: ignore
 
     def test_mode_transitions(self):
-        # Initial mode should be 2 (OAM Search) or whatever STAT is initialized to
-        # video.py initializes STAT to 0x85, which is mode 1 (0x85 & 0x03 == 0x01)
-        # Wait, if STAT is 0x85, then initial mode is 1 (V-Blank).
-
-        # Let's force mode 2 to start.
+        # Start from mode 2 so each transition can be asserted independently.
         self.video.STAT = (self.video.STAT & 0xFC) | 2
         self.video.mode_clock = 0
         self.video.LY = 0
@@ -53,6 +49,48 @@ class TestVideo(unittest.TestCase):
         self.assertEqual(self.video.STAT & 0x03, 1)
         self.assertEqual(self.video.LY, 144)
         self.assertEqual(self.mem.interrupts & 0x01, 0x01)
+
+    def test_large_step_crosses_a_complete_visible_frame(self):
+        self.video.STAT = (self.video.STAT & 0xFC) | 2
+        self.video.mode_clock = 0
+        self.video.LY = 0
+
+        self.video.step(456 * 144)
+
+        self.assertEqual(self.video.LY, 144)
+        self.assertEqual(self.video.STAT & 0x03, 1)
+        self.assertTrue(self.video.frame_done)
+        self.assertEqual(self.mem.interrupts & 0x01, 0x01)
+
+    def test_vblank_wraps_to_line_zero_after_ten_lines(self):
+        self.video.STAT = (self.video.STAT & 0xFC) | 1
+        self.video.mode_clock = 0
+        self.video.LY = 144
+        self.video.window_line = 9
+
+        self.video.step(456 * 10)
+
+        self.assertEqual(self.video.LY, 0)
+        self.assertEqual(self.video.STAT & 0x03, 2)
+        self.assertEqual(self.video.window_line, 0)
+
+    def test_stat_interrupt_is_edge_triggered(self):
+        self.video.STAT = 0x80 | 0x40
+        self.video.LY = 7
+        self.video.LYC = 7
+
+        self.video.check_lyc()
+        self.assertEqual(self.mem.interrupts & 0x02, 0x02)
+
+        self.mem.interrupts = 0
+        self.video.check_lyc()
+        self.assertEqual(self.mem.interrupts, 0)
+
+        self.video.LY = 8
+        self.video.check_lyc()
+        self.video.LY = 7
+        self.video.check_lyc()
+        self.assertEqual(self.mem.interrupts & 0x02, 0x02)
 
 
 if __name__ == "__main__":

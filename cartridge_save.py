@@ -25,6 +25,8 @@ def load_cartridge_ram(mbc: MBC, save_path: str) -> int:
 
     size = min(len(data), len(mbc.ram))
     mbc.ram[:size] = data[:size]
+    if mbc.ram_enabled and mbc.on_ram_bank_change:
+        mbc.on_ram_bank_change(0, mbc.visible_ram_window())
     mbc.ram_dirty = False
     return size
 
@@ -39,8 +41,15 @@ def save_cartridge_ram(mbc: MBC, save_path: str, force: bool = False) -> Optiona
         os.makedirs(directory, exist_ok=True)
 
     temp_path = f"{save_path}.tmp"
-    with open(temp_path, "wb") as save_file:
-        save_file.write(mbc.ram)
-    os.replace(temp_path, save_path)
+    try:
+        with open(temp_path, "wb") as save_file:
+            save_file.write(mbc.ram)
+        os.replace(temp_path, save_path)
+    except OSError:
+        try:
+            os.remove(temp_path)
+        except OSError:
+            pass
+        raise
     mbc.ram_dirty = False
     return len(mbc.ram)

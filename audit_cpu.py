@@ -1,28 +1,29 @@
 from cpu import CPU
 from gb_types import (
-    FAST_INC_OPS,
+    FAST_ADC_A_OPS,
+    FAST_ADD_A_OPS,
+    FAST_ADD_HL_OPS,
+    FAST_AND_A_OPS,
+    FAST_CALL_OPS,
+    FAST_CP_A_OPS,
     FAST_DEC_OPS,
+    FAST_DEC_R16_OPS,
+    FAST_INC_OPS,
+    FAST_INC_R16_OPS,
+    FAST_JP_OPS,
+    FAST_JR_OPS,
     FAST_LD_N8_OPS,
     FAST_LD_N16_OPS,
-    FAST_INC_R16_OPS,
-    FAST_DEC_R16_OPS,
-    FAST_ADD_HL_OPS,
-    FAST_JR_OPS,
-    FAST_JP_OPS,
-    FAST_CALL_OPS,
-    FAST_RET_OPS,
-    FAST_PUSH_OPS,
-    FAST_POP_OPS,
-    FAST_RST_OPS,
-    FAST_ADD_A_OPS,
-    FAST_ADC_A_OPS,
-    FAST_SUB_A_OPS,
-    FAST_SBC_A_OPS,
-    FAST_XOR_A_OPS,
-    FAST_AND_A_OPS,
     FAST_OR_A_OPS,
-    FAST_CP_A_OPS,
+    FAST_POP_OPS,
+    FAST_PUSH_OPS,
+    FAST_RET_OPS,
+    FAST_RST_OPS,
+    FAST_SBC_A_OPS,
+    FAST_SUB_A_OPS,
+    FAST_XOR_A_OPS,
 )
+from memory import Memory
 
 INVALID_OPCODES = {
     0xD3,
@@ -105,7 +106,7 @@ def fast_base_opcodes():
 
 
 def main():
-    cpu = CPU(None, None)  # type: ignore
+    cpu = CPU(Memory())
     legal = {opcode for opcode in cpu.instruction_set() if opcode <= 0xFF}
     legal.update(set(range(256)) - INVALID_OPCODES)
     fast = fast_base_opcodes()

@@ -1,4 +1,5 @@
 import unittest
+
 from mbc import MBC3
 
 
@@ -53,6 +54,20 @@ class TestMBC3(unittest.TestCase):
         # Switch back to RAM bank 0
         self.mbc.write_rom(0x4000, 0)
         self.assertEqual(self.mbc.read_ram(0xA000), 0x42)
+
+    def test_rtc_latch_holds_snapshot_until_next_zero_to_one_transition(self):
+        self.mbc.write_rom(0x0000, 0x0A)
+        self.mbc.write_rom(0x4000, 0x08)
+        self.mbc.write_ram(0xA000, 12)
+        self.mbc.write_rom(0x6000, 0)
+        self.mbc.write_rom(0x6000, 1)
+
+        self.mbc.write_ram(0xA000, 34)
+        self.assertEqual(self.mbc.read_ram(0xA000), 12)
+
+        self.mbc.write_rom(0x6000, 0)
+        self.mbc.write_rom(0x6000, 1)
+        self.assertEqual(self.mbc.read_ram(0xA000), 34)
 
 
 if __name__ == "__main__":

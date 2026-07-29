@@ -1,14 +1,15 @@
 import unittest
+
+from clock import SystemClock
 from memory import Memory
 from video import VideoChip
-from clock import SystemClock
 
 
 class TestDMAJoypad(unittest.TestCase):
     def setUp(self):
         self.clock = SystemClock(4194304)
         self.mem_data = bytearray(0x10000)
-        self.memory = Memory(self.clock, self.mem_data, backend="bytearray")
+        self.memory = Memory(self.clock, self.mem_data)
         self.video = VideoChip(self.clock, self.memory)
         self.memory.video = self.video
 

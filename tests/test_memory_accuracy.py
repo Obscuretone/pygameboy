@@ -1,13 +1,14 @@
 import unittest
-from memory import Memory
+
 from clock import SystemClock
+from memory import Memory
 
 
 class TestMemoryAccuracy(unittest.TestCase):
     def setUp(self):
         self.clock = SystemClock(4194304)
         self.mem_data = bytearray(0x10000)
-        self.memory = Memory(self.clock, self.mem_data, backend="bytearray")
+        self.memory = Memory(self.clock, self.mem_data)
 
     def test_echo_ram(self):
         # Write to WRAM Bank 0 (0xC000)
@@ -17,7 +18,7 @@ class TestMemoryAccuracy(unittest.TestCase):
 
         # Write to Echo RAM (0xFDFF)
         self.memory.write_byte(0xFDFF, 0x77)
-        # Read from WRAM (0xBDFF) -> wait, 0xFDFF - 0x2000 = 0xDDFF
+        # Echo address 0xFDFF maps back to WRAM address 0xDDFF.
         self.assertEqual(self.memory.read_byte(0xDDFF), 0x77)
 
     def test_unusable_memory(self):

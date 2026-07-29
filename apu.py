@@ -1,17 +1,29 @@
-from typing import List, Final, ClassVar
 import threading
+from typing import ClassVar, Final, List
+
 import numpy as np
-from gb_types import (
-    Cycles,
-    Address,
-    Byte,
-    BIT_0,
-    BIT_1,
-    LOW_NIBBLE_MASK,
-    UNMAPPED_BYTE,
-    AUDIO_LENGTH_MASK,
-)
+
 from constants import (
+    APU_ENVELOPE_DIR_BIT,
+    APU_ENVELOPE_INITIAL_VOL_MASK,
+    APU_ENVELOPE_PERIOD_MASK,
+    APU_FREQ_HI_MASK,
+    APU_MIX_CH1_LEFT,
+    APU_MIX_CH1_RIGHT,
+    APU_MIX_CH2_LEFT,
+    APU_MIX_CH2_RIGHT,
+    APU_MIX_CH3_LEFT,
+    APU_MIX_CH3_RIGHT,
+    APU_MIX_CH4_LEFT,
+    APU_MIX_CH4_RIGHT,
+    APU_REG_SIZE,
+    APU_VOL_LEFT_MASK,
+    APU_VOL_RIGHT_MASK,
+    APU_WAVE_VOL_SHIFT_MASK,
+    AUDIO_LENGTH_ENABLE_BIT,
+    AUDIO_TRIGGER_BIT,
+    FRAME_SEQUENCER_PERIOD,
+    GB_CLOCK_HZ,
     REG_NR10,
     REG_NR11,
     REG_NR12,
@@ -32,29 +44,19 @@ from constants import (
     REG_NR50,
     REG_NR51,
     REG_NR52,
-    REG_WAVE_RAM_START,
     REG_WAVE_RAM_END,
-    FRAME_SEQUENCER_PERIOD,
-    AUDIO_TRIGGER_BIT,
-    AUDIO_LENGTH_ENABLE_BIT,
-    APU_REG_SIZE,
+    REG_WAVE_RAM_START,
     WAVE_RAM_SIZE,
-    GB_CLOCK_HZ,
-    APU_ENVELOPE_PERIOD_MASK,
-    APU_ENVELOPE_DIR_BIT,
-    APU_ENVELOPE_INITIAL_VOL_MASK,
-    APU_FREQ_HI_MASK,
-    APU_WAVE_VOL_SHIFT_MASK,
-    APU_MIX_CH4_LEFT,
-    APU_MIX_CH3_LEFT,
-    APU_MIX_CH2_LEFT,
-    APU_MIX_CH1_LEFT,
-    APU_MIX_CH4_RIGHT,
-    APU_MIX_CH3_RIGHT,
-    APU_MIX_CH2_RIGHT,
-    APU_MIX_CH1_RIGHT,
-    APU_VOL_LEFT_MASK,
-    APU_VOL_RIGHT_MASK,
+)
+from gb_types import (
+    AUDIO_LENGTH_MASK,
+    BIT_0,
+    BIT_1,
+    LOW_NIBBLE_MASK,
+    UNMAPPED_BYTE,
+    Address,
+    Byte,
+    Cycles,
 )
 
 
@@ -416,7 +418,7 @@ class APU:
                     )
                 elif address == REG_NR31:
                     self.ch3.length_counter = self.ch3.MAX_LENGTH - value
-                elif address == REG_NR41:
+                else:
                     self.ch4.length_counter = self.ch4.MAX_LENGTH - (
                         value & AUDIO_LENGTH_MASK
                     )

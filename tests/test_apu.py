@@ -1,13 +1,14 @@
 import unittest
-from memory import Memory
+
 from clock import SystemClock
+from memory import Memory
 
 
 class TestAPU(unittest.TestCase):
     def setUp(self):
         self.clock = SystemClock(4194304)
         self.mem_data = bytearray(0x10000)
-        self.memory = Memory(self.clock, self.mem_data, backend="bytearray")
+        self.memory = Memory(self.clock, self.mem_data)
 
     def test_apu_power_off_reads(self):
         # By default, APU is off
