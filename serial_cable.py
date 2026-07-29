@@ -54,7 +54,12 @@ class Serial:
     def step(self, cycles: int) -> None:
         """Advance the reset-aligned DMG serial clock."""
         total = self.clock_phase + cycles
-        clock_edges, self.clock_phase = divmod(total, SERIAL_BIT_CYCLES)
+        if total < SERIAL_BIT_CYCLES:
+            self.clock_phase = total
+            clock_edges = 0
+        else:
+            clock_edges = total // SERIAL_BIT_CYCLES
+            self.clock_phase = total - (clock_edges * SERIAL_BIT_CYCLES)
 
         # SC is written on the final machine cycle of its instruction. The CPU
         # reports the whole instruction afterward, so do not count earlier

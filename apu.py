@@ -51,13 +51,36 @@ from constants import (
 from gb_types import (
     AUDIO_LENGTH_MASK,
     BIT_0,
-    BIT_1,
     LOW_NIBBLE_MASK,
     UNMAPPED_BYTE,
     Address,
     Byte,
     Cycles,
 )
+
+_NOISE_JUMP_SIZE: Final[int] = 12
+_NOISE_STATE_COUNT: Final[int] = 1 << 15
+
+
+def _build_noise_jump_tables() -> np.ndarray:
+    """Precompute exact LFSR advances for one audio-sample-sized batch."""
+    tables = np.empty((2, _NOISE_JUMP_SIZE + 1, _NOISE_STATE_COUNT), dtype=np.uint16)
+    states = np.arange(_NOISE_STATE_COUNT, dtype=np.uint16)
+    tables[:, 0, :] = states
+
+    for width_mode in range(2):
+        current = states
+        for edge_count in range(1, _NOISE_JUMP_SIZE + 1):
+            feedback = (current & 1) ^ ((current >> 1) & 1)
+            current = (current >> 1) | (feedback << 14)
+            if width_mode:
+                current = (current & np.uint16(0x7FBF)) | (feedback << 6)
+            tables[width_mode, edge_count, :] = current
+
+    return tables
+
+
+_NOISE_JUMP_TABLES: Final[np.ndarray] = _build_noise_jump_tables()
 
 
 class PulseChannel:
@@ -278,16 +301,21 @@ class NoiseChannel:
             return
 
         self.timer -= cycles
-        while self.timer <= 0:
-            self.timer += self.period
+        if self.timer > 0:
+            return
 
-            res = (self.lfsr & BIT_0) ^ ((self.lfsr & BIT_1) >> 1)
-            self.lfsr = (self.lfsr >> 1) | (res << self.LFSR_BIT_COUNT)
-            if self.width_mode:
-                self.lfsr = (self.lfsr & ~(1 << self.LFSR_WIDTH_BIT)) | (
-                    res << self.LFSR_WIDTH_BIT
-                )
-            self.output = self.volume if (self.lfsr & BIT_0) == 0 else 0
+        period = self.period
+        edge_count = int((-self.timer) // period) + 1
+        self.timer += edge_count * period
+
+        jump_table = _NOISE_JUMP_TABLES[1 if self.width_mode else 0]
+        lfsr = self.lfsr
+        while edge_count:
+            batch = min(edge_count, _NOISE_JUMP_SIZE)
+            lfsr = int(jump_table[batch, lfsr])
+            edge_count -= batch
+        self.lfsr = lfsr
+        self.output = self.volume if (lfsr & BIT_0) == 0 else 0
 
     @property
     def period(self) -> int:

@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Any, Union
 
+from constants import REG_LY
 from gb_types import (
     BIT_0,
     BIT_7,
@@ -2781,7 +2782,11 @@ class CPUOpcodes:
         cycles = 4
         bytes = 1
         """
-        self._and_reg(REG_A, REG_A)
+        # AND A leaves A unchanged, so this very common polling-loop opcode
+        # only needs to update flags. Avoid the generic two-read/one-write path.
+        self.registers.data[REG_F] = (
+            FLAG_Z if self.registers.data[REG_A] == 0 else 0
+        ) | 0x20
         self.registers.PC += 1
         return 4
 
@@ -3670,10 +3675,20 @@ class CPUOpcodes:
     # HIGH_NIBBLE_MASK - BYTE_MASK
     def _ldh_a_n8(self):
         """Opcode HIGH_NIBBLE_MASK (LDH 'A','a8',)"""
-        n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
+        registers = self.registers
+        pc = registers.PC
+        n8 = self.memory[(pc + 1) & 0xFFFF]
         self._advance_to_memory_access(4)
-        self.registers.data[0] = self._read_memory_byte(int(0xFF00 + n8))
-        self.registers.PC += 2
+        address = 0xFF00 + n8
+        if n8 >= 0x80 or (address == REG_LY and self.video is not None):
+            # HRAM/IE and a connected video device's LY register are already
+            # mirrored into flat memory. Games poll these locations heavily, so
+            # avoid a Python bus method call without bypassing the clock-derived
+            # headless LY fallback.
+            registers.data[REG_A] = self.memory[address]
+        else:
+            registers.data[REG_A] = self._read_memory_byte(address)
+        registers.PC = pc + 2
         return 12
 
     def _pop_af(self):

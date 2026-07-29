@@ -125,6 +125,22 @@ class TestAPUOscillators(unittest.TestCase):
 
         self.assertEqual((self.apu.ch4.lfsr >> 6) & 1, 0)
 
+    def test_noise_oscillator_batches_many_exact_lfsr_edges(self):
+        self.memory.write_byte(0xFF26, 0x80)
+        self.memory.write_byte(0xFF21, 0xF0)
+        self.memory.write_byte(0xFF22, 0x00)
+        self.memory.write_byte(0xFF23, 0x80)
+
+        expected = self.apu.ch4.lfsr
+        for _ in range(13):
+            feedback = (expected & 1) ^ ((expected >> 1) & 1)
+            expected = (expected >> 1) | (feedback << 14)
+
+        self.apu.ch4.step(13 * self.apu.ch4.period)
+
+        self.assertEqual(self.apu.ch4.lfsr, expected)
+        self.assertEqual(self.apu.ch4.timer, self.apu.ch4.period)
+
     def test_apu_samples_before_later_noise_edges_in_large_steps(self):
         self.memory.write_byte(0xFF26, 0x80)
         self.memory.write_byte(0xFF24, 0x77)

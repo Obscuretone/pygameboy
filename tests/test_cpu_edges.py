@@ -4,6 +4,7 @@ import pytest
 
 from clock import SystemClock
 from cpu import CPU
+from gb_types import FLAG_H, FLAG_Z
 from memory import Memory
 
 
@@ -96,6 +97,41 @@ def test_fast_cycle_path_steps_devices_profiles_flushes_and_waits(capsys) -> Non
     assert audio.steps == [64, 64]
     wait.assert_called_once_with(128)
     assert "Executed 32 instructions / 128 cycles" in capsys.readouterr().out
+
+
+def test_fast_cycle_path_inlines_common_polling_opcodes() -> None:
+    cpu, memory, _ = make_cpu()
+    memory.storage[0:7] = bytes(
+        (
+            0xF0,
+            0x85,  # LDH A,(FF85)
+            0xA7,  # AND A,A
+            0x28,
+            0xFB,  # JR Z back to LDH
+            0xF0,
+            0x44,  # Non-HRAM LDH retains normal dispatch.
+        )
+    )
+    memory.storage[0xFF85] = 0
+
+    executed, cycles = cpu.run(max_cycles=28, realtime=False, announce=False)
+
+    assert (executed, cycles) == (3, 28)
+    assert cpu.registers.PC == 0
+    assert cpu.registers.data[1] == FLAG_Z | FLAG_H
+    assert cpu.timer.divider_cycles == 28
+
+    memory.storage[0xFF85] = 1
+    executed, cycles = cpu.run(max_cycles=24, realtime=False, announce=False)
+
+    assert (executed, cycles) == (3, 24)
+    assert cpu.registers.PC == 5
+    assert cpu.registers.data[1] == FLAG_H
+
+    executed, cycles = cpu.run(max_cycles=12, realtime=False, announce=False)
+
+    assert (executed, cycles) == (1, 12)
+    assert cpu.registers.PC == 7
 
 
 def test_fast_cycle_path_covers_absent_video_residual_audio_and_pending_delay() -> None:
