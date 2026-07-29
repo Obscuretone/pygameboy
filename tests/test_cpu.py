@@ -947,6 +947,23 @@ class TestCPU(unittest.TestCase):
         self.assertTrue(self.cpu.get_flag("z"))
         self.assertTrue(self.cpu.get_flag("h"))
 
+    def test_fast_and_a_self_only_updates_flags(self):
+        """Test optimized AND A,A preserves A and sets both flag outcomes."""
+        for value, zero in ((0x42, False), (0x00, True)):
+            with self.subTest(value=value):
+                self.ram.write_byte(0x0000, 0xA7)
+                self.cpu.write_register("PC", 0)
+                self.cpu.write_register("A", value)
+                self.cpu.write_register("F", 0xF0)
+
+                opcode, cycles = self.cpu.step_fast()
+
+                self.assertEqual(opcode, 0xA7)
+                self.assertEqual(cycles, 4)
+                self.assertEqual(self.cpu.read_register("A"), value)
+                self.assertEqual(self.cpu.read_register("PC"), 1)
+                self.assertEqual(self.cpu.read_register("F"), 0xA0 if zero else 0x20)
+
     def test_fast_or_a_register_updates_flags(self):
         """Test fast OR A,r updates A and clears N/H/C."""
         self.ram.write_byte(0x0000, 0xB0)
@@ -1903,6 +1920,34 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(opcode, 0xF0)
         self.assertEqual(cycles, 12)
         self.assertEqual(self.cpu.read_register("A"), 0x90)
+
+    def test_fast_ldh_reads_mirrored_ly_with_video_connected(self):
+        """Test the optimized LY path reads the video-updated flat register."""
+        video = VideoChip(self.cpu.clock, self.ram)
+        self.ram.video = video
+        self.cpu.video = video
+        self.ram.write_byte(0x0000, 0xF0)
+        self.ram.write_byte(0x0001, 0x44)
+        self.ram.storage[0xFF44] = 0x53
+
+        opcode, cycles = self.cpu.step_fast()
+
+        self.assertEqual(opcode, 0xF0)
+        self.assertEqual(cycles, 12)
+        self.assertEqual(self.cpu.read_register("A"), 0x53)
+        self.assertEqual(self.cpu.read_register("PC"), 2)
+
+    def test_fast_ldh_reads_hram_from_flat_memory(self):
+        """Test optimized LDH A,(a8) reads the mirrored HRAM byte."""
+        self.ram.write_byte(0x0000, 0xF0)
+        self.ram.write_byte(0x0001, 0x85)
+        self.ram.storage[0xFF85] = 0xA6
+
+        opcode, cycles = self.cpu.step_fast()
+
+        self.assertEqual(opcode, 0xF0)
+        self.assertEqual(cycles, 12)
+        self.assertEqual(self.cpu.read_register("A"), 0xA6)
 
     def test_fast_ldh_ff50_disables_boot_rom_overlay(self):
         """Test fast LDH (FF50),A restores cartridge boot area bytes."""

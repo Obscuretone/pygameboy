@@ -177,7 +177,43 @@ class CPU(CPUOpcodes):
                             opcode = mem[reg.PC]
                             if profile_opcodes:
                                 self.opcode_profile[opcode] += 1
-                            cyc = dispatch[opcode]() if fast else self.step()[1]
+                            if fast and opcode == 0xA7:
+                                # AND A,A is a flags-only operation and dominates
+                                # common busy-wait loops.
+                                reg.data[1] = (
+                                    FLAG_Z if reg.data[0] == 0 else 0
+                                ) | FLAG_H
+                                reg.PC += 1
+                                cyc = 4
+                            elif (
+                                fast
+                                and opcode == 0xF0
+                                and mem[(reg.PC + 1) & 0xFFFF] >= 0x80
+                            ):
+                                # LDH A,(a8) is commonly used to poll HRAM. This
+                                # range is flat memory, but retain the timer's
+                                # exact M-cycle bus-access phase.
+                                n8 = mem[(reg.PC + 1) & 0xFFFF]
+                                t_step(4)
+                                self._instruction_elapsed_cycles = 4
+                                reg.data[0] = mem[0xFF00 + n8]
+                                reg.PC += 2
+                                cyc = 12
+                            elif fast and opcode == 0x28:
+                                # Keep the paired JR Z polling branch in the
+                                # dispatch loop to avoid another Python call.
+                                if reg.data[1] & FLAG_Z:
+                                    n8 = mem[(reg.PC + 1) & 0xFFFF]
+                                    offset = n8 - 256 if n8 >= 128 else n8
+                                    reg.PC += 2 + offset
+                                    cyc = 12
+                                else:
+                                    reg.PC += 2
+                                    cyc = 8
+                            else:
+                                cyc = (
+                                    dispatch[opcode]() if fast else self.step()[1]
+                                )
 
                     executed += 1
                     total_cyc += cyc
