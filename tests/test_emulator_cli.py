@@ -255,7 +255,10 @@ class TestEmulatorCLI(unittest.TestCase):
             audio_buffer_size=0,
             total_instructions=12,
             total_cycles=48,
-            fps=59.7,
+            emulated_fps=59.7,
+            presented_fps=52.0,
+            skipped_percent=12.9,
+            speed_percent=100.0,
         )
 
         after = bytes(pygame.image.tobytes(screen, "RGB"))

@@ -3,6 +3,7 @@ from unittest.mock import patch
 import pytest
 
 from clock import SystemClock
+from constants import REG_SB, REG_SC
 from cpu import CPU
 from gb_types import FLAG_H, FLAG_Z
 from memory import Memory
@@ -159,6 +160,31 @@ def test_run_supports_memory_bus_without_serial_device() -> None:
     assert cpu.run(max_instructions=1, realtime=False, announce=False) == (1, 4)
 
 
+def test_run_preserves_inactive_serial_phase_and_steps_active_transfer() -> None:
+    cpu, memory, _ = make_cpu()
+    serial = memory.serial
+    serial.clock_phase = 500
+
+    assert cpu.run(max_cycles=12, realtime=False, announce=False) == (3, 12)
+    assert serial.clock_phase == 0
+
+    assert cpu.run(max_instructions=1, realtime=False, announce=False) == (1, 4)
+    assert serial.clock_phase == 4
+
+    output = []
+    serial.transfer_callback = output.append
+    serial.write_byte(REG_SB, ord("A"))
+    serial.write_byte(REG_SC, 0x81)
+    serial.step(0)
+    serial.clock_phase = 508
+    serial.bits_remaining = 1
+
+    assert cpu.run(max_cycles=4, realtime=False, announce=False) == (1, 4)
+    assert output == [ord("A")]
+    assert serial.clock_phase == 0
+    assert not serial.transfer_active
+
+
 def test_fast_cycle_path_stops_at_frame_halt_stop_and_ime_delay() -> None:
     video = VideoProbe(complete_on_step=True)
     cpu, memory, _ = make_cpu(video=video)
@@ -302,6 +328,56 @@ def test_memory_word_and_legacy_helper_paths() -> None:
     assert cpu.registers["F"] == 0x80
     cpu._set_and_flags(1)
     assert cpu.registers["F"] == 0x20
+
+
+def test_legacy_string_alu_helper_paths() -> None:
+    cpu, memory, _ = make_cpu()
+    cpu.write_register(0, 0x12)
+    assert cpu.registers["F"] & 0x0F == 0
+
+    for helper, expected in (
+        (cpu._xor_reg, 0x03),
+        (cpu._and_reg, 0x00),
+        (cpu._or_reg, 0x03),
+    ):
+        cpu.registers["A"] = 0x01
+        cpu.registers["B"] = 0x02
+        helper("A", "B")
+        assert cpu.registers["A"] == expected
+
+    cpu.registers["A"] = 0x01
+    cpu.registers["B"] = 0x02
+    cpu._cp_reg("A", "B")
+    assert cpu.registers["A"] == 0x01
+
+    for helper, expected in (
+        (cpu._add_reg_int, 0x03),
+        (cpu._sub_int, -1),
+        (cpu._sbc_reg_int, 0xFF),
+        (cpu._xor_int, 0x03),
+        (cpu._and_int, 0x00),
+        (cpu._or_int, 0x03),
+    ):
+        cpu.registers["A"] = 0x01
+        cpu.registers["F"] = 0
+        result = helper("A", 0x02)
+        if result is not None:
+            assert result == expected
+        assert cpu.registers["A"] == (expected & 0xFF)
+
+    cpu.registers["HL"] = 0xC000
+    memory.storage[0xC000] = 0x02
+    for helper, expected in (
+        (cpu._sub_reg_mem, 0xFF),
+        (cpu._sbc_reg_mem, 0xFF),
+        (cpu._xor_reg_mem, 0x03),
+        (cpu._and_reg_mem, 0x00),
+        (cpu._or_reg_mem, 0x03),
+    ):
+        cpu.registers["A"] = 0x01
+        cpu.registers["F"] = 0
+        helper("A", "HL")
+        assert cpu.registers["A"] == expected
 
 
 def test_sixteen_bit_add_flag_edges_and_unknown_instruction() -> None:

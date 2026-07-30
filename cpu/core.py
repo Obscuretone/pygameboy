@@ -5,6 +5,7 @@ from constants import (
     GB_CLOCK_HZ,
     OPCODE_COUNT,
     REG_DIV,
+    SERIAL_BIT_CYCLES,
 )
 from gb_types import (
     FLAG_C,
@@ -145,6 +146,11 @@ class CPU(CPUOpcodes):
         v_step = video.step if video else None
         a_step = apu.step if apu else None
         s_step = serial.step if serial else None
+        serial_fast_phase = (
+            serial is not None
+            and hasattr(serial, "clock_phase")
+            and hasattr(serial, "transfer_active")
+        )
         t_step = timer.step
         i_service = interrupts.service
 
@@ -222,7 +228,16 @@ class CPU(CPUOpcodes):
                     t_step(cyc - instruction_elapsed)
                     if instruction_elapsed:
                         self._instruction_elapsed_cycles = 0
-                    if s_step:
+                    if serial_fast_phase and not serial.transfer_active:
+                        # A CPU dispatch is at most 24 cycles, so one subtraction
+                        # is an exact modulo without calling Serial.step().
+                        phase = serial.clock_phase + cyc
+                        serial.clock_phase = (
+                            phase - SERIAL_BIT_CYCLES
+                            if phase >= SERIAL_BIT_CYCLES
+                            else phase
+                        )
+                    elif s_step:
                         s_step(cyc)
 
                     if a_step:
@@ -277,7 +292,15 @@ class CPU(CPUOpcodes):
                     t_step(cyc - instruction_elapsed)
                     if instruction_elapsed:
                         self._instruction_elapsed_cycles = 0
-                    if s_step:
+                    if serial_fast_phase and not serial.transfer_active:
+                        # Keep the diagnostic path reset-aligned as well.
+                        phase = serial.clock_phase + cyc
+                        serial.clock_phase = (
+                            phase - SERIAL_BIT_CYCLES
+                            if phase >= SERIAL_BIT_CYCLES
+                            else phase
+                        )
+                    elif s_step:
                         s_step(cyc)
 
                     v_accumulated += cyc
@@ -614,178 +637,259 @@ class CPU(CPUOpcodes):
             self._set_dec_flags(v, res)
 
     def _add(self, r1, r2):
-        a, b = self.read_register(r1), self.read_register(r2)
+        data = self.registers.data
+        if isinstance(r1, int) and isinstance(r2, int):
+            a, b = data[r1], data[r2]
+        else:
+            a, b = self.read_register(r1), self.read_register(r2)
         res = a + b
-        self.write_register(r1, res & 0xFF)
+        if isinstance(r1, int):
+            data[r1] = res & 0xFF
+        else:
+            self.write_register(r1, res & 0xFF)
         self._set_add_flags(a, b, res)
 
     def _adc(self, r1, r2):
-        a, b, c = (
-            self.read_register(r1),
-            self.read_register(r2),
-            (1 if self.registers.data[1] & 0x10 else 0),
-        )
+        data = self.registers.data
+        if isinstance(r1, int) and isinstance(r2, int):
+            a, b = data[r1], data[r2]
+        else:
+            a, b = self.read_register(r1), self.read_register(r2)
+        c = 1 if data[1] & 0x10 else 0
         res = a + b + c
-        self.write_register(r1, res & 0xFF)
+        if isinstance(r1, int):
+            data[r1] = res & 0xFF
+        else:
+            self.write_register(r1, res & 0xFF)
         self._set_adc_flags(a, b, c, res)
 
     def _sub_reg(self, r1, r2):
-        a, b = self.read_register(r1), self.read_register(r2)
+        data = self.registers.data
+        if isinstance(r1, int) and isinstance(r2, int):
+            a, b = data[r1], data[r2]
+        else:
+            a, b = self.read_register(r1), self.read_register(r2)
         res = a - b
-        self.write_register(r1, res & 0xFF)
+        if isinstance(r1, int):
+            data[r1] = res & 0xFF
+        else:
+            self.write_register(r1, res & 0xFF)
         self._set_sub_flags(a, b, res)
 
     def _sbc(self, r1, r2):
-        a, b, c = (
-            self.read_register(r1),
-            self.read_register(r2),
-            (1 if self.registers.data[1] & 0x10 else 0),
-        )
+        data = self.registers.data
+        if isinstance(r1, int) and isinstance(r2, int):
+            a, b = data[r1], data[r2]
+        else:
+            a, b = self.read_register(r1), self.read_register(r2)
+        c = 1 if data[1] & 0x10 else 0
         res = a - b - c
-        self.write_register(r1, res & 0xFF)
+        if isinstance(r1, int):
+            data[r1] = res & 0xFF
+        else:
+            self.write_register(r1, res & 0xFF)
         self._set_sbc_flags(a, b, c, res)
 
     def _xor_reg(self, r1, r2):
-        res = self.read_register(r1) ^ self.read_register(r2)
-        self.write_register(r1, res)
-        self.registers.data[1] = 0x80 if res == 0 else 0
+        data = self.registers.data
+        if isinstance(r1, int) and isinstance(r2, int):
+            res = data[r1] ^ data[r2]
+            data[r1] = res
+        else:
+            res = self.read_register(r1) ^ self.read_register(r2)
+            self.write_register(r1, res)
+        data[1] = 0x80 if res == 0 else 0
 
     def _and_reg(self, r1, r2):
-        res = self.read_register(r1) & self.read_register(r2)
-        self.write_register(r1, res)
-        self.registers.data[1] = (0x80 if res == 0 else 0) | 0x20
+        data = self.registers.data
+        if isinstance(r1, int) and isinstance(r2, int):
+            res = data[r1] & data[r2]
+            data[r1] = res
+        else:
+            res = self.read_register(r1) & self.read_register(r2)
+            self.write_register(r1, res)
+        data[1] = (0x80 if res == 0 else 0) | 0x20
 
     def _or_reg(self, r1, r2):
-        res = self.read_register(r1) | self.read_register(r2)
-        self.write_register(r1, res)
-        self.registers.data[1] = 0x80 if res == 0 else 0
+        data = self.registers.data
+        if isinstance(r1, int) and isinstance(r2, int):
+            res = data[r1] | data[r2]
+            data[r1] = res
+        else:
+            res = self.read_register(r1) | self.read_register(r2)
+            self.write_register(r1, res)
+        data[1] = 0x80 if res == 0 else 0
 
     def _cp_reg(self, r1, r2):
-        a, b = self.read_register(r1), self.read_register(r2)
+        data = self.registers.data
+        if isinstance(r1, int) and isinstance(r2, int):
+            a, b = data[r1], data[r2]
+        else:
+            a, b = self.read_register(r1), self.read_register(r2)
         self._set_sub_flags(a, b, a - b)
 
     def _add_reg_int(self, r1: Any, v: Byte):
-        a = self.read_register(r1)
+        data = self.registers.data
+        a = data[r1] if isinstance(r1, int) else self.read_register(r1)
         res = a + v
-        self.write_register(r1, res & 0xFF)
+        if isinstance(r1, int):
+            data[r1] = res & 0xFF
+        else:
+            self.write_register(r1, res & 0xFF)
         self._set_add_flags(a, v, res)
 
     def _adc_reg_int(self, r1: Any, v: Byte):
-        a, c = self.read_register(r1), (1 if self.registers.data[1] & 0x10 else 0)
+        data = self.registers.data
+        a = data[r1] if isinstance(r1, int) else self.read_register(r1)
+        c = 1 if data[1] & 0x10 else 0
         res = a + v + c
-        self.write_register(r1, res & 0xFF)
+        if isinstance(r1, int):
+            data[r1] = res & 0xFF
+        else:
+            self.write_register(r1, res & 0xFF)
         self._set_adc_flags(a, v, c, res)
 
     def _sub_int(self, a: Address, b: Byte, carry: bool = False) -> int:
-        val = self.read_register(a)
+        data = self.registers.data
+        val = data[a] if isinstance(a, int) else self.read_register(a)
         c = 1 if carry else 0
         res = val - b - c
-        self.write_register(a, res & 0xFF)
+        if isinstance(a, int):
+            data[a] = res & 0xFF
+        else:
+            self.write_register(a, res & 0xFF)
         self._set_sbc_flags(val, b, c, res)
         return res
 
     def _sbc_reg_int(self, r1: Any, v: Byte):
-        a, c = self.read_register(r1), (1 if self.registers.data[1] & 0x10 else 0)
+        data = self.registers.data
+        a = data[r1] if isinstance(r1, int) else self.read_register(r1)
+        c = 1 if data[1] & 0x10 else 0
         res = a - v - c
-        self.write_register(r1, res & 0xFF)
+        if isinstance(r1, int):
+            data[r1] = res & 0xFF
+        else:
+            self.write_register(r1, res & 0xFF)
         self._set_sbc_flags(a, v, c, res)
 
     def _xor_int(self, a: Address, b: Byte) -> int:
-        res = self.read_register(a) ^ b
-        self.write_register(a, res)
-        self.registers.data[1] = 0x80 if res == 0 else 0
+        data = self.registers.data
+        res = (data[a] if isinstance(a, int) else self.read_register(a)) ^ b
+        if isinstance(a, int):
+            data[a] = res
+        else:
+            self.write_register(a, res)
+        data[1] = 0x80 if res == 0 else 0
         return res
 
     def _and_int(self, a: Address, b: Byte) -> int:
-        res = self.read_register(a) & b
-        self.write_register(a, res)
-        self.registers.data[1] = (0x80 if res == 0 else 0) | 0x20
+        data = self.registers.data
+        res = (data[a] if isinstance(a, int) else self.read_register(a)) & b
+        if isinstance(a, int):
+            data[a] = res
+        else:
+            self.write_register(a, res)
+        data[1] = (0x80 if res == 0 else 0) | 0x20
         return res
 
     def _or_int(self, a: Address, b: Byte) -> int:
-        res = self.read_register(a) | b
-        self.write_register(a, res)
-        self.registers.data[1] = 0x80 if res == 0 else 0
+        data = self.registers.data
+        res = (data[a] if isinstance(a, int) else self.read_register(a)) | b
+        if isinstance(a, int):
+            data[a] = res
+        else:
+            self.write_register(a, res)
+        data[1] = 0x80 if res == 0 else 0
         return res
 
     def _cp_int(self, a: Address, b: Byte) -> None:
-        val = self.read_register(a)
+        data = self.registers.data
+        val = data[a] if isinstance(a, int) else self.read_register(a)
         self._set_sub_flags(val, b, val - b)
 
     def _add_reg_mem(self, r1: Any, r2: Any):
-        a, b = (
-            self.read_register(r1),
-            self._read_memory_byte(
-                ((self.registers.data[6] << 8) | self.registers.data[7])
-            ),
-        )
+        data = self.registers.data
+        a = data[r1] if isinstance(r1, int) else self.read_register(r1)
+        b = self._read_memory_byte((data[6] << 8) | data[7])
         res = a + b
-        self.write_register(r1, res & 0xFF)
+        if isinstance(r1, int):
+            data[r1] = res & 0xFF
+        else:
+            self.write_register(r1, res & 0xFF)
         self._set_add_flags(a, b, res)
 
     def _adc_reg_mem(self, r1: Any, r2: Any):
-        a, b, c = (
-            self.read_register(r1),
-            self._read_memory_byte(
-                ((self.registers.data[6] << 8) | self.registers.data[7])
-            ),
-            (1 if self.registers.data[1] & 0x10 else 0),
-        )
+        data = self.registers.data
+        a = data[r1] if isinstance(r1, int) else self.read_register(r1)
+        b = self._read_memory_byte((data[6] << 8) | data[7])
+        c = 1 if data[1] & 0x10 else 0
         res = a + b + c
-        self.write_register(r1, res & 0xFF)
+        if isinstance(r1, int):
+            data[r1] = res & 0xFF
+        else:
+            self.write_register(r1, res & 0xFF)
         self._set_adc_flags(a, b, c, res)
 
     def _sub_reg_mem(self, r1: Any, r2: Any):
-        a, b = (
-            self.read_register(r1),
-            self._read_memory_byte(
-                ((self.registers.data[6] << 8) | self.registers.data[7])
-            ),
-        )
+        data = self.registers.data
+        a = data[r1] if isinstance(r1, int) else self.read_register(r1)
+        b = self._read_memory_byte((data[6] << 8) | data[7])
         res = a - b
-        self.write_register(r1, res & 0xFF)
+        if isinstance(r1, int):
+            data[r1] = res & 0xFF
+        else:
+            self.write_register(r1, res & 0xFF)
         self._set_sub_flags(a, b, res)
 
     def _sbc_reg_mem(self, r1: Any, r2: Any):
-        a, b, c = (
-            self.read_register(r1),
-            self._read_memory_byte(
-                ((self.registers.data[6] << 8) | self.registers.data[7])
-            ),
-            (1 if self.registers.data[1] & 0x10 else 0),
-        )
+        data = self.registers.data
+        a = data[r1] if isinstance(r1, int) else self.read_register(r1)
+        b = self._read_memory_byte((data[6] << 8) | data[7])
+        c = 1 if data[1] & 0x10 else 0
         res = a - b - c
-        self.write_register(r1, res & 0xFF)
+        if isinstance(r1, int):
+            data[r1] = res & 0xFF
+        else:
+            self.write_register(r1, res & 0xFF)
         self._set_sbc_flags(a, b, c, res)
 
     def _xor_reg_mem(self, r1: Any, r2: Any):
-        res = self.read_register(r1) ^ self._read_memory_byte(
-            ((self.registers.data[6] << 8) | self.registers.data[7])
-        )
-        self.write_register(r1, res)
-        self.registers.data[1] = 0x80 if res == 0 else 0
+        data = self.registers.data
+        res = (
+            data[r1] if isinstance(r1, int) else self.read_register(r1)
+        ) ^ self._read_memory_byte((data[6] << 8) | data[7])
+        if isinstance(r1, int):
+            data[r1] = res
+        else:
+            self.write_register(r1, res)
+        data[1] = 0x80 if res == 0 else 0
 
     def _and_reg_mem(self, r1: Any, r2: Any):
-        res = self.read_register(r1) & self._read_memory_byte(
-            ((self.registers.data[6] << 8) | self.registers.data[7])
-        )
-        self.write_register(r1, res)
-        self.registers.data[1] = (0x80 if res == 0 else 0) | 0x20
+        data = self.registers.data
+        res = (
+            data[r1] if isinstance(r1, int) else self.read_register(r1)
+        ) & self._read_memory_byte((data[6] << 8) | data[7])
+        if isinstance(r1, int):
+            data[r1] = res
+        else:
+            self.write_register(r1, res)
+        data[1] = (0x80 if res == 0 else 0) | 0x20
 
     def _or_reg_mem(self, r1: Any, r2: Any):
-        res = self.read_register(r1) | self._read_memory_byte(
-            ((self.registers.data[6] << 8) | self.registers.data[7])
-        )
-        self.write_register(r1, res)
-        self.registers.data[1] = 0x80 if res == 0 else 0
+        data = self.registers.data
+        res = (
+            data[r1] if isinstance(r1, int) else self.read_register(r1)
+        ) | self._read_memory_byte((data[6] << 8) | data[7])
+        if isinstance(r1, int):
+            data[r1] = res
+        else:
+            self.write_register(r1, res)
+        data[1] = 0x80 if res == 0 else 0
 
     def _cp_reg_mem(self, r1: Any, r2: Any):
-        a, b = (
-            self.read_register(r1),
-            self._read_memory_byte(
-                ((self.registers.data[6] << 8) | self.registers.data[7])
-            ),
-        )
+        data = self.registers.data
+        a = data[r1] if isinstance(r1, int) else self.read_register(r1)
+        b = self._read_memory_byte((data[6] << 8) | data[7])
         self._set_sub_flags(a, b, a - b)
 
     def _set_logic_flags(self, res):

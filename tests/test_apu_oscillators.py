@@ -141,6 +141,35 @@ class TestAPUOscillators(unittest.TestCase):
         self.assertEqual(self.apu.ch4.lfsr, expected)
         self.assertEqual(self.apu.ch4.timer, self.apu.ch4.period)
 
+    def test_pulse_and_wave_channels_batch_many_exact_timer_edges(self):
+        pulse = self.apu.ch1
+        pulse.enabled = True
+        pulse.frequency = 2040
+        pulse.timer = 32
+        pulse.duty = 2
+        pulse.duty_step = 0
+        pulse.volume = 9
+
+        pulse.step(13 * 32)
+
+        self.assertEqual(pulse.timer, 32)
+        self.assertEqual(pulse.duty_step, 5)
+        self.assertEqual(pulse.output, 9)
+
+        wave = self.apu.ch3
+        wave.enabled = True
+        wave.frequency = 2040
+        wave.timer = 16
+        wave.sample_index = 0
+        wave.volume_shift = 1
+        wave.wave_ram[:] = bytes(range(16))
+
+        wave.step(35 * 16)
+
+        self.assertEqual(wave.timer, 16)
+        self.assertEqual(wave.sample_index, 3)
+        self.assertEqual(wave.output, 1)
+
     def test_apu_samples_before_later_noise_edges_in_large_steps(self):
         self.memory.write_byte(0xFF26, 0x80)
         self.memory.write_byte(0xFF24, 0x77)

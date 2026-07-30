@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Union
+from typing import TYPE_CHECKING, Any, Final, Union
 
 from constants import REG_LY
 from gb_types import (
@@ -32,6 +32,18 @@ if TYPE_CHECKING:
 
     from .interrupts import InterruptManager
     from .registers import RegisterFile
+
+
+_CB_REGISTERS: Final[tuple[Union[int, str], ...]] = (
+    REG_B,
+    REG_C,
+    REG_D,
+    REG_E,
+    REG_H,
+    REG_L,
+    REG_HL,
+    REG_A,
+)
 
 
 class CPUOpcodes:
@@ -3364,14 +3376,6 @@ class CPUOpcodes:
         self.registers.PC += 3
         return 12
 
-    def _prefix(self):
-        # Register mapping: B, C, D, E, H, L, (HL), A
-        # 1. Fetch value
-        # 2. Execute operation
-        # No write-back for BIT
-        """Unified CB-prefix opcode dispatcher."""
-        return self._prefix_cb()
-
     def _call_z_n16(self):
         """
         Opcode 0xCC (CALL 'Z','a16',)
@@ -3790,86 +3794,77 @@ class CPUOpcodes:
 
     # CB Prefix Implementation
     def _prefix_cb(self):
-        """Unified CB-prefix opcode dispatcher."""
-        # Register mapping: B, C, D, E, H, L, (HL), A
-        # 1. Fetch value
-        # 2. Execute operation
-        # No write-back for BIT
-        n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
-        op = n8
+        """Allocation-free CB-prefix opcode dispatcher."""
+        registers = self.registers
+        data = registers.data
+        op = self.memory[(registers.PC + 1) & 0xFFFF]
         category = (op & 0xC0) >> 6
         bit = (op & 0x38) >> 3
-        reg_idx = op & 0x07
-        regs = [REG_B, REG_C, REG_D, REG_E, REG_H, REG_L, REG_HL, REG_A]
-        reg_id = regs[reg_idx]
+        reg_id = _CB_REGISTERS[op & 0x07]
+        memory_operand = reg_id == REG_HL
+        address = 0
+        if memory_operand:
+            address = (data[REG_H] << 8) | data[REG_L]
+            self._advance_to_memory_access(4)
+            val = self._read_memory_byte(address)
+        else:
+            val = data[reg_id]
 
-        def get_val():
-            if reg_id == REG_HL:
-                self._advance_to_memory_access(4)
-                return self._read_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]))
-            return self.registers.data[reg_id]
-
-        def set_val(v):
-            if reg_id == REG_HL:
-                self._advance_to_memory_access(8)
-                self._write_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]), v)
-            else:
-                self.registers.data[reg_id] = v
-
-        cycles = 8 if reg_id != REG_HL else 16
+        write_back = category != 1
         if category == 0:
-            val = get_val()
             if bit == 0:
                 c = (val & BIT_7) >> 7
                 res = ((val << 1) | c) & BYTE_MASK
-                set_val(res)
                 self._set_cb_result_flags(res, bool(c))
             elif bit == 1:
                 c = val & BIT_0
                 res = (val >> 1) | (c << 7)
-                set_val(res)
                 self._set_cb_result_flags(res, bool(c))
             elif bit == 2:
-                oc = 1 if (self.registers.data[1] & 0x10) else 0
+                oc = 1 if (data[REG_F] & 0x10) else 0
                 c = (val & BIT_7) >> 7
                 res = ((val << 1) | oc) & BYTE_MASK
-                set_val(res)
                 self._set_cb_result_flags(res, bool(c))
             elif bit == 3:
-                oc = 1 if (self.registers.data[1] & 0x10) else 0
+                oc = 1 if (data[REG_F] & 0x10) else 0
                 c = val & BIT_0
                 res = (val >> 1) | (oc << 7)
-                set_val(res)
                 self._set_cb_result_flags(res, bool(c))
             elif bit == 4:
                 c = (val & BIT_7) >> 7
                 res = (val << 1) & BYTE_MASK
-                set_val(res)
                 self._set_cb_result_flags(res, bool(c))
             elif bit == 5:
                 c = val & BIT_0
                 res = (val >> 1) | (val & BIT_7)
-                set_val(res)
                 self._set_cb_result_flags(res, bool(c))
             elif bit == 6:
-                res = ((val & LOW_NIBBLE_MASK) << 4) | ((val & HIGH_NIBBLE_MASK) >> 4)
-                set_val(res)
-                self.registers.data[REG_F] = FLAG_Z if res == 0 else 0
+                res = ((val & LOW_NIBBLE_MASK) << 4) | (
+                    (val & HIGH_NIBBLE_MASK) >> 4
+                )
+                data[REG_F] = FLAG_Z if res == 0 else 0
             else:
                 c = val & BIT_0
                 res = val >> 1
-                set_val(res)
                 self._set_cb_result_flags(res, bool(c))
         elif category == 1:
-            self._set_bit_flags(get_val(), bit)
-            if reg_id == REG_HL:
-                cycles = 12
+            self._set_bit_flags(val, bit)
         elif category == 2:
-            set_val(get_val() & ((1 << bit) ^ BYTE_MASK))
+            res = val & ((1 << bit) ^ BYTE_MASK)
         else:
-            set_val(get_val() | (1 << bit))
-        self.registers.PC += 2
-        return cycles
+            res = val | (1 << bit)
+
+        if write_back:
+            if memory_operand:
+                self._advance_to_memory_access(8)
+                self._write_memory_byte(address, res)
+            else:
+                data[reg_id] = res
+
+        registers.PC += 2
+        if memory_operand:
+            return 12 if category == 1 else 16
+        return 8
 
     def instruction_set(self):
         return {
@@ -4076,7 +4071,7 @@ class CPUOpcodes:
             0xC8: self._ret_z,
             0xC9: self._ret,
             0xCA: self._jp_z_n16,
-            0xCB: self._prefix,
+            0xCB: self._prefix_cb,
             0xCC: self._call_z_n16,
             0xCD: self._call_n16,
             0xCE: self._adc_a_n8,

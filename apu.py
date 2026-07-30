@@ -1,4 +1,5 @@
 import threading
+from array import array
 from typing import ClassVar, Final, List
 
 import numpy as np
@@ -8,14 +9,6 @@ from constants import (
     APU_ENVELOPE_INITIAL_VOL_MASK,
     APU_ENVELOPE_PERIOD_MASK,
     APU_FREQ_HI_MASK,
-    APU_MIX_CH1_LEFT,
-    APU_MIX_CH1_RIGHT,
-    APU_MIX_CH2_LEFT,
-    APU_MIX_CH2_RIGHT,
-    APU_MIX_CH3_LEFT,
-    APU_MIX_CH3_RIGHT,
-    APU_MIX_CH4_LEFT,
-    APU_MIX_CH4_RIGHT,
     APU_REG_SIZE,
     APU_VOL_LEFT_MASK,
     APU_VOL_RIGHT_MASK,
@@ -63,8 +56,8 @@ _NOISE_JUMP_SIZE: Final[int] = 12
 _NOISE_STATE_COUNT: Final[int] = 1 << 15
 
 
-def _build_noise_jump_tables() -> np.ndarray:
-    """Precompute exact LFSR advances for one audio-sample-sized batch."""
+def _build_noise_jump_tables() -> tuple[array, array]:
+    """Precompute compact scalar lookup tables for exact LFSR advancement."""
     tables = np.empty((2, _NOISE_JUMP_SIZE + 1, _NOISE_STATE_COUNT), dtype=np.uint16)
     states = np.arange(_NOISE_STATE_COUNT, dtype=np.uint16)
     tables[:, 0, :] = states
@@ -78,10 +71,10 @@ def _build_noise_jump_tables() -> np.ndarray:
                 current = (current & np.uint16(0x7FBF)) | (feedback << 6)
             tables[width_mode, edge_count, :] = current
 
-    return tables
+    return array("H", tables[0].ravel()), array("H", tables[1].ravel())
 
 
-_NOISE_JUMP_TABLES: Final[np.ndarray] = _build_noise_jump_tables()
+_NOISE_JUMP_TABLES: Final[tuple[array, array]] = _build_noise_jump_tables()
 
 
 class PulseChannel:
@@ -128,15 +121,19 @@ class PulseChannel:
             return
 
         self.timer -= cycles
-        while self.timer <= 0:
-            period = (self.FREQUENCY_BASE - self.frequency) * self.TIMER_FACTOR
-            if period <= 0:
-                break
-            self.timer += period
-            self.duty_step = (self.duty_step + 1) & 7  # Masking instead of mod
-            self.output = (
-                self.volume if self.DUTY_CYCLES[self.duty][self.duty_step] else 0
-            )
+        if self.timer > 0:
+            return
+
+        period = (self.FREQUENCY_BASE - self.frequency) * self.TIMER_FACTOR
+        if period <= 0:
+            return
+
+        edge_count = int((-self.timer) // period) + 1
+        self.timer += edge_count * period
+        self.duty_step = (self.duty_step + edge_count) & 7
+        self.output = (
+            self.volume if self.DUTY_CYCLES[self.duty][self.duty_step] else 0
+        )
 
     def step_length(self) -> None:
         """Advance the length counter."""
@@ -219,24 +216,27 @@ class WaveChannel:
             return
 
         self.timer -= cycles
-        while self.timer <= 0:
-            period = (self.FREQUENCY_BASE - self.frequency) * self.TIMER_FACTOR
-            if period <= 0:
-                break
-            self.timer += period
-            self.sample_index = (self.sample_index + 1) & 31
+        if self.timer > 0:
+            return
 
-            byte_index = self.sample_index >> 1
-            byte = self.wave_ram[byte_index]
-            if (self.sample_index & 1) == 0:
-                sample = (byte >> 4) & LOW_NIBBLE_MASK
-            else:
-                sample = byte & LOW_NIBBLE_MASK
+        period = (self.FREQUENCY_BASE - self.frequency) * self.TIMER_FACTOR
+        if period <= 0:
+            return
 
-            if self.volume_shift > 0:
-                self.output = sample >> (self.volume_shift - 1)
-            else:
-                self.output = 0
+        edge_count = int((-self.timer) // period) + 1
+        self.timer += edge_count * period
+        self.sample_index = (self.sample_index + edge_count) & 31
+
+        byte = self.wave_ram[self.sample_index >> 1]
+        if (self.sample_index & 1) == 0:
+            sample = (byte >> 4) & LOW_NIBBLE_MASK
+        else:
+            sample = byte & LOW_NIBBLE_MASK
+
+        if self.volume_shift > 0:
+            self.output = sample >> (self.volume_shift - 1)
+        else:
+            self.output = 0
 
     def step_length(self) -> None:
         """Advance the length counter."""
@@ -316,7 +316,7 @@ class NoiseChannel:
         lfsr = self.lfsr
         while edge_count:
             batch = min(edge_count, _NOISE_JUMP_SIZE)
-            lfsr = int(jump_table[batch, lfsr])
+            lfsr = jump_table[(batch * _NOISE_STATE_COUNT) + lfsr]
             edge_count -= batch
         self.lfsr = lfsr
         self.output = self.volume if (lfsr & BIT_0) == 0 else 0
@@ -442,6 +442,10 @@ class APU:
         self.right_output: float = 0.0
         self.left_capacitor: float = 0.0
         self.right_capacitor: float = 0.0
+        self._left_gain: float = 1.0 / self.MIX_DIVISOR
+        self._right_gain: float = 1.0 / self.MIX_DIVISOR
+        self._left_mix_mask: int = 0
+        self._right_mix_mask: int = 0
         self.buffer = np.zeros((self.BUFFER_MAX, 2), dtype=np.float32)
         self.buffer_lock = threading.Lock()
         self.buffer_write_pos = 0
@@ -502,6 +506,7 @@ class APU:
                 self.right_output = 0.0
                 self.left_capacitor = 0.0
                 self.right_capacitor = 0.0
+                self._update_mixer_control()
             self.sound_enabled = new_sound_enabled
             self.registers[offset] = (self.registers[offset] & self.NR52_READ_MASK) | (
                 value & AUDIO_TRIGGER_BIT
@@ -510,6 +515,15 @@ class APU:
 
         if 0 <= offset < APU_REG_SIZE:
             self.registers[offset] = value
+            if address in (
+                REG_NR12,
+                REG_NR22,
+                REG_NR30,
+                REG_NR42,
+                REG_NR50,
+                REG_NR51,
+            ):
+                self._update_mixer_control()
 
             # Channel 1
             if address == REG_NR11:
@@ -628,6 +642,25 @@ class APU:
                     if not (self.registers[REG_NR42 - REG_NR10] & 0xF8):
                         self.ch4.enabled = False
 
+    def _update_mixer_control(self) -> None:
+        """Cache register-derived routing and gain used for every host sample."""
+        regs = self.registers
+        nr50 = regs[REG_NR50 - REG_NR10]
+        nr51 = regs[REG_NR51 - REG_NR10]
+        self._left_gain = (((nr50 & APU_VOL_LEFT_MASK) >> 4) + 1) / (
+            self.MIX_DIVISOR
+        )
+        self._right_gain = ((nr50 & APU_VOL_RIGHT_MASK) + 1) / self.MIX_DIVISOR
+
+        dac_mask = (
+            bool(regs[REG_NR12 - REG_NR10] & 0xF8)
+            | (bool(regs[REG_NR22 - REG_NR10] & 0xF8) << 1)
+            | (bool(regs[REG_NR30 - REG_NR10] & AUDIO_TRIGGER_BIT) << 2)
+            | (bool(regs[REG_NR42 - REG_NR10] & 0xF8) << 3)
+        )
+        self._right_mix_mask = (nr51 & 0x0F) & dac_mask
+        self._left_mix_mask = ((nr51 >> 4) & 0x0F) & dac_mask
+
     def _apply_length_enable(self, channel, enabled: bool) -> None:
         """Apply the DMG extra length clock on a disabled-to-enabled edge."""
         was_enabled = channel.length_enabled
@@ -716,42 +749,32 @@ class APU:
 
     def sample(self) -> None:
         """Generate a stereo sample and add it to the buffer."""
-        regs = self.registers
-        nr50 = regs[REG_NR50 - REG_NR10]
-        nr51 = regs[REG_NR51 - REG_NR10]
-
-        l_vol = ((nr50 & APU_VOL_LEFT_MASK) >> 4) + 1
-        r_vol = (nr50 & APU_VOL_RIGHT_MASK) + 1
-
         left = 0.0
         right = 0.0
         dac = self.DAC_OUTPUTS
+        left_mask = self._left_mix_mask
+        right_mask = self._right_mix_mask
 
-        ch1_dac = bool(regs[REG_NR12 - REG_NR10] & 0xF8)
-        ch2_dac = bool(regs[REG_NR22 - REG_NR10] & 0xF8)
-        ch3_dac = bool(regs[REG_NR30 - REG_NR10] & AUDIO_TRIGGER_BIT)
-        ch4_dac = bool(regs[REG_NR42 - REG_NR10] & 0xF8)
-
-        if nr51 & APU_MIX_CH1_LEFT and ch1_dac:
+        if left_mask & 0x01:
             left += dac[self.ch1.output]
-        if nr51 & APU_MIX_CH2_LEFT and ch2_dac:
+        if left_mask & 0x02:
             left += dac[self.ch2.output]
-        if nr51 & APU_MIX_CH3_LEFT and ch3_dac:
+        if left_mask & 0x04:
             left += dac[self.ch3.output]
-        if nr51 & APU_MIX_CH4_LEFT and ch4_dac:
+        if left_mask & 0x08:
             left += dac[self.ch4.output]
 
-        if nr51 & APU_MIX_CH1_RIGHT and ch1_dac:
+        if right_mask & 0x01:
             right += dac[self.ch1.output]
-        if nr51 & APU_MIX_CH2_RIGHT and ch2_dac:
+        if right_mask & 0x02:
             right += dac[self.ch2.output]
-        if nr51 & APU_MIX_CH3_RIGHT and ch3_dac:
+        if right_mask & 0x04:
             right += dac[self.ch3.output]
-        if nr51 & APU_MIX_CH4_RIGHT and ch4_dac:
+        if right_mask & 0x08:
             right += dac[self.ch4.output]
 
-        raw_left = (left * l_vol) / self.MIX_DIVISOR
-        raw_right = (right * r_vol) / self.MIX_DIVISOR
+        raw_left = left * self._left_gain
+        raw_right = right * self._right_gain
 
         # DMG output is AC-coupled. Model the hardware capacitor at the native
         # sample cadence so callback block size cannot alter the waveform.
