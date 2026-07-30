@@ -218,7 +218,10 @@ def draw_debug_overlay(
     audio_buffer_size: int,
     total_instructions: int,
     total_cycles: int,
-    fps: float,
+    emulated_fps: float,
+    presented_fps: float,
+    skipped_percent: float,
+    speed_percent: float,
 ) -> None:
     """Draw a compact live hardware/debugging overlay."""
     ppu_mode = video.storage[0xFF41] & 0x03
@@ -232,7 +235,14 @@ def draw_debug_overlay(
             f"LY {video.LY:03d}  PPU {ppu_mode}  "
             f"IME {int(cpu.interrupts.ime)}  AUDIO {audio_buffer_size:04d}"
         ),
-        (f"INS {total_instructions:,}  CYC {total_cycles:,}  FPS {fps:05.1f}"),
+        (
+            f"EMU {emulated_fps:05.1f}  DRAW {presented_fps:05.1f}  "
+            f"SKIP {skipped_percent:04.1f}%"
+        ),
+        (
+            f"INS {total_instructions:,}  CYC {total_cycles:,}  "
+            f"SPEED {speed_percent:05.1f}%"
+        ),
     ]
     rendered = [font.render(line, True, (224, 248, 208)) for line in lines]
     width = max(surface.get_width() for surface in rendered) + 16
@@ -400,8 +410,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         total_instructions = 0
         total_cycles = 0
         fps_window_start = pygame.time.get_ticks()
-        fps_window_frames = 0
-        display_fps = 0.0
+        fps_window_emulated = 0
+        fps_window_presented = 0
+        fps_window_cycles = 0
+        emulated_fps = 0.0
+        presented_fps = 0.0
+        skipped_percent = 0.0
+        speed_percent = 0.0
         while True:
             if args.max_frames is not None and frame_count >= args.max_frames:
                 break
@@ -486,7 +501,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 tick_time = pygame_clock.tick_busy_loop(59.7275)
                 video.force_skip = tick_time > 17
 
-            if not video.skip_render:
+            presented = not video.skip_render
+            if presented:
                 raw_indices = video.frame_buffer.reshape((144, 160))
                 rgb_data = GB_PALETTE[raw_indices]
                 pygame.surfarray.blit_array(
@@ -506,20 +522,39 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                         overlay_audio_size,
                         total_instructions,
                         total_cycles,
-                        display_fps,
+                        emulated_fps,
+                        presented_fps,
+                        skipped_percent,
+                        speed_percent,
                     )
                 pygame.display.flip()
 
-            fps_window_frames += 1
+            fps_window_emulated += 1
+            fps_window_cycles += cycles
+            if presented:
+                fps_window_presented += 1
             now = pygame.time.get_ticks()
             elapsed_ms = now - fps_window_start
             if elapsed_ms >= 1000:
-                display_fps = fps_window_frames * 1000 / elapsed_ms
+                emulated_fps = fps_window_emulated * 1000 / elapsed_ms
+                presented_fps = fps_window_presented * 1000 / elapsed_ms
+                skipped_percent = (
+                    100.0
+                    * (fps_window_emulated - fps_window_presented)
+                    / fps_window_emulated
+                )
+                speed_percent = (
+                    100.0 * fps_window_cycles * 1000 / elapsed_ms / GB_CLOCK_HZ
+                )
                 pygame.display.set_caption(
-                    f"PyGameBoy - {rom_title} - {display_fps:.1f} FPS"
+                    f"PyGameBoy - {rom_title} - "
+                    f"EMU {emulated_fps:.1f} | DRAW {presented_fps:.1f} | "
+                    f"SKIP {skipped_percent:.1f}%"
                 )
                 fps_window_start = now
-                fps_window_frames = 0
+                fps_window_emulated = 0
+                fps_window_presented = 0
+                fps_window_cycles = 0
 
     except KeyboardInterrupt:
         exit_code = 130

@@ -58,6 +58,19 @@ def blargg_memory_program(message: bytes, status: int) -> bytes:
     return bytes(program)
 
 
+def pygameboy_memory_program(message: bytes, status: int) -> bytes:
+    values = (
+        *((0xA000 + index, value) for index, value in enumerate(b"PYGB")),
+        *((0xA010 + index, value) for index, value in enumerate(message + b"\0")),
+        (0xA004, status),
+    )
+    program = bytearray()
+    for address, value in values:
+        program.extend((0x3E, value, 0xEA, address & 0xFF, address >> 8))
+    program.append(0x76)
+    return bytes(program)
+
+
 def test_result_serialization_and_passed_property() -> None:
     passed = conformance.ConformanceResult("test.gb", "mooneye", "pass", 4, 16)
     failed = conformance.ConformanceResult("test.gb", "mooneye", "fail", 4, 16)
@@ -125,6 +138,85 @@ def test_run_rom_detects_blargg_serial_reports(
     assert result.protocol == conformance.BLARGG
     assert result.serial_output == message.decode()
     assert "Blargg" in result.detail
+
+
+@pytest.mark.parametrize(
+    ("event", "expected_status"),
+    [
+        (b"PYGB/1 PASS\n", conformance.PASS),
+        (b"PYGB/1 FAIL\n", conformance.FAIL),
+    ],
+)
+def test_run_rom_detects_first_party_serial_events(
+    tmp_path: Path,
+    event: bytes,
+    expected_status: str,
+) -> None:
+    rom = tmp_path / "pygameboy.gb"
+    write_rom(rom, serial_program(event))
+
+    result = conformance.run_rom(
+        rom,
+        protocol=conformance.PYGAMEBOY,
+        batch_size=100,
+        max_instructions=10_000,
+    )
+
+    assert result.status == expected_status
+    assert result.protocol == conformance.PYGAMEBOY
+    assert result.serial_output == event.decode()
+    assert "PyGameBoy serial event" in result.detail
+
+
+@pytest.mark.parametrize(
+    ("status", "expected_status"),
+    [
+        (conformance.PYGAMEBOY_RESULT_PASS, conformance.PASS),
+        (conformance.PYGAMEBOY_RESULT_FAIL, conformance.FAIL),
+        (0x55, conformance.ERROR),
+    ],
+)
+def test_run_rom_detects_first_party_memory_mailbox(
+    tmp_path: Path,
+    status: int,
+    expected_status: str,
+) -> None:
+    message = b"Mailbox report"
+    rom = make_rom(pygameboy_memory_program(message, status))
+    rom[0x0147] = 0x08
+    rom[0x0149] = 0x02
+    rom_path = tmp_path / "pygameboy-memory.gb"
+    rom_path.write_bytes(rom)
+
+    result = conformance.run_rom(
+        rom_path,
+        protocol=conformance.PYGAMEBOY,
+        batch_size=100,
+        max_instructions=1_000,
+    )
+
+    assert result.status == expected_status
+    assert result.protocol == conformance.PYGAMEBOY
+    assert result.serial_output == message.decode()
+    assert "memory mailbox" in result.detail
+
+
+def test_first_party_memory_mailbox_waits_for_final_state() -> None:
+    cpu, memory = conformance.create_headless_system(make_rom())
+    memory.storage[0xA000:0xA005] = (
+        conformance.PYGAMEBOY_RESULT_MAGIC
+        + bytes((conformance.PYGAMEBOY_RESULT_RUNNING,))
+    )
+
+    assert (
+        conformance._detect_result(
+            cpu,
+            memory,
+            bytearray(),
+            conformance.PYGAMEBOY,
+        )
+        is None
+    )
 
 
 @pytest.mark.parametrize(

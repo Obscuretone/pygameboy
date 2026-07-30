@@ -52,6 +52,8 @@ jobs:
         run: |
           mkdir -p conformance-site
           uv run --frozen pygameboy-conformance \
+            tests/roms/pygameboy/pygameboy-test-rom.gb \
+            tests/roms/pygameboy/controllers \
             tests/roms/mooneye \
             .conformance/blargg/cpu_instrs/individual \
             .conformance/blargg/instr_timing/instr_timing.gb \

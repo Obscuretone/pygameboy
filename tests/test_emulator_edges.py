@@ -424,7 +424,9 @@ def test_main_loop_limits_verbose_debug_quit_zero_work_and_fps(tmp_path) -> None
     ):
         assert emulator.main([*common, "--max-frames", "1", str(rom_path)]) == 0
     assert caption.call_count == 2
-    assert "FPS" in caption.call_args.args[0]
+    assert "EMU 1.0" in caption.call_args.args[0]
+    assert "DRAW 1.0" in caption.call_args.args[0]
+    assert "SKIP 0.0%" in caption.call_args.args[0]
 
     with (
         patch("emulator.CPU.run", return_value=(1, 4)),

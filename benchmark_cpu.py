@@ -24,6 +24,7 @@ class BenchmarkCase:
     name: str
     program: bytes
     instructions: int
+    emulated_cycles: int
     setup: Optional[Mapping[int, int]] = None
 
 
@@ -55,7 +56,7 @@ def measure_case(case: BenchmarkCase) -> tuple[float, float, int]:
     cpu = build_cpu(case)
     start = time.perf_counter()
     executed, cycles = cpu.run(
-        max_instructions=case.instructions,
+        max_cycles=case.emulated_cycles,
         realtime=False,
         profile_opcodes=False,
         fast=True,
@@ -66,6 +67,11 @@ def measure_case(case: BenchmarkCase) -> tuple[float, float, int]:
         raise RuntimeError(
             f"{case.name} executed {executed:,} instructions; "
             f"expected {case.instructions:,}"
+        )
+    if cycles != case.emulated_cycles:
+        raise RuntimeError(
+            f"{case.name} executed {cycles:,} cycles; "
+            f"expected {case.emulated_cycles:,}"
         )
     return executed / elapsed, cycles / elapsed, cycles
 
@@ -145,26 +151,57 @@ def benchmark_cases() -> list[BenchmarkCase]:
             0xE2,
             0xF2,
             0xEA,
-            0x00,
-            0xC5,
+            0xFF,
+            0xDF,
             0xFA,
-            0x00,
-            0xC5,
+            0xFF,
+            0xDF,
         ]
         * 3_500
     )
     return [
-        BenchmarkCase("NOP dispatch", bytes([0x00]) * 50_000, 50_000),
-        BenchmarkCase("JR dispatch", bytes([0x18, 0x00]) * 20_000, 20_000),
-        BenchmarkCase("JP dispatch", build_jp_next_program(10_000), 10_000),
+        BenchmarkCase(
+            "NOP dispatch",
+            bytes([0x00]) * 50_000,
+            50_000,
+            200_000,
+        ),
+        BenchmarkCase(
+            "JR dispatch",
+            bytes([0x18, 0x00]) * 20_000,
+            20_000,
+            240_000,
+        ),
+        BenchmarkCase(
+            "JP dispatch",
+            build_jp_next_program(10_000),
+            10_000,
+            160_000,
+        ),
         BenchmarkCase(
             "CALL/RET trampoline",
             build_call_return_program(8_000),
             16_000,
+            320_000,
         ),
-        BenchmarkCase("16-bit pair math", pair_math, 30_000),
-        BenchmarkCase("8-bit ALU mix", alu_mix, 35_000),
-        BenchmarkCase("High I/O load", high_io, 28_000),
+        BenchmarkCase(
+            "16-bit pair math",
+            pair_math,
+            33_000,
+            312_000,
+        ),
+        BenchmarkCase(
+            "8-bit ALU mix",
+            alu_mix,
+            42_000,
+            224_000,
+        ),
+        BenchmarkCase(
+            "High I/O load",
+            high_io,
+            28_000,
+            308_000,
+        ),
     ]
 
 
@@ -178,6 +215,7 @@ def environment_metadata(repeats: int) -> dict[str, object]:
         "processor": platform.processor(),
         "repeats": repeats,
         "clock_target_hz": GB_CLOCK_HZ,
+        "execution_path": "production max-cycle dispatch",
     }
 
 
@@ -197,6 +235,8 @@ def render_markdown(
             f"{measured_runs} measured {run_label} after one warm-up."
         ),
         "",
+        "Execution path: production max-cycle dispatch.",
+        "",
         "| Case | Instructions/s (median) | Emulated cycles/s (median) | Real-time |",
         "|---|---:|---:|---:|",
     ]
@@ -213,6 +253,10 @@ def render_markdown(
             "Real-time is measured against the DMG clock target of "
             f"{GB_CLOCK_HZ:,} cycles/s. These are isolated CPU microbenchmarks, "
             "not whole-emulator frame rates.",
+            "",
+            "Reports without an `Execution path` line are not directly comparable: "
+            "the older harness used the diagnostic instruction-limit loop and some "
+            "cases stopped before their complete program.",
             "",
         ]
     )

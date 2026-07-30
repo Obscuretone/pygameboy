@@ -2,7 +2,12 @@
 
 Unit coverage answers “did this Python path run?” Test ROMs answer the more
 important emulator question: “did the complete machine behave like a Game
-Boy?” PyGameBoy supports both major machine-readable conventions:
+Boy?” PyGameBoy has its own first-party protocol and supports both major
+external machine-readable conventions:
+
+- PyGameBoy Test ROM streams versioned `PYGB/1` progress/final events and uses
+  a `PYGB` cartridge-RAM mailbox containing state, group, case, and result text.
+  It displays the same progress on the emulated LCD and halts on failure.
 
 - Mooneye reports success with `3, 5, 8, 13, 21, 34` in registers
   B/C/D/E/H/L and over the serial port; it reports failure with six `0x42`
@@ -12,6 +17,16 @@ Boy?” PyGameBoy supports both major machine-readable conventions:
   signature and final-status handshake used by suites without serial output.
 
 ## Bundled CI floor
+
+The generated first-party suite under `tests/roms/pygameboy` executes every
+legal base opcode, every CB opcode, CPU-visible memory/timer/interrupt/serial/
+joypad/PPU/APU behavior, and MBC0/1/2/3/5 variants. Its generator, protocol,
+coverage contract, standalone release workflow, and build instructions live in
+[`test_rom`](../test_rom/README.md). CI regenerates the suite byte-for-byte,
+and its host harness verifies framebuffer/audio behavior that a cartridge
+cannot inspect internally. Standalone source and downloadable releases are
+published in the
+[PyGameBoy Test ROM repository](https://github.com/Obscuretone/pygameboy-test-rom).
 
 Seven MIT-licensed Mooneye acceptance ROMs are pinned under
 `tests/roms/mooneye`. They cover register flags, decimal-adjust behavior, OAM
@@ -30,6 +45,9 @@ accuracy work.
 Pass one ROM, several ROMs, or directories:
 
 ```bash
+pygameboy-conformance \
+  tests/roms/pygameboy/pygameboy-test-rom.gb \
+  tests/roms/pygameboy/controllers
 pygameboy-conformance tests/roms/mooneye
 pygameboy-conformance ~/roms/mooneye/acceptance --json mooneye-report.json
 pygameboy-conformance ~/roms/blargg/cpu_instrs --protocol blargg
@@ -52,6 +70,9 @@ device.
 
 The test ROMs intentionally use a hybrid layout rather than a Git submodule:
 
+- PyGameBoy Test ROM artifacts are deterministically generated from the
+  standalone-project source under `test_rom` and checked for byte-for-byte
+  reproducibility in the normal test suite.
 - The small, MIT-licensed Mooneye compatibility floor is vendored with its
   upstream commit, archive checksum, per-ROM checksums, and license.
 - The larger [Blargg suite](https://github.com/retrio/gb-test-roms/tree/c240dd7d700e5c0b00a7bbba52b53e4ee67b5f15)

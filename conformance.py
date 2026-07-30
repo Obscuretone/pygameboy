@@ -19,9 +19,10 @@ from memory import Memory
 from video import VideoChip
 
 AUTO: Final = "auto"
+PYGAMEBOY: Final = "pygameboy"
 MOONEYE: Final = "mooneye"
 BLARGG: Final = "blargg"
-PROTOCOLS: Final = (AUTO, MOONEYE, BLARGG)
+PROTOCOLS: Final = (AUTO, PYGAMEBOY, MOONEYE, BLARGG)
 
 PASS: Final = "pass"
 FAIL: Final = "fail"
@@ -35,6 +36,13 @@ BLARGG_RESULT_RUNNING: Final = 0x80
 BLARGG_RESULT_SIGNATURE: Final = bytes((0xDE, 0xB0, 0x61))
 BLARGG_OUTPUT_ADDRESS: Final = 0xA004
 BLARGG_OUTPUT_END: Final = 0xC000
+PYGAMEBOY_RESULT_ADDRESS: Final = 0xA000
+PYGAMEBOY_RESULT_MAGIC: Final = b"PYGB"
+PYGAMEBOY_RESULT_STATE: Final = 0xA004
+PYGAMEBOY_RESULT_RUNNING: Final = 0x7E
+PYGAMEBOY_RESULT_PASS: Final = 0x00
+PYGAMEBOY_RESULT_FAIL: Final = 0xE0
+PYGAMEBOY_OUTPUT_ADDRESS: Final = 0xA010
 
 
 @dataclass(frozen=True)
@@ -81,6 +89,46 @@ def _detect_result(
 ) -> Optional[tuple[str, str, str, str]]:
     signature = _register_signature(cpu)
     serial_output = serial_bytes.decode("latin-1")
+    if protocol in (AUTO, PYGAMEBOY):
+        if "PYGB/1 FAIL\n" in serial_output:
+            return (
+                FAIL,
+                PYGAMEBOY,
+                "PyGameBoy serial event indicated failure",
+                serial_output,
+            )
+        if "PYGB/1 PASS\n" in serial_output:
+            return (
+                PASS,
+                PYGAMEBOY,
+                "PyGameBoy serial event indicated success",
+                serial_output,
+            )
+
+        storage = memory.storage
+        memory_magic = bytes(
+            storage[
+                PYGAMEBOY_RESULT_ADDRESS : PYGAMEBOY_RESULT_ADDRESS
+                + len(PYGAMEBOY_RESULT_MAGIC)
+            ]
+        )
+        if memory_magic == PYGAMEBOY_RESULT_MAGIC:
+            result_state = storage[PYGAMEBOY_RESULT_STATE]
+            if result_state != PYGAMEBOY_RESULT_RUNNING:
+                memory_output = (
+                    bytes(storage[PYGAMEBOY_OUTPUT_ADDRESS:BLARGG_OUTPUT_END])
+                    .partition(b"\0")[0]
+                    .decode("latin-1")
+                )
+                if result_state == PYGAMEBOY_RESULT_PASS:
+                    status = PASS
+                elif result_state == PYGAMEBOY_RESULT_FAIL:
+                    status = FAIL
+                else:
+                    status = ERROR
+                detail = f"PyGameBoy memory mailbox indicated {status}"
+                return status, PYGAMEBOY, detail, memory_output
+
     if protocol in (AUTO, MOONEYE):
         if signature == MOONEYE_PASS_SIGNATURE:
             return (
@@ -432,7 +480,9 @@ def render_html(results: Sequence[ConformanceResult]) -> str:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run Mooneye or Blargg Game Boy conformance ROMs headlessly."
+        description=(
+            "Run PyGameBoy, Mooneye, or Blargg Game Boy test ROMs headlessly."
+        )
     )
     parser.add_argument("rom", nargs="+", help="ROM file or directory")
     parser.add_argument(
