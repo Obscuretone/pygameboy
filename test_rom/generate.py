@@ -523,12 +523,10 @@ def add_load_matrix_tests(rom: Rom) -> None:
                     expected = value
                 elif source == "h":
                     expected = WRAM_VALUE >> 8
-                elif source == "l":
-                    expected = WRAM_VALUE & 0xFF
                 else:
-                    rom.ld_a(value)
-                    rom.ins(0x77)
-                    expected = value
+                    # LD (HL),(HL) is opcode 0x76 (HALT) and was skipped above,
+                    # so L is the only remaining source.
+                    expected = WRAM_VALUE & 0xFF
             else:
                 expected = setup_ld_state(rom, source, value)
 
