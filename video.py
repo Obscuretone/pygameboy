@@ -1,6 +1,7 @@
-from typing import Any, Final
+from typing import Any, Final, cast
 
 import numpy as np
+import numpy.typing as npt
 
 from constants import (
     BGP_DEFAULT,
@@ -49,6 +50,30 @@ from gb_types import Address, Byte, Cycles
 from protocols import ClockDevice
 
 
+def _build_tile_row_colors() -> npt.NDArray[np.uint8]:
+    """Decode every possible two-byte DMG tile row into eight color indices."""
+    shifts = np.arange(7, -1, -1, dtype=np.uint16)
+    byte_values = np.arange(256, dtype=np.uint16)[:, None]
+    bit_rows = ((byte_values >> shifts) & 1).astype(np.uint8)
+    row_codes = np.arange(1 << 16, dtype=np.uint16)
+    rows = bit_rows[row_codes & 0xFF] | (bit_rows[row_codes >> 8] << 1)
+    rows.setflags(write=False)
+    return cast(npt.NDArray[np.uint8], rows)
+
+
+def _build_palette_shades() -> npt.NDArray[np.uint8]:
+    """Precompute all four DMG shade mappings for every palette register."""
+    palettes = np.arange(256, dtype=np.uint16)[:, None]
+    shifts = np.arange(4, dtype=np.uint16) * 2
+    shades = ((palettes >> shifts) & 3).astype(np.uint8)
+    shades.setflags(write=False)
+    return shades
+
+
+_TILE_ROW_COLORS: Final[npt.NDArray[np.uint8]] = _build_tile_row_colors()
+_PALETTE_SHADES: Final[npt.NDArray[np.uint8]] = _build_palette_shades()
+
+
 class VideoChip:
     """
     Implements the GameBoy's Picture Processing Unit (PPU) using Flat Memory.
@@ -60,10 +85,10 @@ class VideoChip:
     OAM_SIZE: Final[int] = OAM_SIZE
 
     # Pre-calculated NumPy arrays
-    _BIT_INDICES: Final[np.ndarray] = np.arange(8)
-    _BITS_NORMAL: Final[np.ndarray] = 7 - _BIT_INDICES
+    _BIT_INDICES: Final[npt.NDArray[Any]] = np.arange(8)
+    _BITS_NORMAL: Final[npt.NDArray[Any]] = 7 - _BIT_INDICES
 
-    def __init__(self, clock: ClockDevice, memory: Any):
+    def __init__(self, clock: ClockDevice, memory: Any) -> None:
         self.skip_render = False
         self.force_skip = False
         self.frame_done = False
@@ -78,19 +103,15 @@ class VideoChip:
             memory.storage, offset=OAM_START, count=OAM_SIZE, dtype=np.uint8
         )
         self.oam_view = self.oam_np.reshape((40, 4))
-        self.y_pos = np.zeros(160, dtype=np.uint16)
-        self.tile_map_base = np.zeros(160, dtype=np.uint16)
-        self.x_pos = np.zeros(160, dtype=np.uint16)
-
-        self.x_indices: np.ndarray = np.arange(self.SCREEN_WIDTH)
+        self.tile_columns: npt.NDArray[np.uint16] = np.arange(21, dtype=np.uint16)
         self.mode_clock: int = 0
         self.window_line: int = 0
         self.stat_irq_signal: bool = False
 
-        self.frame_buffer: np.ndarray = np.zeros(
+        self.frame_buffer: npt.NDArray[np.uint8] = np.zeros(
             self.SCREEN_WIDTH * self.SCREEN_HEIGHT, dtype=np.uint8
         )
-        self.bg_color_indices: np.ndarray = np.zeros(
+        self.bg_color_indices: npt.NDArray[np.uint8] = np.zeros(
             self.SCREEN_WIDTH * self.SCREEN_HEIGHT, dtype=np.uint8
         )
 
@@ -104,7 +125,7 @@ class VideoChip:
     # Map storage indices to local names with setters for test compatibility
     @property
     def LCDC(self) -> int:
-        return self.memory.storage[REG_LCDC]
+        return cast(int, self.memory.storage[REG_LCDC])
 
     @LCDC.setter
     def LCDC(self, val: int) -> None:
@@ -112,7 +133,7 @@ class VideoChip:
 
     @property
     def STAT(self) -> int:
-        return self.memory.storage[REG_STAT]
+        return cast(int, self.memory.storage[REG_STAT])
 
     @STAT.setter
     def STAT(self, val: int) -> None:
@@ -120,7 +141,7 @@ class VideoChip:
 
     @property
     def SCY(self) -> int:
-        return self.memory.storage[REG_SCY]
+        return cast(int, self.memory.storage[REG_SCY])
 
     @SCY.setter
     def SCY(self, val: int) -> None:
@@ -128,7 +149,7 @@ class VideoChip:
 
     @property
     def SCX(self) -> int:
-        return self.memory.storage[REG_SCX]
+        return cast(int, self.memory.storage[REG_SCX])
 
     @SCX.setter
     def SCX(self, val: int) -> None:
@@ -136,7 +157,7 @@ class VideoChip:
 
     @property
     def LY(self) -> int:
-        return self.memory.storage[REG_LY]
+        return cast(int, self.memory.storage[REG_LY])
 
     @LY.setter
     def LY(self, val: int) -> None:
@@ -144,7 +165,7 @@ class VideoChip:
 
     @property
     def LYC(self) -> int:
-        return self.memory.storage[REG_LYC]
+        return cast(int, self.memory.storage[REG_LYC])
 
     @LYC.setter
     def LYC(self, val: int) -> None:
@@ -152,7 +173,7 @@ class VideoChip:
 
     @property
     def BGP(self) -> int:
-        return self.memory.storage[REG_BGP]
+        return cast(int, self.memory.storage[REG_BGP])
 
     @BGP.setter
     def BGP(self, val: int) -> None:
@@ -160,7 +181,7 @@ class VideoChip:
 
     @property
     def OBP0(self) -> int:
-        return self.memory.storage[REG_OBP0]
+        return cast(int, self.memory.storage[REG_OBP0])
 
     @OBP0.setter
     def OBP0(self, val: int) -> None:
@@ -168,7 +189,7 @@ class VideoChip:
 
     @property
     def OBP1(self) -> int:
-        return self.memory.storage[REG_OBP1]
+        return cast(int, self.memory.storage[REG_OBP1])
 
     @OBP1.setter
     def OBP1(self, val: int) -> None:
@@ -176,7 +197,7 @@ class VideoChip:
 
     @property
     def WY(self) -> int:
-        return self.memory.storage[REG_WY]
+        return cast(int, self.memory.storage[REG_WY])
 
     @WY.setter
     def WY(self, val: int) -> None:
@@ -184,22 +205,22 @@ class VideoChip:
 
     @property
     def WX(self) -> int:
-        return self.memory.storage[REG_WX]
+        return cast(int, self.memory.storage[REG_WX])
 
     @WX.setter
     def WX(self, val: int) -> None:
         self.memory.storage[REG_WX] = val & 0xFF
 
     @property
-    def oam(self) -> np.ndarray:
+    def oam(self) -> npt.NDArray[np.uint8]:
         return self.oam_np
 
     @property
-    def vram(self) -> np.ndarray:
+    def vram(self) -> npt.NDArray[np.uint8]:
         return self.vram_np
 
     def read_byte(self, address: Address) -> Byte:
-        return self.memory.storage[address]
+        return cast(Byte, self.memory.storage[address])
 
     def write_byte(self, address: Address, value: Byte) -> None:
         self.memory.write_byte(address, value)
@@ -250,6 +271,7 @@ class VideoChip:
                     self.check_lyc()
                 else:
                     break
+
     def set_mode(self, mode: int) -> None:
         self.memory.storage[REG_STAT] = (self.storage[REG_STAT] & ~STAT_MODE_MASK) | (
             mode & STAT_MODE_MASK
@@ -293,105 +315,85 @@ class VideoChip:
             self.frame_buffer[line_start:line_end] = 0
             self.bg_color_indices[line_start:line_end] = 0
         else:
-            tile_data_base = (
-                VRAM_START
-                if (self.storage[REG_LCDC] & LCDC_TILE_DATA_SEL)
-                else (VRAM_START + VRAM_TILE_DATA_INDEX_OFFSET)
-            )
             unsigned_tiles = bool(self.storage[REG_LCDC] & LCDC_TILE_DATA_SEL)
             window_enabled = (self.storage[REG_LCDC] & LCDC_WINDOW_ENABLE) and (
                 self.storage[REG_WY] <= self.storage[REG_LY]
             )
             window_x = self.storage[REG_WX] - 7
-
-            # Using pre-allocated arrays
-            x_pos = self.x_pos
-            y_pos = self.y_pos
-            tile_map_base = self.tile_map_base
-
-            x_pos[:] = (self.x_indices + self.storage[REG_SCX]) & 0xFF
-            y_pos[:] = (self.storage[REG_LY] + self.storage[REG_SCY]) & 0xFF
-
-            map1 = VRAM_START + VRAM_TILE_MAP_1_OFFSET
-            map0 = VRAM_START + VRAM_TILE_MAP_0_OFFSET
-
-            bg_map = map1 if (self.storage[REG_LCDC] & LCDC_BG_TILE_MAP_SEL) else map0
-            tile_map_base[:] = bg_map
+            bg_map = (
+                VRAM_TILE_MAP_1_OFFSET
+                if (self.storage[REG_LCDC] & LCDC_BG_TILE_MAP_SEL)
+                else VRAM_TILE_MAP_0_OFFSET
+            )
 
             using_window = False
             if window_enabled and window_x < 160:
                 wx_start = max(0, window_x)
                 using_window = True
-                length = 160 - wx_start
-                if window_x < 0:
-                    x_pos[0:] = np.arange(-window_x, 160 - window_x)
-                else:
-                    x_pos[wx_start:] = np.arange(length)
-
-                y_pos[wx_start:] = self.window_line
                 win_map = (
-                    map1
+                    VRAM_TILE_MAP_1_OFFSET
                     if (self.storage[REG_LCDC] & LCDC_WINDOW_TILE_MAP_SEL)
-                    else map0
+                    else VRAM_TILE_MAP_0_OFFSET
                 )
-                tile_map_base[wx_start:] = win_map
-
-            tile_row = (y_pos >> 3) & 31
-            tile_col = (x_pos >> 3) & 31
-            tile_map_addresses = tile_map_base + (tile_row << 5) + tile_col
-            tile_indices = self.vram_np[(tile_map_addresses - VRAM_START) & 0x1FFF]
-
-            if unsigned_tiles:
-                tile_data_addresses = tile_data_base + (
-                    tile_indices.astype(np.uint32) << 4
+                if wx_start:
+                    self._render_background_span(
+                        line_start=line_start,
+                        screen_start=0,
+                        length=wx_start,
+                        coordinate_start=self.storage[REG_SCX],
+                        y=(self.storage[REG_LY] + self.storage[REG_SCY]) & 0xFF,
+                        tile_map_offset=bg_map,
+                        unsigned_tiles=unsigned_tiles,
+                    )
+                self._render_background_span(
+                    line_start=line_start,
+                    screen_start=wx_start,
+                    length=self.SCREEN_WIDTH - wx_start,
+                    coordinate_start=wx_start - window_x,
+                    y=self.window_line,
+                    tile_map_offset=win_map,
+                    unsigned_tiles=unsigned_tiles,
                 )
             else:
-                signed_indices = tile_indices.astype(np.int8).astype(np.int32)
-                tile_data_addresses = (VRAM_START + VRAM_TILE_DATA_INDEX_OFFSET) + (
-                    signed_indices << 4
+                self._render_background_span(
+                    line_start=line_start,
+                    screen_start=0,
+                    length=self.SCREEN_WIDTH,
+                    coordinate_start=self.storage[REG_SCX],
+                    y=(self.storage[REG_LY] + self.storage[REG_SCY]) & 0xFF,
+                    tile_map_offset=bg_map,
+                    unsigned_tiles=unsigned_tiles,
                 )
-
-            data_offsets = (
-                tile_data_addresses - VRAM_START + ((y_pos & 7) << 1)
-            ).astype(np.uint32) & 0x1FFE
-            byte1 = self.vram_np[data_offsets]
-            byte2 = self.vram_np[data_offsets + 1]
-
-            bits = 7 - (x_pos & 7)
-            color_indices = (((byte2 >> bits) & 1) << 1) | ((byte1 >> bits) & 1)
-            self.frame_buffer[line_start:line_end] = (
-                self.storage[REG_BGP] >> (color_indices * 2)
-            ) & 3
-
-            self.bg_color_indices[line_start:line_end] = color_indices
 
             if using_window:
                 self.window_line += 1
 
         if self.storage[REG_LCDC] & LCDC_OBJ_ENABLE:
-            oam_array = self.oam_view
-            sprite_ys = oam_array[:, 0].astype(np.int16) - 16
             h = 16 if (self.storage[REG_LCDC] & 0x04) else 8
-            on = (sprite_ys <= self.storage[REG_LY]) & (
-                self.storage[REG_LY] < sprite_ys + h
-            )
-            indices = np.where(on)[0]
-
-            if len(indices) > 0:
-                if len(indices) > 10:
-                    indices = indices[:10]
-                active = oam_array[indices]
-                xs = active[:, 1].astype(np.int16) - 8
-                sort = np.lexsort((indices, xs))
-                line_buf = self.frame_buffer[line_start:line_end]
-
-                for idx in reversed(sort):
-                    x, y, tile, attr = (
-                        xs[idx],
-                        sprite_ys[indices[idx]],
-                        active[idx, 2],
-                        active[idx, 3],
+            ly = self.storage[REG_LY]
+            active = []
+            for index in range(40):
+                offset = OAM_START + (index << 2)
+                y = self.storage[offset] - 16
+                if y <= ly < y + h:
+                    active.append(
+                        (
+                            self.storage[offset + 1] - 8,
+                            index,
+                            y,
+                            self.storage[offset + 2],
+                            self.storage[offset + 3],
+                        )
                     )
+                    if len(active) == 10:
+                        break
+
+            if active:
+                active.sort(reverse=True)
+                line_buf = self.frame_buffer[line_start:line_end]
+                raw_bg = self.bg_color_indices[line_start:line_end]
+
+                for x, _index, y, tile, attr in active:
                     pal = (
                         self.storage[REG_OBP1]
                         if (attr & 0x10)
@@ -410,18 +412,53 @@ class VideoChip:
                     if s_x < e_x:
                         flip_x = bool(attr & 0x20)
                         obj_behind_bg = bool(attr & 0x80)
+                        row = _TILE_ROW_COLORS[int(b1) | (int(b2) << 8)]
+                        if flip_x:
+                            row = row[::-1]
 
                         for px in range(s_x, e_x):
-                            bit_offset = px - x
-                            bit = bit_offset if flip_x else 7 - bit_offset
+                            color_bit = row[px - x]
+                            if color_bit != 0 and (
+                                not obj_behind_bg or raw_bg[px] == 0
+                            ):
+                                line_buf[px] = _PALETTE_SHADES[pal, color_bit]
 
-                            color_bit = (((b2 >> bit) & 1) << 1) | ((b1 >> bit) & 1)
-                            if color_bit != 0:
-                                if (
-                                    not obj_behind_bg
-                                    or self.bg_color_indices[line_start + px] == 0
-                                ):
-                                    line_buf[px] = (pal >> (color_bit * 2)) & 3
+    def _render_background_span(
+        self,
+        *,
+        line_start: int,
+        screen_start: int,
+        length: int,
+        coordinate_start: int,
+        y: int,
+        tile_map_offset: int,
+        unsigned_tiles: bool,
+    ) -> None:
+        """Render a contiguous background or window span from decoded tile rows."""
+        pixel_offset = coordinate_start & 7
+        tile_count = (pixel_offset + length + 7) >> 3
+        first_tile = (coordinate_start >> 3) & 31
+        tile_columns = (self.tile_columns[:tile_count] + first_tile) & 31
+        map_row_offset = tile_map_offset + (((y >> 3) & 31) << 5)
+        tile_indices = self.vram_np[map_row_offset + tile_columns]
+
+        if unsigned_tiles:
+            data_offsets = tile_indices.astype(np.uint16) << 4
+        else:
+            signed_indices = tile_indices.view(np.int8).astype(np.int16)
+            data_offsets = VRAM_TILE_DATA_INDEX_OFFSET + (signed_indices << 4)
+        data_offsets += (y & 7) << 1
+
+        byte1 = self.vram_np[data_offsets]
+        byte2 = self.vram_np[data_offsets + 1]
+        row_codes = byte1.astype(np.uint16) | (byte2.astype(np.uint16) << 8)
+        decoded = _TILE_ROW_COLORS[row_codes].reshape(-1)
+        colors = decoded[pixel_offset : pixel_offset + length]
+
+        start = line_start + screen_start
+        end = start + length
+        self.bg_color_indices[start:end] = colors
+        self.frame_buffer[start:end] = _PALETTE_SHADES[self.storage[REG_BGP], colors]
 
     def perform_dma(self, value: Byte) -> None:
         src = value << 8

@@ -25,8 +25,12 @@ dispatch, vectorized scanline rendering, and audio-clock pacing.
   and a lock-protected audio ring buffer.
 - Battery-backed cartridge saves written with atomic file replacement.
 - Fast frame execution plus an instrumentable single-step/profile path.
-- Toggleable live register, PPU, audio-buffer, and timing overlay.
-- Unit, integration, headless CLI, and real test-ROM checks on Python 3.10–3.13.
+- Toggleable live register, PPU, audio-buffer, and timing overlay with separate
+  emulated-frame, presented-frame, skipped-frame, and clock-speed telemetry.
+- Bundled Obscuretone Test ROM checks with live display/serial progress, every
+  legal CPU opcode, every CB opcode, hardware subsystems, and MBC variants.
+- Unit, integration, headless CLI, and external test-ROM checks on Python
+  3.10–3.13.
 
 The emulator is intentionally DMG-focused. Pixel-FIFO timing, a running MBC3
 real-time clock, channel-1 frequency sweep, save states, and Game Boy Color
@@ -114,19 +118,24 @@ Install the development tools and run the same checks used in CI:
 python -m pip install "uv==0.12.0"
 uv sync --frozen --extra dev
 uv run --frozen ruff check .
+uv run --frozen ruff format --check .
+uv run --frozen mypy .
 uv run --frozen pytest --cov=. --cov-report=term-missing
 uv run --frozen python audit_cpu.py
 uv run --frozen pygameboy-conformance tests/roms/mooneye
 ```
 
 CI enforces 100% statement and branch coverage across every production module.
-The suite combines exhaustive opcode matrices with synthetic-ROM system tests,
-hardware state-machine tests, renderer checks, host failure-path coverage, and
-pinned Mooneye acceptance ROMs.
+The suite combines the reproducible
+[Obscuretone Test ROM](https://github.com/Obscuretone/obscuretone-test-rom),
+exhaustive opcode matrices,
+synthetic-ROM system tests, hardware state-machine tests, renderer checks, host
+failure-path coverage, and pinned Mooneye acceptance ROMs.
 
-CPU microbenchmarks use one warm-up followed by median measured runs. Results
-include interpreter, platform, clock target, and raw JSON so comparisons remain
-auditable:
+CPU microbenchmarks exercise the same production max-cycle dispatch loop used
+for normal frames. They use one warm-up followed by median measured runs.
+Results include interpreter, platform, clock target, execution path, and raw
+JSON so comparisons remain auditable:
 
 ```bash
 uv run python benchmark_cpu.py \
@@ -143,9 +152,10 @@ dispatch throughput, not whole-emulator compatibility or frame rate.
 Passing project tests is necessary but not sufficient for emulator accuracy.
 New hardware behavior should be tested through the integrated `Memory`/`CPU`
 path, not only through a component in isolation. The headless conformance
-runner understands Mooneye register signatures plus Blargg serial and memory
-reports. The published floor covers CPU instructions, instruction timing,
-memory-access timing, DMA, timer, serial-clock, and register behavior.
+runner understands OTR's `OTR/1` events and mailbox, Mooneye register
+signatures, and Blargg serial/memory reports. The published floor covers CPU
+instructions, instruction timing, memory-access timing, DMA, timer,
+serial-clock, and register behavior.
 
 See [test-ROM conformance](docs/conformance.md) for the pinned provenance,
 current scope, external-suite commands, result semantics, and the GitHub Pages

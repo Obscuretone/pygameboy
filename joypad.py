@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 from constants import (
     INT_JOYPAD_BIT,
@@ -17,7 +17,7 @@ class Joypad:
 
     INITIAL_KEYS_STATE = JOYPAD_KEYS_MASK
 
-    def __init__(self, memory: Any):
+    def __init__(self, memory: Any) -> None:
         self.memory: Any = memory
         # bits 0-3: Right/A, Left/B, Up/Select, Down/Start (0=pressed, 1=not pressed)
         self.direction_keys: int = self.INITIAL_KEYS_STATE
@@ -41,7 +41,7 @@ class Joypad:
 
     def read(self) -> Byte:
         """Legacy read method, now just returns from storage."""
-        return self.memory.storage[REG_JOYP]
+        return cast(Byte, self.memory.storage[REG_JOYP])
 
     def write(self, value: Byte) -> None:
         """Select button groups."""

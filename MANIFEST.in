@@ -6,4 +6,5 @@ include readme.md
 include uv.lock
 recursive-include benchmarks *.json
 recursive-include docs *.gif *.md
+recursive-include tests/roms *.gb *.json *.md LICENSE
 recursive-include tools *.py

@@ -1,20 +1,24 @@
 # ruff: noqa: I001
 
 import argparse
+import importlib
 import sys
 import time
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Dict, Final, Optional, Sequence, Union
+from typing import Any, Final
 
 import numpy as np
+import numpy.typing as npt
 import pygame_environment as _pygame_environment  # noqa: F401
 import pygame
 
 try:
-    import sounddevice as sd
+    sd: Any = importlib.import_module("sounddevice")
 except ImportError:
     sd = None
 
+from apu import APU
 from cartridge_save import (
     get_save_path,
     has_battery,
@@ -42,20 +46,20 @@ from constants import (
     ROM_SIZE_MAP,
 )
 from cpu import CPU
-from mbc import MBC0, MBC1, MBC2, MBC3, MBC5
+from mbc import MBC, MBC0, MBC1, MBC2, MBC3, MBC5
 from memory import Memory
 from protocols import InputDevice
 from video import VideoChip
 
 # Standard GB color palette (original green shades)
-GB_PALETTE: Final[np.ndarray] = np.array(DMG_PALETTE_COLORS, dtype=np.uint8)
+GB_PALETTE: Final[npt.NDArray[np.uint8]] = np.array(DMG_PALETTE_COLORS, dtype=np.uint8)
 SAVE_FLUSH_FRAMES: Final[int] = 60
 MINIMUM_ROM_SIZE: Final[int] = 32 * 1024
 AUDIO_BUFFER_LOW_WATER: Final[int] = 1024
 AUDIO_BUFFER_HIGH_WATER: Final[int] = 4096
 
 # Pygame to Joypad mapping
-PYGAME_MAP: Final[Dict[int, str]] = {
+PYGAME_MAP: Final[dict[int, str]] = {
     pygame.K_UP: "up",
     pygame.K_DOWN: "down",
     pygame.K_LEFT: "left",
@@ -68,7 +72,7 @@ PYGAME_MAP: Final[Dict[int, str]] = {
 }
 
 
-def get_rom_title(rom: Union[bytes, bytearray]) -> str:
+def get_rom_title(rom: bytes | bytearray) -> str:
     """Extract the ROM title from the cartridge header."""
     try:
         title = (
@@ -81,7 +85,7 @@ def get_rom_title(rom: Union[bytes, bytearray]) -> str:
     return title or "Unknown"
 
 
-def print_rom_info(rom: Union[bytes, bytearray]) -> None:
+def print_rom_info(rom: bytes | bytearray) -> None:
     """Print metadata about the loaded ROM."""
     title = get_rom_title(rom)
     mbc_type = rom[CART_TYPE_ADDR]
@@ -156,7 +160,7 @@ def load_rom(path: str) -> bytearray:
     return rom
 
 
-def create_mbc(rom: bytearray):
+def create_mbc(rom: bytearray) -> MBC:
     mbc_type = rom[CART_TYPE_ADDR]
     ram_size = RAM_SIZE_MAP.get(rom[CART_RAM_SIZE_ADDR], 0)
     if mbc_type in MBC_TYPE_ROM_ONLY:
@@ -218,7 +222,10 @@ def draw_debug_overlay(
     audio_buffer_size: int,
     total_instructions: int,
     total_cycles: int,
-    fps: float,
+    emulated_fps: float,
+    presented_fps: float,
+    skipped_percent: float,
+    speed_percent: float,
 ) -> None:
     """Draw a compact live hardware/debugging overlay."""
     ppu_mode = video.storage[0xFF41] & 0x03
@@ -232,7 +239,14 @@ def draw_debug_overlay(
             f"LY {video.LY:03d}  PPU {ppu_mode}  "
             f"IME {int(cpu.interrupts.ime)}  AUDIO {audio_buffer_size:04d}"
         ),
-        (f"INS {total_instructions:,}  CYC {total_cycles:,}  FPS {fps:05.1f}"),
+        (
+            f"EMU {emulated_fps:05.1f}  DRAW {presented_fps:05.1f}  "
+            f"SKIP {skipped_percent:04.1f}%"
+        ),
+        (
+            f"INS {total_instructions:,}  CYC {total_cycles:,}  "
+            f"SPEED {speed_percent:05.1f}%"
+        ),
     ]
     rendered = [font.render(line, True, (224, 248, 208)) for line in lines]
     width = max(surface.get_width() for surface in rendered) + 16
@@ -246,9 +260,12 @@ def draw_debug_overlay(
     screen.blit(panel, (8, 8))
 
 
-def make_audio_callback(apu, verbose: bool = False):
+def make_audio_callback(
+    apu: APU, verbose: bool = False
+) -> Callable[[Any, int, Any, Any], None]:
     """Build a sounddevice callback backed by the APU's stereo ring buffer."""
-    def audio_callback(outdata, frames, time, status):
+
+    def audio_callback(outdata: Any, frames: int, time: Any, status: Any) -> None:
         if status and verbose:
             print(status)
 
@@ -284,7 +301,7 @@ def make_audio_callback(apu, verbose: bool = False):
     return audio_callback
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     """Main execution loop of the emulator."""
 
     args = build_parser().parse_args(argv)
@@ -307,7 +324,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ram = Memory(clock)
 
     # Load boot ROM data
-    boot_rom_data: Optional[bytearray] = None
+    boot_rom_data: bytearray | None = None
     if args.boot_rom:
         boot_rom_path = Path(args.boot_rom).expanduser()
         try:
@@ -400,8 +417,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         total_instructions = 0
         total_cycles = 0
         fps_window_start = pygame.time.get_ticks()
-        fps_window_frames = 0
-        display_fps = 0.0
+        fps_window_emulated = 0
+        fps_window_presented = 0
+        fps_window_cycles = 0
+        emulated_fps = 0.0
+        presented_fps = 0.0
+        skipped_percent = 0.0
+        speed_percent = 0.0
         while True:
             if args.max_frames is not None and frame_count >= args.max_frames:
                 break
@@ -486,7 +508,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 tick_time = pygame_clock.tick_busy_loop(59.7275)
                 video.force_skip = tick_time > 17
 
-            if not video.skip_render:
+            presented = not video.skip_render
+            if presented:
                 raw_indices = video.frame_buffer.reshape((144, 160))
                 rgb_data = GB_PALETTE[raw_indices]
                 pygame.surfarray.blit_array(
@@ -506,20 +529,39 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                         overlay_audio_size,
                         total_instructions,
                         total_cycles,
-                        display_fps,
+                        emulated_fps,
+                        presented_fps,
+                        skipped_percent,
+                        speed_percent,
                     )
                 pygame.display.flip()
 
-            fps_window_frames += 1
+            fps_window_emulated += 1
+            fps_window_cycles += cycles
+            if presented:
+                fps_window_presented += 1
             now = pygame.time.get_ticks()
             elapsed_ms = now - fps_window_start
             if elapsed_ms >= 1000:
-                display_fps = fps_window_frames * 1000 / elapsed_ms
+                emulated_fps = fps_window_emulated * 1000 / elapsed_ms
+                presented_fps = fps_window_presented * 1000 / elapsed_ms
+                skipped_percent = (
+                    100.0
+                    * (fps_window_emulated - fps_window_presented)
+                    / fps_window_emulated
+                )
+                speed_percent = (
+                    100.0 * fps_window_cycles * 1000 / elapsed_ms / GB_CLOCK_HZ
+                )
                 pygame.display.set_caption(
-                    f"PyGameBoy - {rom_title} - {display_fps:.1f} FPS"
+                    f"PyGameBoy - {rom_title} - "
+                    f"EMU {emulated_fps:.1f} | DRAW {presented_fps:.1f} | "
+                    f"SKIP {skipped_percent:.1f}%"
                 )
                 fps_window_start = now
-                fps_window_frames = 0
+                fps_window_emulated = 0
+                fps_window_presented = 0
+                fps_window_cycles = 0
 
     except KeyboardInterrupt:
         exit_code = 130

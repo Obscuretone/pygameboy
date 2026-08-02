@@ -1,64 +1,68 @@
+from collections.abc import Callable
+from typing import Any, NoReturn, cast
 from unittest.mock import patch
 
 import pytest
 
 from clock import SystemClock
+from constants import REG_SB, REG_SC
 from cpu import CPU
 from gb_types import FLAG_H, FLAG_Z
 from memory import Memory
+from protocols import ClockDevice
 
 
 class VideoProbe:
-    def __init__(self, complete_on_step: bool = False):
-        self.steps = []
+    def __init__(self, complete_on_step: bool = False) -> None:
+        self.steps: list[int] = []
         self.frame_done = False
         self.complete_on_step = complete_on_step
 
-    def step(self, cycles):
+    def step(self, cycles: int) -> None:
         self.steps.append(cycles)
         if self.complete_on_step:
             self.frame_done = True
 
 
 class AudioProbe:
-    def __init__(self):
-        self.steps = []
+    def __init__(self) -> None:
+        self.steps: list[int] = []
 
-    def step(self, cycles):
+    def step(self, cycles: int) -> None:
         self.steps.append(cycles)
 
 
 class PartialClock:
-    def __init__(self):
+    def __init__(self) -> None:
         self.cycles_elapsed = 0
 
-    def update(self, cycles):
+    def update(self, cycles: int) -> None:
         self.cycles_elapsed += cycles
 
 
 class ReadOnlyClockBus:
-    def __init__(self):
+    def __init__(self) -> None:
         self.storage = bytearray(0x10000)
 
     @property
-    def clock(self):
+    def clock(self) -> None:
         return None
 
     @clock.setter
-    def clock(self, _value):
+    def clock(self, _value: Any) -> None:
         raise AttributeError("read only")
 
-    def read_byte(self, address):
+    def read_byte(self, address: int) -> int:
         return self.storage[address & 0xFFFF]
 
-    def write_byte(self, address, value):
+    def write_byte(self, address: int, value: int) -> None:
         self.storage[address & 0xFFFF] = value & 0xFF
 
-    def request_interrupt(self, mask):
+    def request_interrupt(self, mask: int) -> None:
         self.storage[0xFF0F] |= mask
 
 
-def make_cpu(*, video=None, apu=None):
+def make_cpu(*, video: Any = None, apu: Any = None) -> tuple[CPU, Memory, SystemClock]:
     clock = SystemClock(4_194_304)
     memory = Memory(clock)
     cpu = CPU(clock, memory, video, apu)
@@ -67,17 +71,23 @@ def make_cpu(*, video=None, apu=None):
 
 
 def test_constructor_accepts_partial_clock_and_read_only_bus_clock() -> None:
+    construct_without_bus = cast(Callable[[], CPU], CPU)
+    with pytest.raises(TypeError, match="requires a memory bus"):
+        construct_without_bus()
+
     memory = Memory(SystemClock(4_194_304))
     partial = PartialClock()
-    cpu = CPU(partial, memory)
-    assert cpu.clock is partial
+    cpu = CPU(cast(ClockDevice, partial), memory)
+    assert cast(object, cpu.clock) is partial
 
     bus = ReadOnlyClockBus()
     cpu = CPU(bus)
     assert cpu.ram is bus
 
 
-def test_fast_cycle_path_steps_devices_profiles_flushes_and_waits(capsys) -> None:
+def test_fast_cycle_path_steps_devices_profiles_flushes_and_waits(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     video = VideoProbe()
     audio = AudioProbe()
     cpu, _, clock = make_cpu(video=video, apu=audio)
@@ -152,11 +162,36 @@ def test_fast_cycle_path_covers_absent_video_residual_audio_and_pending_delay() 
 
 
 def test_run_supports_memory_bus_without_serial_device() -> None:
-    cpu, memory, _ = make_cpu()
-    memory.serial = None
+    memory = ReadOnlyClockBus()
+    cpu = CPU(memory)
 
     assert cpu.run(max_cycles=4, realtime=False, announce=False) == (1, 4)
     assert cpu.run(max_instructions=1, realtime=False, announce=False) == (1, 4)
+
+
+def test_run_preserves_inactive_serial_phase_and_steps_active_transfer() -> None:
+    cpu, memory, _ = make_cpu()
+    serial = memory.serial
+    serial.clock_phase = 500
+
+    assert cpu.run(max_cycles=12, realtime=False, announce=False) == (3, 12)
+    assert serial.clock_phase == 0
+
+    assert cpu.run(max_instructions=1, realtime=False, announce=False) == (1, 4)
+    assert serial.clock_phase == 4
+
+    output: list[int] = []
+    serial.transfer_callback = output.append
+    serial.write_byte(REG_SB, ord("A"))
+    serial.write_byte(REG_SC, 0x81)
+    serial.step(0)
+    serial.clock_phase = 508
+    serial.bits_remaining = 1
+
+    assert cpu.run(max_cycles=4, realtime=False, announce=False) == (1, 4)
+    assert output == [ord("A")]
+    assert serial.clock_phase == 0
+    assert not serial.transfer_active
 
 
 def test_fast_cycle_path_stops_at_frame_halt_stop_and_ime_delay() -> None:
@@ -233,7 +268,7 @@ def test_debug_path_steps_devices_and_all_exit_limits() -> None:
 def test_run_reraises_keyboard_interrupt() -> None:
     cpu, _, _ = make_cpu()
 
-    def interrupt():
+    def interrupt() -> NoReturn:
         raise KeyboardInterrupt
 
     cpu._dispatch_table[0] = interrupt
@@ -243,14 +278,15 @@ def test_run_reraises_keyboard_interrupt() -> None:
 
 
 def test_read_modify_write_preserves_separate_bus_phases() -> None:
-    for limit in ({"max_instructions": 1}, {"max_cycles": 12}):
+    for max_instructions, max_cycles in ((1, None), (None, 12)):
         cpu, memory, _ = make_cpu()
         memory.storage[0:2] = bytes((0x34, 0x00))  # INC (HL)
         memory.storage[0xC000] = 0x0F
         cpu.registers["HL"] = 0xC000
 
         executed, cycles = cpu.run(
-            **limit,
+            max_instructions=max_instructions,
+            max_cycles=max_cycles,
             realtime=False,
             announce=False,
         )
@@ -302,6 +338,62 @@ def test_memory_word_and_legacy_helper_paths() -> None:
     assert cpu.registers["F"] == 0x80
     cpu._set_and_flags(1)
     assert cpu.registers["F"] == 0x20
+
+
+def test_legacy_string_alu_helper_paths() -> None:
+    cpu, memory, _ = make_cpu()
+    cpu.write_register(0, 0x12)
+    assert cpu.registers["F"] & 0x0F == 0
+
+    for register_helper, expected in (
+        (cpu._xor_reg, 0x03),
+        (cpu._and_reg, 0x00),
+        (cpu._or_reg, 0x03),
+    ):
+        cpu.registers["A"] = 0x01
+        cpu.registers["B"] = 0x02
+        register_helper("A", "B")
+        assert cpu.registers["A"] == expected
+
+    cpu.registers["A"] = 0x01
+    cpu.registers["B"] = 0x02
+    cpu._cp_reg("A", "B")
+    assert cpu.registers["A"] == 0x01
+
+    for void_helper, expected in (
+        (cpu._add_reg_int, 0x03),
+        (cpu._sbc_reg_int, 0xFF),
+    ):
+        cpu.registers["A"] = 0x01
+        cpu.registers["F"] = 0
+        void_helper("A", 0x02)
+        assert cpu.registers["A"] == expected
+
+    for value_helper, expected in (
+        (cpu._sub_int, -1),
+        (cpu._xor_int, 0x03),
+        (cpu._and_int, 0x00),
+        (cpu._or_int, 0x03),
+    ):
+        cpu.registers["A"] = 0x01
+        cpu.registers["F"] = 0
+        result = value_helper("A", 0x02)
+        assert result == expected
+        assert cpu.registers["A"] == (expected & 0xFF)
+
+    cpu.registers["HL"] = 0xC000
+    memory.storage[0xC000] = 0x02
+    for memory_helper, expected in (
+        (cpu._sub_reg_mem, 0xFF),
+        (cpu._sbc_reg_mem, 0xFF),
+        (cpu._xor_reg_mem, 0x03),
+        (cpu._and_reg_mem, 0x00),
+        (cpu._or_reg_mem, 0x03),
+    ):
+        cpu.registers["A"] = 0x01
+        cpu.registers["F"] = 0
+        memory_helper("A", "HL")
+        assert cpu.registers["A"] == expected
 
 
 def test_sixteen_bit_add_flag_edges_and_unknown_instruction() -> None:

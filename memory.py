@@ -1,4 +1,5 @@
-from typing import Callable, List, Optional, Union
+from collections.abc import Callable
+from typing import cast
 
 from apu import APU
 from constants import (
@@ -68,19 +69,19 @@ class Memory:
 
     def __init__(
         self,
-        clock: Optional[Union[ClockDevice, MemoryData]] = None,
-        data: Optional[MemoryData] = None,
+        clock: ClockDevice | MemoryData | None = None,
+        data: MemoryData | None = None,
     ):
         # 1. Physical 64KB Memory
         self.storage = bytearray(WORD_VALUE_COUNT)
 
         # 2. Page Write Dispatch Table
-        self.write_pages: List[WriteHandler] = [self._write_ram_direct] * PAGE_COUNT
+        self.write_pages: list[WriteHandler] = [self._write_ram_direct] * PAGE_COUNT
 
-        actual_clock: Optional[ClockDevice] = None
+        actual_clock: ClockDevice | None = None
         if clock is not None and hasattr(clock, "update"):
-            actual_clock = clock  # type: ignore
-        self.clock: Optional[ClockDevice] = actual_clock
+            actual_clock = cast(ClockDevice, clock)
+        self.clock: ClockDevice | None = actual_clock
 
         # Initialize with provided data if any
         if data is not None:
@@ -110,7 +111,7 @@ class Memory:
         # APU master switch default (Sound Off)
         self.storage[0xFF26] = 0x00
 
-        self.cartridge_boot_area: Optional[bytearray] = None
+        self.cartridge_boot_area: bytearray | None = None
         self.boot_rom_disabled: bool = True
 
         # 3. Internal Components
@@ -118,32 +119,32 @@ class Memory:
         self.serial = Serial(self)
         self.apu = APU()
 
-        self._mbc: Optional[MemoryBankController] = None
-        self._video: Optional[VideoDevice] = None
+        self._mbc: MemoryBankController | None = None
+        self._video: VideoDevice | None = None
 
         self._update_page_table()
 
     @property
-    def video(self) -> Optional[VideoDevice]:
+    def video(self) -> VideoDevice | None:
         return self._video
 
     @video.setter
-    def video(self, value: Optional[VideoDevice]) -> None:
+    def video(self, value: VideoDevice | None) -> None:
         self._video = value
         self._update_page_table()
 
     @property
-    def mbc(self) -> Optional[MemoryBankController]:
+    def mbc(self) -> MemoryBankController | None:
         return self._mbc
 
     @mbc.setter
-    def mbc(self, value: Optional[MemoryBankController]) -> None:
+    def mbc(self, value: MemoryBankController | None) -> None:
         self._mbc = value
         if value:
             # Register bank change callbacks for performance mirroring
-            setattr(value, "on_bank_change", self._on_mbc_bank_change)
-            setattr(value, "on_ram_bank_change", self._on_mbc_ram_bank_change)
-            setattr(value, "on_ram_write", self._on_mbc_ram_write)
+            value.on_bank_change = self._on_mbc_bank_change
+            value.on_ram_bank_change = self._on_mbc_ram_bank_change
+            value.on_ram_write = self._on_mbc_ram_write
 
             # Sync Initial ROM Banks
             # Cartridge Bank 0 always at 0x0000-0x3FFF

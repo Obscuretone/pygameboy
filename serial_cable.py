@@ -1,5 +1,6 @@
 import sys
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any, cast
 
 from constants import (
     REG_SB,
@@ -22,9 +23,9 @@ class Serial:
     SB_DEFAULT = 0x00
     SC_DEFAULT = 0x7E
 
-    def __init__(self, memory: Any):
+    def __init__(self, memory: Any) -> None:
         self.memory: Any = memory
-        self.transfer_callback: Optional[Callable[[Byte], None]] = None
+        self.transfer_callback: Callable[[Byte], None] | None = None
         self.clock_phase = 0
         self.bits_remaining = 0
         self.transfer_active = False
@@ -34,7 +35,7 @@ class Serial:
         memory.storage[REG_SC] = self.SC_DEFAULT
 
     def read_byte(self, address: Address) -> Byte:
-        return self.memory.storage[address]
+        return cast(Byte, self.memory.storage[address])
 
     def write_byte(self, address: Address, value: Byte) -> None:
         """Handle writes to serial registers."""

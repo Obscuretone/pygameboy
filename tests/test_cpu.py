@@ -11,13 +11,13 @@ class TestCPU(unittest.TestCase):
 
     # todo: all tests should check PC?
 
-    def setUp(self):
+    def setUp(self) -> None:
         """Set up a new CPU instance before each test."""
         self.mem = bytearray(0x10000)
         self.ram = Memory(self.mem)
-        self.cpu = CPU(ram=self.ram)  # type: ignore
+        self.cpu = CPU(ram=self.ram)
 
-    def test_fast_ld_hl_a_writes_through_video_bus(self):
+    def test_fast_ld_hl_a_writes_through_video_bus(self) -> None:
         """Test fast LD (HL),A updates VRAM through Memory/Video bus."""
         video = VideoChip(self.cpu.clock, self.ram)
         self.ram.video = video
@@ -31,7 +31,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(cycles, 8)
         self.assertEqual(video.vram[0], 0x42)
 
-    def test_boot_overlay_reads_beat_mbc_until_disabled(self):
+    def test_boot_overlay_reads_beat_mbc_until_disabled(self) -> None:
         """Test boot ROM mapped reads are not stolen by cartridge MBC reads."""
         self.ram.cartridge_boot_area = bytearray([0x99])
         self.ram.storage[0x0000] = 0x42
@@ -43,9 +43,9 @@ class TestCPU(unittest.TestCase):
         self.assertTrue(self.ram.boot_rom_disabled)
         self.assertEqual(self.ram.read_byte(0x0000), 0x99)
 
-    def test_read_write_reg_F(self):
+    def test_read_write_reg_F(self) -> None:
         """Test read and write methods for 8-bit registers"""
-        for i, register in enumerate(self.registers_8bit):
+        for register in self.registers_8bit:
             # F is special and the last 4 bits are always 0000.
             self.cpu.write_register(register, 0b11100000)
             self.assertEqual(self.cpu.read_register(register), 0b11100000)
@@ -59,9 +59,9 @@ class TestCPU(unittest.TestCase):
             self.cpu.write_register(register, 0b00000000)
             self.assertEqual(self.cpu.read_register(register), 0b00000000)
 
-    def test_read_write_reg_8bit(self):
+    def test_read_write_reg_8bit(self) -> None:
         """Test read and write methods for 8-bit registers"""
-        for i, register in enumerate(self.registers_8bit):
+        for register in self.registers_8bit:
             # The rest are simple 8-bit
 
             self.cpu.write_register(register, 0xFF)
@@ -77,9 +77,9 @@ class TestCPU(unittest.TestCase):
             self.cpu.write_register(register, 0x100)
             self.assertEqual(self.cpu.read_register(register), 0x00)
 
-    def test_read_write_reg_AF(self):
+    def test_read_write_reg_AF(self) -> None:
         """Test read and write methods for 16-bit registers"""
-        for i, register in enumerate(self.registers_16bit):
+        for register in self.registers_16bit:
             # AF is special and the last 4 bits are always 0000.
             # The rest are simple 8-bit
             self.cpu.write_register(register, 0b0110011001110000)
@@ -88,9 +88,9 @@ class TestCPU(unittest.TestCase):
             self.cpu.write_register(register, 0b0111111001110000)
             self.assertEqual(self.cpu.read_register(register), 0b0111111001110000)
 
-    def test_read_write_reg_16bit(self):
+    def test_read_write_reg_16bit(self) -> None:
         """Test read and write methods for 16-bit registers"""
-        for i, register in enumerate(self.registers_16bit):
+        for register in self.registers_16bit:
             # The rest are simple 16-bit
             self.cpu.write_register(register, 0xFFFF)
             self.assertEqual(self.cpu.read_register(register), 0xFFFF)
@@ -105,7 +105,7 @@ class TestCPU(unittest.TestCase):
             self.cpu.write_register(register, 0x10000)
             self.assertEqual(self.cpu.read_register(register), 0x0000)
 
-    def test_set_16bit_check_8bit(self):
+    def test_set_16bit_check_8bit(self) -> None:
         """Test setting 16 bit registers and checking 8-bit registers."""
 
         self.cpu.write_register("AF", 0b1111111111110000)
@@ -124,7 +124,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(self.cpu.read_register("H"), 0x00)
         self.assertEqual(self.cpu.read_register("L"), 0x00)
 
-    def test_set_8bit_check_16bit(self):
+    def test_set_8bit_check_16bit(self) -> None:
         """Test setting two 8-bit registers and checking 16-bit register."""
 
         self.cpu.write_register("A", 0b11111111)
@@ -143,7 +143,7 @@ class TestCPU(unittest.TestCase):
         self.cpu.write_register("L", 0x100)
         self.assertEqual(self.cpu.read_register("HL"), 0x0000)
 
-    def test_set_clear_flags(self):
+    def test_set_clear_flags(self) -> None:
         """Test setting and clearing individual flags."""
         # Initially, all flags should be clear
         self.assertFalse(self.cpu.get_flag("z"))
@@ -177,7 +177,7 @@ class TestCPU(unittest.TestCase):
         self.cpu.clear_flag("c")
         self.assertFalse(self.cpu.get_flag("c"))
 
-    def test_flags_update_f_register(self):
+    def test_flags_update_f_register(self) -> None:
         """Test flag helpers mirror the Game Boy F register bits."""
         self.cpu.set_flag("z")
         self.cpu.set_flag("h")
@@ -187,7 +187,7 @@ class TestCPU(unittest.TestCase):
         self.cpu.set_flag("c")
         self.assertEqual(self.cpu.read_register("F"), 0b00110000)
 
-    def test_f_register_updates_flags(self):
+    def test_f_register_updates_flags(self) -> None:
         """Test direct F writes mirror the flag helper state."""
         self.cpu.write_register("F", 0b11010001)
 
@@ -197,17 +197,17 @@ class TestCPU(unittest.TestCase):
         self.assertTrue(self.cpu.get_flag("c"))
         self.assertEqual(self.cpu.read_register("F"), 0b11010000)
 
-    def test_set_invalid_flag(self):
+    def test_set_invalid_flag(self) -> None:
         """Test setting an invalid flag."""
         with self.assertRaises(ValueError):
             self.cpu.set_flag("x")
 
-    def test_clear_invalid_flag(self):
+    def test_clear_invalid_flag(self) -> None:
         """Test clearing an invalid flag."""
         with self.assertRaises(ValueError):
             self.cpu.clear_flag("x")
 
-    def test_inc_8bit(self):
+    def test_inc_8bit(self) -> None:
         """Test the __inc function for 8-bit register A."""
         self.cpu.write_register("A", 0x00)  # Set register A to 0
         self.cpu._inc_reg("A")
@@ -215,7 +215,7 @@ class TestCPU(unittest.TestCase):
             self.cpu.read_register("A"), 0x01
         )  # After incrementing, A should be 1
 
-    def test_inc_8bit_wraparound(self):
+    def test_inc_8bit_wraparound(self) -> None:
         """Test the __inc function for 8-bit register A with wraparound."""
         self.cpu.write_register("A", 0xFF)  # Set register A to 255 (0xFF)
         self.cpu._inc_reg("A")
@@ -223,7 +223,7 @@ class TestCPU(unittest.TestCase):
             self.cpu.read_register("A"), 0x00
         )  # After incrementing, A should wrap around to 0x100
 
-    def test_inc_8bit_updates_flags(self):
+    def test_inc_8bit_updates_flags(self) -> None:
         """Test INC r updates Z/N/H while preserving C."""
         self.cpu.write_register("A", 0x0F)
         self.cpu.set_flag("c")
@@ -240,7 +240,7 @@ class TestCPU(unittest.TestCase):
         self.cpu._inc_reg("A")
         self.assertTrue(self.cpu.get_flag("z"))
 
-    def test_inc_16bit(self):
+    def test_inc_16bit(self) -> None:
         """Test the __inc function for 16-bit register BC."""
         self.cpu.write_register("BC", 0x0000)  # Set register BC to 0
         self.cpu._inc_reg("BC", is8=False)
@@ -248,7 +248,7 @@ class TestCPU(unittest.TestCase):
             self.cpu.read_register("BC"), 0x0001
         )  # After incrementing, BC should be 1
 
-    def test_inc_16bit_wraparound(self):
+    def test_inc_16bit_wraparound(self) -> None:
         """Test the __inc function for register BC with wraparound."""
         self.cpu.write_register("BC", 0xFFFF)  # Set register BC to 0xFFFF
         self.cpu._inc_reg("BC", is8=False)
@@ -256,7 +256,7 @@ class TestCPU(unittest.TestCase):
             self.cpu.read_register("BC"), 0x0000
         )  # After incrementing, BC should wrap around to 0x0000
 
-    def test_dec_8bit(self):
+    def test_dec_8bit(self) -> None:
         """Test the __dec function for 8-bit register A."""
         self.cpu.write_register("A", 0x01)  # Set register A to 1
         self.cpu._dec_reg("A")
@@ -264,7 +264,7 @@ class TestCPU(unittest.TestCase):
             self.cpu.read_register("A"), 0x00
         )  # After decrementing, A should be 0
 
-    def test_dec_8bit_wraparound(self):
+    def test_dec_8bit_wraparound(self) -> None:
         """Test the __dec function for 8-bit register A with wraparound."""
         self.cpu.write_register("A", 0x00)  # Set register A to 0
         self.cpu._dec_reg("A")
@@ -272,7 +272,7 @@ class TestCPU(unittest.TestCase):
             self.cpu.read_register("A"), 0xFF
         )  # After decrementing, A should wrap around to 0xFF
 
-    def test_dec_8bit_updates_flags(self):
+    def test_dec_8bit_updates_flags(self) -> None:
         """Test DEC r updates Z/N/H while preserving C."""
         self.cpu.write_register("A", 0x10)
         self.cpu.set_flag("c")
@@ -289,7 +289,7 @@ class TestCPU(unittest.TestCase):
         self.cpu._dec_reg("A")
         self.assertTrue(self.cpu.get_flag("z"))
 
-    def test_dec_16bit(self):
+    def test_dec_16bit(self) -> None:
         """Test the __dec function for 8-bit register A."""
         self.cpu.write_register("BC", 0x0001)  # Set register A to 1
         self.cpu._dec_reg("BC", is8=False)
@@ -297,7 +297,7 @@ class TestCPU(unittest.TestCase):
             self.cpu.read_register("BC"), 0x0000
         )  # After decrementing, A should be 0
 
-    def test_dec_16bit_wraparound(self):
+    def test_dec_16bit_wraparound(self) -> None:
         """Test the __dec function for 8-bit register A with wraparound."""
         self.cpu.write_register("BC", 0x00)  # Set register A to 0
         self.cpu._dec_reg("BC", is8=False)
@@ -305,7 +305,7 @@ class TestCPU(unittest.TestCase):
             self.cpu.read_register("BC"), 0xFFFF
         )  # After decrementing, A should wrap around to 0xFF
 
-    def test_add_non_zero_values(self):
+    def test_add_non_zero_values(self) -> None:
         """Test addition of two non-zero values."""
         self.cpu.write_register("A", 0x05)
         self.cpu.write_register("B", 0x03)
@@ -315,7 +315,7 @@ class TestCPU(unittest.TestCase):
         )  # After addition, A should be 0x08
         self.assertFalse(self.cpu.get_flag("z"))  # Result is not zero
 
-    def test_add_with_carry_flag(self):
+    def test_add_with_carry_flag(self) -> None:
         """Test addition with the carry flag set."""
         self.cpu.write_register("A", 0xFF)
         self.cpu.write_register("B", 0x01)
@@ -326,7 +326,7 @@ class TestCPU(unittest.TestCase):
         )  # After addition, A should be 0x00
         self.assertTrue(self.cpu.get_flag("c"))  # Carry flag should be set
 
-    def test_add_result_zero(self):
+    def test_add_result_zero(self) -> None:
         """Test addition resulting in a zero value."""
         # Set register A to 0x00 and register B to 0x00
         self.cpu.write_register("A", 0x00)
@@ -343,7 +343,7 @@ class TestCPU(unittest.TestCase):
         # Check that the zero flag is set
         self.assertTrue(self.cpu.get_flag("z"))  # Zero flag should be set
 
-    def test_add_reg_mem_non_zero_values(self):
+    def test_add_reg_mem_non_zero_values(self) -> None:
         """Test addition of register and memory value."""
         # Set register A to 0x05 and memory address 0xBEEF to 0x03
         self.cpu.write_register("A", 0x05)
@@ -360,7 +360,7 @@ class TestCPU(unittest.TestCase):
         # Check that the zero flag is not set
         self.assertFalse(self.cpu.get_flag("z"))  # Zero flag should not be set
 
-    def test_add_reg_mem_result_zero(self):
+    def test_add_reg_mem_result_zero(self) -> None:
         """Test addition resulting in a zero value."""
         # Set register A to 0xFF and memory address 0xBEEF to 0x01
         self.cpu.write_register("A", 0xFF)
@@ -377,7 +377,7 @@ class TestCPU(unittest.TestCase):
         # Check that the zero flag is set
         self.assertTrue(self.cpu.get_flag("z"))  # Zero flag should be set
 
-    def test_subtract_registers(self):
+    def test_subtract_registers(self) -> None:
         """Test subtraction of two registers."""
         # Set register A to 0x0A and register B to 0x06
         self.cpu.write_register("A", 0x0A)
@@ -395,7 +395,7 @@ class TestCPU(unittest.TestCase):
         self.assertFalse(self.cpu.get_flag("h"))  # No half borrow
         self.assertFalse(self.cpu.get_flag("c"))  # No full borrow
 
-    def test_subtract_registers_with_borrow(self):
+    def test_subtract_registers_with_borrow(self) -> None:
         """Test subtraction of two registers with borrow."""
         # Set register A to 0x02 and register B to 0x05
         self.cpu.write_register("A", 0x02)
@@ -413,7 +413,7 @@ class TestCPU(unittest.TestCase):
         self.assertTrue(self.cpu.get_flag("h"))  # Half borrow
         self.assertTrue(self.cpu.get_flag("c"))  # Full borrow
 
-    def test_add_with_carry_overflow(self):
+    def test_add_with_carry_overflow(self) -> None:
         """Test addition of two registers with carry."""
         # Set register A to 0xFF, register B to 0x01, and set carry flag
         self.cpu.write_register("A", 0xFF)
@@ -432,7 +432,7 @@ class TestCPU(unittest.TestCase):
         self.assertTrue(self.cpu.get_flag("h"))  # Expect half carry
         self.assertTrue(self.cpu.get_flag("c"))  # Carry
 
-    def test_add_with_carry(self):
+    def test_add_with_carry(self) -> None:
         """Test addition of two registers with carry."""
         # Set register A to 0x0A, register B to 0x07, and set carry flag
         self.cpu.write_register("A", 0x01)
@@ -451,7 +451,7 @@ class TestCPU(unittest.TestCase):
         self.assertFalse(self.cpu.get_flag("h"))  # Expect half carry
         self.assertFalse(self.cpu.get_flag("c"))  # Carry
 
-    def test_adc_reg_mem(self):
+    def test_adc_reg_mem(self) -> None:
         """Test addition of register A and value from memory with carry."""
         # Set register A to 0x0A, memory address 0x1000 to 0x07, and set carry flag
         self.cpu.write_register("A", 0xFF)
@@ -472,7 +472,7 @@ class TestCPU(unittest.TestCase):
         self.assertTrue(self.cpu.get_flag("h"))  # Expect half carry
         self.assertTrue(self.cpu.get_flag("c"))  # Carry
 
-    def test_adc_reg_int(self):
+    def test_adc_reg_int(self) -> None:
         """Test addition of register A and immediate value with carry."""
         # Set register A to 0x0A and set carry flag
         self.cpu.write_register("A", 0xFF)
@@ -490,7 +490,7 @@ class TestCPU(unittest.TestCase):
         self.assertTrue(self.cpu.get_flag("h"))  # Expect half carry
         self.assertTrue(self.cpu.get_flag("c"))  # Carry
 
-    def test_sbc(self):
+    def test_sbc(self) -> None:
         """Test subtraction of two registers with borrow."""
         # Set register A to 0x0A, register B to 0x07, and set carry flag
         self.cpu.write_register("A", 0x0A)
@@ -509,7 +509,7 @@ class TestCPU(unittest.TestCase):
         self.assertFalse(self.cpu.get_flag("h"))  # No half carry
         self.assertFalse(self.cpu.get_flag("c"))  # No borrow
 
-    def test_ld_reg_reg(self):
+    def test_ld_reg_reg(self) -> None:
         """Test loading a register with the value of another register."""
         # Set register A to 0x0A and register B to 0x07
         self.cpu.write_register("A", 0x0A)
@@ -521,7 +521,7 @@ class TestCPU(unittest.TestCase):
         # Check if the value of register A is equal to the value of register B
         self.assertEqual(self.cpu.read_register("A"), 0x07)
 
-    def test_ld_mem_reg(self):
+    def test_ld_mem_reg(self) -> None:
         """Test loading a memory location with the value of a register."""
         # Set register A to 0x0A and memory address 0x1000 to 0x00
         self.cpu.write_register("A", 0x0A)
@@ -534,7 +534,7 @@ class TestCPU(unittest.TestCase):
         # Check if the value at memory address 0x1000 is equal to the value of register A
         self.assertEqual(self.cpu.ram.read_byte(0x1000), 0x0A)
 
-    def test_ld_memffxx_reg_reg(self):
+    def test_ld_memffxx_reg_reg(self) -> None:
         """Test storing the contents of a register in the internal RAM, port register, or mode register."""
         # Set register A the address
         self.cpu.write_register("A", 0x0A)
@@ -548,7 +548,7 @@ class TestCPU(unittest.TestCase):
         # Check if the value at memory address 0xFF0A is equal to the value of register C
         self.assertEqual(self.cpu.ram.read_byte(0xFF0A), self.cpu.read_register("C"))
 
-    def test_ld_memffxx_int_reg(self):
+    def test_ld_memffxx_int_reg(self) -> None:
         """Test storing the contents of a register in the internal RAM, port register, or mode register."""
 
         # Set register C to the value
@@ -560,7 +560,7 @@ class TestCPU(unittest.TestCase):
         # Check if the value at memory address 0xFF0A is equal to the value of register C
         self.assertEqual(self.cpu.ram.read_byte(0xFF0A), self.cpu.read_register("C"))
 
-    def test_ld_reg_mem(self):
+    def test_ld_reg_mem(self) -> None:
         """Test storing a value in a register from a memory address in a register."""
 
         test_value = 0xED
@@ -577,7 +577,7 @@ class TestCPU(unittest.TestCase):
         # Check if the value at memory address 0xFF0A is equal to the value of register C
         self.assertEqual(self.cpu.read_register(test_register), test_value)
 
-    def test_ld_reg_int(self):
+    def test_ld_reg_int(self) -> None:
         """Test writing register with a value."""
 
         test_value = 0xAB
@@ -588,7 +588,7 @@ class TestCPU(unittest.TestCase):
         # Check if the value at memory address 0xFF0A is equal to the value of register C
         self.assertEqual(self.cpu.read_register("L"), test_value)
 
-    def test_bit_n_reg(self):
+    def test_bit_n_reg(self) -> None:
         """Test the _bit_n__reg function."""
         # Set register A to 0b01010101
         self.cpu.write_register("A", 0b01010101)
@@ -608,7 +608,7 @@ class TestCPU(unittest.TestCase):
             # Check if the N flag is reset
             self.assertFalse(self.cpu.get_flag("n"))
 
-    def test_rlc_reg(self):
+    def test_rlc_reg(self) -> None:
         """Test the _rlc_reg function."""
         # Test rotation for each register
         for register in self.registers_8bit:
@@ -646,7 +646,7 @@ class TestCPU(unittest.TestCase):
             self.assertFalse(self.cpu.get_flag("n"))  # Subtract flag should be cleared
             self.assertFalse(self.cpu.get_flag("z"))  # Zero flag should be cleared
 
-    def test_rl_reg(self):
+    def test_rl_reg(self) -> None:
         """Test rotate left operation on a register."""
         # this is the 0xCB version that supports multiple registers
         # Set initial value of the register and carry flag
@@ -665,7 +665,7 @@ class TestCPU(unittest.TestCase):
         self.assertFalse(self.cpu.get_flag("n"))  # No subtraction
         self.assertFalse(self.cpu.get_flag("h"))  # No half carry
 
-    def test_rotate_left_through_carry(self):
+    def test_rotate_left_through_carry(self) -> None:
         """Test rotation of register A to the left through the carry (CY) flag."""
         # this is the regular opcode that only applies to A and through the carry flag.
         # Set register A to 0b11010101
@@ -686,26 +686,26 @@ class TestCPU(unittest.TestCase):
         self.assertFalse(self.cpu.get_flag("n"))  # No subtraction
         self.assertFalse(self.cpu.get_flag("h"))  # No half carry
 
-    def test_jr_e8_positive_offset(self):
+    def test_jr_e8_positive_offset(self) -> None:
         """Test JR 'e8' with positive offset."""
         # Set the program counter (PC) to address 0x0100
         self.cpu.write_register("PC", 0x0100)
 
         # Execute JR 'e8' instruction with a positive offset of 5
         self.cpu.memory[0x0101] = 0x05
-        self.cpu.jr_e8()  # type: ignore
+        self.cpu.jr_e8()
 
         # Check if the program counter (PC) is updated correctly to address 0x107
         self.assertEqual(self.cpu.read_register("PC"), 0x107)
 
-    def test_jr_e8_negative_offset(self):
+    def test_jr_e8_negative_offset(self) -> None:
         """Test JR 'e8' with negative offset."""
         # Set the program counter (PC) to address 0x0200
         self.cpu.write_register("PC", 0x0200)
 
         # Execute JR 'e8' instruction with a negative offset of -0x0F
         self.cpu.memory[0x0201] = 0xF1
-        self.cpu.jr_e8()  # type: ignore
+        self.cpu.jr_e8()
         # Two's complement representation of -0x0F
 
         # Check if the program counter (PC) is updated correctly to address 0x1F3 (0x0200 - 0x000f + 0x0002)
@@ -713,7 +713,7 @@ class TestCPU(unittest.TestCase):
             self.cpu.read_register("PC"), 0x01F3
         )  # the instruction is 0x0002 long..
 
-    def test_pop_bc(self):
+    def test_pop_bc(self) -> None:
         """Test POP BC instruction."""
 
         # Set up initial values
@@ -722,7 +722,7 @@ class TestCPU(unittest.TestCase):
         self.cpu.ram.write_byte(0xFFFE, 0xCD)  # Lower byte on the stack
 
         # Execute the POP BC instruction
-        self.cpu.pop_bc()  # type: ignore
+        self.cpu.pop_bc()
 
         # Check if the BC register pair was correctly loaded
         self.assertEqual(self.cpu.read_register("BC"), 0xABCD)
@@ -730,7 +730,7 @@ class TestCPU(unittest.TestCase):
         # Check if the stack pointer was correctly incremented
         self.assertEqual(self.cpu.read_register("SP"), 0x0000)
 
-    def test_bit_n_mem(self):
+    def test_bit_n_mem(self) -> None:
         """Test the _bit_n__mem function."""
         # Set memory location 0x1000 to 0b01010101
         self.cpu.ram.write_byte(0x1000, 0b01010101)
@@ -750,7 +750,7 @@ class TestCPU(unittest.TestCase):
             # Check if the N flag is reset
             self.assertFalse(self.cpu.get_flag("n"))
 
-    def test_fast_ld_b_a_uses_a_register(self):
+    def test_fast_ld_b_a_uses_a_register(self) -> None:
         """Test fast LD B,A follows the opcode source register."""
         self.ram.write_byte(0x0000, 0x47)
         self.cpu.write_register("A", 0xAB)
@@ -763,7 +763,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(self.cpu.read_register("B"), 0xAB)
         self.assertEqual(self.cpu.read_register("PC"), 0x0001)
 
-    def test_fast_ld_register_from_hl_memory(self):
+    def test_fast_ld_register_from_hl_memory(self) -> None:
         """Test fast LD r,(HL) reads the byte at HL."""
         self.ram.write_byte(0x0000, 0x4E)
         self.cpu.write_register("HL", 0xC123)
@@ -776,7 +776,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(self.cpu.read_register("C"), 0x5A)
         self.assertEqual(self.cpu.read_register("PC"), 0x0001)
 
-    def test_fast_ld_hl_memory_from_register(self):
+    def test_fast_ld_hl_memory_from_register(self) -> None:
         """Test fast LD (HL),r writes the byte at HL."""
         self.ram.write_byte(0x0000, 0x77)
         self.cpu.write_register("HL", 0xC456)
@@ -789,7 +789,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(self.ram.read_byte(0xC456), 0xE1)
         self.assertEqual(self.cpu.read_register("PC"), 0x0001)
 
-    def test_fast_inc_dec_update_flags(self):
+    def test_fast_inc_dec_update_flags(self) -> None:
         """Test fast INC/DEC opcodes update flags like the helpers."""
         self.ram.write_byte(0x0000, 0x04)
         self.ram.write_byte(0x0001, 0x05)
@@ -812,7 +812,7 @@ class TestCPU(unittest.TestCase):
         self.assertTrue(self.cpu.get_flag("h"))
         self.assertTrue(self.cpu.get_flag("c"))
 
-    def test_fast_add_a_register_updates_flags(self):
+    def test_fast_add_a_register_updates_flags(self) -> None:
         """Test fast ADD A,r updates A and arithmetic flags."""
         self.ram.write_byte(0x0000, 0x80)
         self.cpu.write_register("A", 0x0F)
@@ -830,7 +830,7 @@ class TestCPU(unittest.TestCase):
         self.assertTrue(self.cpu.get_flag("h"))
         self.assertFalse(self.cpu.get_flag("c"))
 
-    def test_fast_add_a_register_sets_zero_and_carry(self):
+    def test_fast_add_a_register_sets_zero_and_carry(self) -> None:
         """Test fast ADD A,r sets zero and carry on overflow."""
         self.ram.write_byte(0x0000, 0x87)
         self.cpu.write_register("A", 0x80)
@@ -845,7 +845,7 @@ class TestCPU(unittest.TestCase):
         self.assertFalse(self.cpu.get_flag("h"))
         self.assertTrue(self.cpu.get_flag("c"))
 
-    def test_fast_sub_a_register_updates_flags(self):
+    def test_fast_sub_a_register_updates_flags(self) -> None:
         """Test fast SUB A,r updates A and subtraction flags."""
         self.ram.write_byte(0x0000, 0x90)
         self.cpu.write_register("A", 0x10)
@@ -861,7 +861,7 @@ class TestCPU(unittest.TestCase):
         self.assertTrue(self.cpu.get_flag("h"))
         self.assertFalse(self.cpu.get_flag("c"))
 
-    def test_fast_sub_a_register_sets_zero_and_carry(self):
+    def test_fast_sub_a_register_sets_zero_and_carry(self) -> None:
         """Test fast SUB A,r sets zero and carry cases."""
         self.ram.write_byte(0x0000, 0x90)
         self.ram.write_byte(0x0001, 0x90)
@@ -883,7 +883,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(self.cpu.read_register("A"), 0x00)
         self.assertTrue(self.cpu.get_flag("z"))
 
-    def test_fast_xor_a_register_updates_flags(self):
+    def test_fast_xor_a_register_updates_flags(self) -> None:
         """Test fast XOR A,r updates A and logic flags."""
         self.ram.write_byte(0x0000, 0xA8)
         self.cpu.write_register("A", 0b10101010)
@@ -902,7 +902,7 @@ class TestCPU(unittest.TestCase):
         self.assertFalse(self.cpu.get_flag("h"))
         self.assertFalse(self.cpu.get_flag("c"))
 
-    def test_fast_xor_a_a_sets_zero(self):
+    def test_fast_xor_a_a_sets_zero(self) -> None:
         """Test fast XOR A,A clears A and sets Z."""
         self.ram.write_byte(0x0000, 0xAF)
         self.cpu.write_register("A", 0x42)
@@ -917,7 +917,7 @@ class TestCPU(unittest.TestCase):
         self.assertFalse(self.cpu.get_flag("h"))
         self.assertFalse(self.cpu.get_flag("c"))
 
-    def test_fast_and_a_register_updates_flags(self):
+    def test_fast_and_a_register_updates_flags(self) -> None:
         """Test fast AND A,r sets H and clears N/C."""
         self.ram.write_byte(0x0000, 0xA0)
         self.cpu.write_register("A", 0b10101010)
@@ -935,7 +935,7 @@ class TestCPU(unittest.TestCase):
         self.assertTrue(self.cpu.get_flag("h"))
         self.assertFalse(self.cpu.get_flag("c"))
 
-    def test_fast_and_a_register_sets_zero(self):
+    def test_fast_and_a_register_sets_zero(self) -> None:
         """Test fast AND A,r sets Z when result is zero."""
         self.ram.write_byte(0x0000, 0xA0)
         self.cpu.write_register("A", 0x0F)
@@ -947,7 +947,7 @@ class TestCPU(unittest.TestCase):
         self.assertTrue(self.cpu.get_flag("z"))
         self.assertTrue(self.cpu.get_flag("h"))
 
-    def test_fast_and_a_self_only_updates_flags(self):
+    def test_fast_and_a_self_only_updates_flags(self) -> None:
         """Test optimized AND A,A preserves A and sets both flag outcomes."""
         for value, zero in ((0x42, False), (0x00, True)):
             with self.subTest(value=value):
@@ -964,7 +964,7 @@ class TestCPU(unittest.TestCase):
                 self.assertEqual(self.cpu.read_register("PC"), 1)
                 self.assertEqual(self.cpu.read_register("F"), 0xA0 if zero else 0x20)
 
-    def test_fast_or_a_register_updates_flags(self):
+    def test_fast_or_a_register_updates_flags(self) -> None:
         """Test fast OR A,r updates A and clears N/H/C."""
         self.ram.write_byte(0x0000, 0xB0)
         self.cpu.write_register("A", 0b01010000)
@@ -983,7 +983,7 @@ class TestCPU(unittest.TestCase):
         self.assertFalse(self.cpu.get_flag("h"))
         self.assertFalse(self.cpu.get_flag("c"))
 
-    def test_fast_or_a_register_sets_zero(self):
+    def test_fast_or_a_register_sets_zero(self) -> None:
         """Test fast OR A,r sets Z when result is zero."""
         self.ram.write_byte(0x0000, 0xB7)
         self.cpu.write_register("A", 0x00)
@@ -993,7 +993,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(self.cpu.read_register("A"), 0x00)
         self.assertTrue(self.cpu.get_flag("z"))
 
-    def test_fast_cp_a_register_updates_flags_without_mutating_a(self):
+    def test_fast_cp_a_register_updates_flags_without_mutating_a(self) -> None:
         """Test fast CP A,r compares with subtraction flags."""
         self.ram.write_byte(0x0000, 0xB8)
         self.cpu.write_register("A", 0x10)
@@ -1009,7 +1009,7 @@ class TestCPU(unittest.TestCase):
         self.assertTrue(self.cpu.get_flag("h"))
         self.assertFalse(self.cpu.get_flag("c"))
 
-    def test_fast_cp_a_register_sets_zero_and_carry(self):
+    def test_fast_cp_a_register_sets_zero_and_carry(self) -> None:
         """Test fast CP A,r sets zero and carry cases."""
         self.ram.write_byte(0x0000, 0xB8)
         self.ram.write_byte(0x0001, 0xB8)
@@ -1031,7 +1031,7 @@ class TestCPU(unittest.TestCase):
         self.assertFalse(self.cpu.get_flag("h"))
         self.assertFalse(self.cpu.get_flag("c"))
 
-    def test_fast_ld_n16_loads_register_pairs_little_endian(self):
+    def test_fast_ld_n16_loads_register_pairs_little_endian(self) -> None:
         """Test fast LD rr,n16 loads little-endian immediates."""
         cases = [
             (0x01, "BC", 0x1234),
@@ -1052,7 +1052,7 @@ class TestCPU(unittest.TestCase):
             self.assertEqual(self.cpu.read_register(register), expected)
             self.assertEqual(self.cpu.read_register("PC"), 3)
 
-    def test_fast_ld_sp_n16_loads_little_endian_immediate(self):
+    def test_fast_ld_sp_n16_loads_little_endian_immediate(self) -> None:
         """Test fast LD SP,n16 loads a little-endian immediate."""
         self.ram.write_byte(0x0000, 0x31)
         self.ram.write_byte(0x0001, 0xFE)
@@ -1065,7 +1065,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(self.cpu.read_register("SP"), 0xCAFE)
         self.assertEqual(self.cpu.read_register("PC"), 3)
 
-    def test_fast_ld_hl_n8_stores_immediate_to_memory(self):
+    def test_fast_ld_hl_n8_stores_immediate_to_memory(self) -> None:
         """Test fast LD (HL),n8 stores an immediate byte."""
         self.ram.write_byte(0x0000, 0x36)
         self.ram.write_byte(0x0001, 0x7E)
@@ -1078,7 +1078,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(self.ram.read_byte(0xC100), 0x7E)
         self.assertEqual(self.cpu.read_register("PC"), 2)
 
-    def test_fast_inc_dec_hl_memory_updates_flags(self):
+    def test_fast_inc_dec_hl_memory_updates_flags(self) -> None:
         """Test fast INC/DEC (HL) mutates memory and updates flags."""
         self.ram.write_byte(0x0000, 0x34)
         self.ram.write_byte(0x0001, 0x35)
@@ -1103,7 +1103,7 @@ class TestCPU(unittest.TestCase):
         self.assertTrue(self.cpu.get_flag("n"))
         self.assertTrue(self.cpu.get_flag("h"))
 
-    def test_fast_ld_bc_de_indirect_a_transfers(self):
+    def test_fast_ld_bc_de_indirect_a_transfers(self) -> None:
         """Test fast LD A,(BC)/(DE) and LD (BC)/(DE),A transfers."""
         self.ram.write_byte(0x0000, 0x02)
         self.ram.write_byte(0x0001, 0x0A)
@@ -1136,7 +1136,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(cycles, 8)
         self.assertEqual(self.cpu.read_register("A"), 0x99)
 
-    def test_fast_ld_hl_auto_inc_dec_a_transfers(self):
+    def test_fast_ld_hl_auto_inc_dec_a_transfers(self) -> None:
         """Test fast HL auto inc/dec memory transfers with A."""
         self.ram.write_byte(0x0000, 0x22)
         self.ram.write_byte(0x0001, 0x2A)
@@ -1172,7 +1172,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(self.cpu.read_register("A"), 0x44)
         self.assertEqual(self.cpu.read_register("HL"), 0xC120)
 
-    def test_fast_jr_uses_signed_relative_offsets(self):
+    def test_fast_jr_uses_signed_relative_offsets(self) -> None:
         """Test fast JR e8 handles positive and negative signed offsets."""
         self.ram.write_byte(0x0000, 0x18)
         self.ram.write_byte(0x0001, 0x05)
@@ -1193,7 +1193,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(cycles, 12)
         self.assertEqual(self.cpu.read_register("PC"), 0x0100)
 
-    def test_fast_conditional_jr_uses_flags_and_cycles(self):
+    def test_fast_conditional_jr_uses_flags_and_cycles(self) -> None:
         """Test fast conditional JR opcodes branch and skip correctly."""
         self.ram.write_byte(0x0000, 0x20)
         self.ram.write_byte(0x0001, 0x04)
@@ -1238,7 +1238,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(cycles, 8)
         self.assertEqual(self.cpu.read_register("PC"), 0x0032)
 
-    def test_fast_jp_a16_uses_little_endian_target(self):
+    def test_fast_jp_a16_uses_little_endian_target(self) -> None:
         """Test fast JP a16 jumps to little-endian absolute target."""
         self.ram.write_byte(0x0000, 0xC3)
         self.ram.write_byte(0x0001, 0x34)
@@ -1250,7 +1250,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(cycles, 16)
         self.assertEqual(self.cpu.read_register("PC"), 0x1234)
 
-    def test_fast_conditional_jp_uses_flags_and_cycles(self):
+    def test_fast_conditional_jp_uses_flags_and_cycles(self) -> None:
         """Test fast conditional JP opcodes branch and skip correctly."""
         cases = [
             (0xC2, "z", False, 16, 0x4567),
@@ -1272,7 +1272,7 @@ class TestCPU(unittest.TestCase):
             self.assertEqual(cycles, expected_cycles)
             self.assertEqual(self.cpu.read_register("PC"), expected_pc)
 
-    def test_fast_jp_hl_loads_pc_from_hl(self):
+    def test_fast_jp_hl_loads_pc_from_hl(self) -> None:
         """Test fast JP HL copies HL into PC."""
         self.ram.write_byte(0x0000, 0xE9)
         self.cpu.write_register("HL", 0xCAFE)
@@ -1283,7 +1283,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(cycles, 4)
         self.assertEqual(self.cpu.read_register("PC"), 0xCAFE)
 
-    def test_fast_call_and_ret_round_trip_pc_through_stack(self):
+    def test_fast_call_and_ret_round_trip_pc_through_stack(self) -> None:
         """Test fast CALL a16 pushes return address and RET restores it."""
         self.ram.write_byte(0x0000, 0xCD)
         self.ram.write_byte(0x0001, 0x00)
@@ -1307,7 +1307,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(self.cpu.read_register("PC"), 0x0003)
         self.assertEqual(self.cpu.read_register("SP"), 0xFFFE)
 
-    def test_fast_conditional_call_and_ret_use_flags_and_cycles(self):
+    def test_fast_conditional_call_and_ret_use_flags_and_cycles(self) -> None:
         """Test fast conditional CALL/RET branch and skip behavior."""
         self.ram.write_byte(0x0000, 0xC4)
         self.ram.write_byte(0x0001, 0x00)
@@ -1356,7 +1356,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(self.cpu.read_register("PC"), 0x0013)
         self.assertEqual(self.cpu.read_register("SP"), 0xFFFE)
 
-    def test_fast_push_pop_register_pair_round_trip(self):
+    def test_fast_push_pop_register_pair_round_trip(self) -> None:
         """Test fast PUSH/POP round-trips register-pair bytes through stack."""
         self.ram.write_byte(0x0000, 0xC5)
         self.ram.write_byte(0x0001, 0xC1)
@@ -1379,7 +1379,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(self.cpu.read_register("BC"), 0x1234)
         self.assertEqual(self.cpu.read_register("SP"), 0xFFFE)
 
-    def test_fast_pop_af_masks_flag_low_nibble_and_syncs_flags(self):
+    def test_fast_pop_af_masks_flag_low_nibble_and_syncs_flags(self) -> None:
         """Test fast POP AF keeps the low flag nibble cleared."""
         self.ram.write_byte(0x0000, 0xF1)
         self.cpu.write_register("SP", 0xFFFC)
@@ -1397,7 +1397,7 @@ class TestCPU(unittest.TestCase):
         self.assertTrue(self.cpu.get_flag("h"))
         self.assertTrue(self.cpu.get_flag("c"))
 
-    def test_fast_rst_pushes_return_address_and_jumps_to_vector(self):
+    def test_fast_rst_pushes_return_address_and_jumps_to_vector(self) -> None:
         """Test fast RST pushes PC+1 and jumps to its fixed vector."""
         self.ram.write_byte(0x0100, 0xEF)
         self.cpu.write_register("PC", 0x0100)
@@ -1412,7 +1412,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(self.ram.read_byte(0xFFFC), 0x01)
         self.assertEqual(self.ram.read_byte(0xFFFD), 0x01)
 
-    def test_fast_reti_returns_and_enables_interrupt_master(self):
+    def test_fast_reti_returns_and_enables_interrupt_master(self) -> None:
         """Test fast RETI pops PC and enables IME immediately."""
         self.ram.write_byte(0x0100, 0xD9)
         self.cpu.write_register("PC", 0x0100)
@@ -1431,7 +1431,7 @@ class TestCPU(unittest.TestCase):
         self.assertFalse(self.cpu.interrupts.pending_ime_enable)
         self.assertTrue(self.cpu.interrupts.ime)
 
-    def test_fast_add_a_hl_updates_flags(self):
+    def test_fast_add_a_hl_updates_flags(self) -> None:
         """Test fast ADD A,(HL) reads memory and updates flags."""
         self.ram.write_byte(0x0000, 0x86)
         self.cpu.write_register("HL", 0xC000)
@@ -1449,7 +1449,7 @@ class TestCPU(unittest.TestCase):
         self.assertTrue(self.cpu.get_flag("h"))
         self.assertTrue(self.cpu.get_flag("c"))
 
-    def test_fast_sub_a_hl_updates_flags(self):
+    def test_fast_sub_a_hl_updates_flags(self) -> None:
         """Test fast SUB A,(HL) reads memory and updates flags."""
         self.ram.write_byte(0x0000, 0x96)
         self.cpu.write_register("HL", 0xC001)
@@ -1467,7 +1467,7 @@ class TestCPU(unittest.TestCase):
         self.assertTrue(self.cpu.get_flag("h"))
         self.assertFalse(self.cpu.get_flag("c"))
 
-    def test_fast_logic_a_hl_updates_flags(self):
+    def test_fast_logic_a_hl_updates_flags(self) -> None:
         """Test fast XOR/AND/OR A,(HL) memory-source behavior."""
         self.ram.write_byte(0x0000, 0xAE)
         self.ram.write_byte(0x0001, 0xA6)
@@ -1494,7 +1494,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(self.cpu.read_register("A"), 0b11110000)
         self.assertFalse(self.cpu.get_flag("h"))
 
-    def test_fast_cp_a_hl_updates_flags_without_mutating_a(self):
+    def test_fast_cp_a_hl_updates_flags_without_mutating_a(self) -> None:
         """Test fast CP A,(HL) compares memory without changing A."""
         self.ram.write_byte(0x0000, 0xBE)
         self.cpu.write_register("HL", 0xC003)
@@ -1511,7 +1511,7 @@ class TestCPU(unittest.TestCase):
         self.assertTrue(self.cpu.get_flag("h"))
         self.assertTrue(self.cpu.get_flag("c"))
 
-    def test_fast_immediate_alu_updates_a_and_flags(self):
+    def test_fast_immediate_alu_updates_a_and_flags(self) -> None:
         """Test fast immediate ADD/SUB/logic/CP A,n8 opcodes."""
         self.ram.write_byte(0x0000, 0xC6)
         self.ram.write_byte(0x0001, 0x01)
@@ -1571,7 +1571,7 @@ class TestCPU(unittest.TestCase):
         self.assertFalse(self.cpu.get_flag("h"))
         self.assertFalse(self.cpu.get_flag("c"))
 
-    def test_fast_adc_sbc_register_updates_carry_flags(self):
+    def test_fast_adc_sbc_register_updates_carry_flags(self) -> None:
         """Test fast ADC/SBC A,r includes carry in arithmetic."""
         self.ram.write_byte(0x0000, 0x88)
         self.ram.write_byte(0x0001, 0x98)
@@ -1598,7 +1598,7 @@ class TestCPU(unittest.TestCase):
         self.assertTrue(self.cpu.get_flag("h"))
         self.assertTrue(self.cpu.get_flag("c"))
 
-    def test_fast_scf_ccf_updates_carry_without_changing_zero(self):
+    def test_fast_scf_ccf_updates_carry_without_changing_zero(self) -> None:
         """Test fast SCF/CCF carry behavior keeps Z unchanged."""
         self.ram.write_byte(0x0000, 0x37)
         self.ram.write_byte(0x0001, 0x3F)
@@ -1625,7 +1625,7 @@ class TestCPU(unittest.TestCase):
         self.assertFalse(self.cpu.get_flag("h"))
         self.assertFalse(self.cpu.get_flag("c"))
 
-    def test_fast_adc_sbc_hl_and_immediate_include_carry(self):
+    def test_fast_adc_sbc_hl_and_immediate_include_carry(self) -> None:
         """Test fast ADC/SBC A,(HL) and A,n8 include carry."""
         self.ram.write_byte(0x0000, 0x8E)
         self.ram.write_byte(0x0001, 0xCE)
@@ -1666,7 +1666,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(self.cpu.read_register("A"), 0xFE)
         self.assertTrue(self.cpu.get_flag("c"))
 
-    def test_fast_cb_rotate_shift_registers_update_flags(self):
+    def test_fast_cb_rotate_shift_registers_update_flags(self) -> None:
         """Test fast CB rotate/shift register operations."""
         self.ram.write_byte(0x0000, 0xCB)
         self.ram.write_byte(0x0001, 0x00)
@@ -1698,7 +1698,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(self.cpu.read_register("A"), 0x0F)
         self.assertFalse(self.cpu.get_flag("c"))
 
-    def test_fast_cb_memory_rotate_shift_updates_hl_target(self):
+    def test_fast_cb_memory_rotate_shift_updates_hl_target(self) -> None:
         """Test fast CB rotate/shift operations on (HL)."""
         self.ram.write_byte(0x0000, 0xCB)
         self.ram.write_byte(0x0001, 0x06)
@@ -1720,7 +1720,7 @@ class TestCPU(unittest.TestCase):
         self.assertTrue(self.cpu.get_flag("z"))
         self.assertTrue(self.cpu.get_flag("c"))
 
-    def test_fast_cb_bit_preserves_carry_and_sets_half_carry(self):
+    def test_fast_cb_bit_preserves_carry_and_sets_half_carry(self) -> None:
         """Test fast CB BIT updates flags without mutating operand."""
         self.ram.write_byte(0x0000, 0xCB)
         self.ram.write_byte(0x0001, 0x78)
@@ -1746,7 +1746,7 @@ class TestCPU(unittest.TestCase):
         self.assertFalse(self.cpu.get_flag("z"))
         self.assertEqual(self.ram.read_byte(0xC201), 0x01)
 
-    def test_fast_cb_set_res_register_and_memory_bits(self):
+    def test_fast_cb_set_res_register_and_memory_bits(self) -> None:
         """Test fast CB SET/RES on registers and memory."""
         self.ram.write_byte(0x0000, 0xCB)
         self.ram.write_byte(0x0001, 0xC0)
@@ -1780,7 +1780,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(cycles, 16)
         self.assertEqual(self.ram.read_byte(0xC202), 0x00)
 
-    def test_fast_inc_dec_r16_and_sp_do_not_touch_flags(self):
+    def test_fast_inc_dec_r16_and_sp_do_not_touch_flags(self) -> None:
         """Test fast 16-bit INC/DEC operations update pairs and preserve flags."""
         self.ram.write_byte(0x0000, 0x03)
         self.ram.write_byte(0x0001, 0x1B)
@@ -1815,7 +1815,7 @@ class TestCPU(unittest.TestCase):
         self.assertTrue(self.cpu.get_flag("z"))
         self.assertTrue(self.cpu.get_flag("c"))
 
-    def test_fast_add_hl_r16_preserves_zero_and_sets_half_carry(self):
+    def test_fast_add_hl_r16_preserves_zero_and_sets_half_carry(self) -> None:
         """Test fast ADD HL,rr updates 16-bit flags correctly."""
         self.ram.write_byte(0x0000, 0x09)
         self.ram.write_byte(0x0001, 0x39)
@@ -1842,7 +1842,7 @@ class TestCPU(unittest.TestCase):
         self.assertTrue(self.cpu.get_flag("z"))
         self.assertTrue(self.cpu.get_flag("c"))
 
-    def test_fast_ld_a16_sp_stores_little_endian_sp(self):
+    def test_fast_ld_a16_sp_stores_little_endian_sp(self) -> None:
         """Test fast LD (a16),SP stores SP little-endian."""
         self.ram.write_byte(0x0000, 0x08)
         self.ram.write_byte(0x0001, 0x00)
@@ -1857,7 +1857,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(self.ram.read_byte(0xC401), 0xBE)
         self.assertEqual(self.cpu.read_register("PC"), 3)
 
-    def test_fast_high_memory_and_absolute_a_loads(self):
+    def test_fast_high_memory_and_absolute_a_loads(self) -> None:
         """Test fast LDH/LD A high memory and absolute memory transfers."""
         self.ram.write_byte(0x0000, 0xE0)
         self.ram.write_byte(0x0001, 0x80)
@@ -1909,7 +1909,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(cycles, 16)
         self.assertEqual(self.cpu.read_register("A"), 0x56)
 
-    def test_fast_ldh_reads_ly_from_clock_cycles(self):
+    def test_fast_ldh_reads_ly_from_clock_cycles(self) -> None:
         """Test fast LDH A,(FF44) exposes a clock-derived scanline."""
         self.ram.write_byte(0x0000, 0xF0)
         self.ram.write_byte(0x0001, 0x44)
@@ -1921,7 +1921,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(cycles, 12)
         self.assertEqual(self.cpu.read_register("A"), 0x90)
 
-    def test_fast_ldh_reads_mirrored_ly_with_video_connected(self):
+    def test_fast_ldh_reads_mirrored_ly_with_video_connected(self) -> None:
         """Test the optimized LY path reads the video-updated flat register."""
         video = VideoChip(self.cpu.clock, self.ram)
         self.ram.video = video
@@ -1937,7 +1937,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(self.cpu.read_register("A"), 0x53)
         self.assertEqual(self.cpu.read_register("PC"), 2)
 
-    def test_fast_ldh_reads_hram_from_flat_memory(self):
+    def test_fast_ldh_reads_hram_from_flat_memory(self) -> None:
         """Test optimized LDH A,(a8) reads the mirrored HRAM byte."""
         self.ram.write_byte(0x0000, 0xF0)
         self.ram.write_byte(0x0001, 0x85)
@@ -1949,7 +1949,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(cycles, 12)
         self.assertEqual(self.cpu.read_register("A"), 0xA6)
 
-    def test_fast_ldh_ff50_disables_boot_rom_overlay(self):
+    def test_fast_ldh_ff50_disables_boot_rom_overlay(self) -> None:
         """Test fast LDH (FF50),A restores cartridge boot area bytes."""
         cartridge_boot_area = bytearray([0xAA, 0xBB, 0xCC, 0xDD])
         self.ram.cartridge_boot_area = cartridge_boot_area
@@ -1968,7 +1968,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(self.ram.read_byte(0x0001), 0xBB)
         self.assertEqual(self.ram.read_byte(0xFF50), 0x01)
 
-    def test_fast_sp_signed_offset_ops_update_flags(self):
+    def test_fast_sp_signed_offset_ops_update_flags(self) -> None:
         """Test fast ADD SP,e8 and LD HL,SP+e8 signed offset behavior."""
         self.ram.write_byte(0x0000, 0xE8)
         self.ram.write_byte(0x0001, 0x01)
@@ -1999,7 +1999,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(cycles, 8)
         self.assertEqual(self.cpu.read_register("SP"), 0x00FF)
 
-    def test_fast_di_ei_toggle_interrupt_state(self):
+    def test_fast_di_ei_toggle_interrupt_state(self) -> None:
         """Test fast DI/EI update interrupt master scaffolding."""
         self.ram.write_byte(0x0000, 0xFB)
         self.ram.write_byte(0x0001, 0xF3)
@@ -2017,7 +2017,7 @@ class TestCPU(unittest.TestCase):
         self.assertFalse(self.cpu.interrupts.pending_ime_enable)
         self.assertFalse(self.cpu.interrupts.ime)
 
-    def test_fast_accumulator_rotates_reset_zero_and_update_carry(self):
+    def test_fast_accumulator_rotates_reset_zero_and_update_carry(self) -> None:
         """Test fast RLCA/RRCA/RLA/RRA accumulator rotates."""
         self.ram.write_byte(0x0000, 0x07)
         self.ram.write_byte(0x0001, 0x0F)
@@ -2055,7 +2055,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(self.cpu.read_register("A"), 0x80)
         self.assertTrue(self.cpu.get_flag("c"))
 
-    def test_fast_daa_adjusts_after_add_and_subtract(self):
+    def test_fast_daa_adjusts_after_add_and_subtract(self) -> None:
         """Test fast DAA adjusts BCD after add and subtract cases."""
         self.ram.write_byte(0x0000, 0x27)
         self.ram.write_byte(0x0001, 0x27)
@@ -2083,7 +2083,7 @@ class TestCPU(unittest.TestCase):
         self.assertTrue(self.cpu.get_flag("n"))
         self.assertFalse(self.cpu.get_flag("h"))
 
-    def test_fast_cpl_sets_n_h_and_preserves_z_c(self):
+    def test_fast_cpl_sets_n_h_and_preserves_z_c(self) -> None:
         """Test fast CPL complements A while preserving Z/C."""
         self.ram.write_byte(0x0000, 0x2F)
         self.cpu.write_register("A", 0x55)
@@ -2100,7 +2100,7 @@ class TestCPU(unittest.TestCase):
         self.assertTrue(self.cpu.get_flag("h"))
         self.assertTrue(self.cpu.get_flag("c"))
 
-    def test_fast_halt_and_stop_set_state_and_stop_run_loop(self):
+    def test_fast_halt_and_stop_set_state_and_stop_run_loop(self) -> None:
         """Test fast HALT/STOP state and bounded run exit."""
         self.ram.write_byte(0x0000, 0x76)
 
@@ -2133,7 +2133,7 @@ class TestCPU(unittest.TestCase):
         self.assertTrue(self.cpu.stopped)
         self.assertEqual(self.cpu.read_register("PC"), 2)
 
-    def test_interrupt_service_pushes_pc_and_jumps_to_vector(self):
+    def test_interrupt_service_pushes_pc_and_jumps_to_vector(self) -> None:
         """Test enabled interrupt service clears IF, pushes PC, and jumps."""
         self.ram.write_byte(0x0000, 0x00)
         self.ram.write_byte(0xFFFF, 0x04)
@@ -2159,7 +2159,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(self.ram.read_byte(0xFF0F) & 0x04, 0)
         self.assertFalse(self.cpu.interrupts.ime)
 
-    def test_ei_enables_interrupts_after_following_instruction(self):
+    def test_ei_enables_interrupts_after_following_instruction(self) -> None:
         """Test EI enables IME after one subsequent instruction."""
         self.ram.write_byte(0x0000, 0xFB)
         self.ram.write_byte(0x0001, 0x00)
@@ -2181,7 +2181,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(self.cpu.read_register("PC"), 0x50)
         self.assertFalse(self.cpu.interrupts.ime)
 
-    def test_halt_wakes_when_interrupt_is_requested(self):
+    def test_halt_wakes_when_interrupt_is_requested(self) -> None:
         """Test HALT idles until an enabled requested interrupt wakes CPU."""
         self.ram.write_byte(0x0000, 0x76)
         self.ram.write_byte(0x0001, 0x00)
@@ -2213,7 +2213,7 @@ class TestCPU(unittest.TestCase):
         self.assertFalse(self.cpu.halted)
         self.assertEqual(self.cpu.read_register("PC"), 0x50)
 
-    def test_timer_div_increments_with_cpu_cycles_and_resets_on_write(self):
+    def test_timer_div_increments_with_cpu_cycles_and_resets_on_write(self) -> None:
         """Test DIV register increments every 256 cycles and write resets it."""
         self.ram.write_byte(0x0000, 0x00)
         executed, cycles = self.cpu.run(
@@ -2234,7 +2234,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(self.ram.read_byte(0xFF04), 0)
         self.assertEqual(self.cpu.timer.divider_cycles, 0)
 
-    def test_timer_tima_increments_when_enabled_by_tac(self):
+    def test_timer_tima_increments_when_enabled_by_tac(self) -> None:
         """Test TIMA increments according to TAC clock select."""
         self.ram.write_byte(0x0000, 0x00)
         self.cpu._write_memory_byte(0xFF07, 0x05)
@@ -2251,7 +2251,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(cycles, 16)
         self.assertEqual(self.ram.read_byte(0xFF05), 1)
 
-    def test_timer_overflow_reloads_tma_and_requests_interrupt(self):
+    def test_timer_overflow_reloads_tma_and_requests_interrupt(self) -> None:
         """Test TIMA overflow reloads TMA and requests timer interrupt."""
         self.ram.write_byte(0x0000, 0x00)
         self.ram.write_byte(0xFF05, 0xFF)
@@ -2271,7 +2271,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(self.ram.read_byte(0xFF05), 0x42)
         self.assertEqual(self.ram.read_byte(0xFF0F) & 0x04, 0x04)
 
-    def test_fast_max_cycles_services_timer_interrupt_without_frame_delay(self):
+    def test_fast_max_cycles_services_timer_interrupt_without_frame_delay(self) -> None:
         """Test fast frame path services timer interrupts as soon as cycles elapse."""
         self.ram.write_byte(0x0000, 0x00)
         self.ram.write_byte(0xFF05, 0xFF)
@@ -2295,7 +2295,7 @@ class TestCPU(unittest.TestCase):
         self.assertEqual(self.ram.read_byte(0xFF05), 0x43)
         self.assertEqual(self.ram.read_byte(0xFF0F) & 0x04, 0)
 
-    def test_pc_boundary_wrap_around(self):
+    def test_pc_boundary_wrap_around(self) -> None:
         """Test that PC wraps correctly when executing at the 64KB boundary."""
         self.cpu.registers.PC = 0xFFFF
         self.ram.storage[0xFFFF] = 0x00  # NOP
@@ -2310,7 +2310,7 @@ class TestCPU(unittest.TestCase):
             self.cpu.registers.PC, 1
         )  # Assuming next instruction is 1 byte NOP
 
-    def test_debug_dispatch_path_executes_and_profiles_opcodes(self):
+    def test_debug_dispatch_path_executes_and_profiles_opcodes(self) -> None:
         self.ram.storage[0:3] = bytes([0x00, 0x00, 0x00])
 
         executed, cycles = self.cpu.run(
@@ -2328,7 +2328,7 @@ class TestCPU(unittest.TestCase):
         self.cpu.reset_opcode_profile()
         self.assertEqual(sum(self.cpu.opcode_profile), 0)
 
-    def test_non_positive_execution_limits_do_not_execute(self):
+    def test_non_positive_execution_limits_do_not_execute(self) -> None:
         self.ram.storage[0] = 0x00
 
         self.assertEqual(

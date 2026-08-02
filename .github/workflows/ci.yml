@@ -8,6 +8,33 @@ permissions:
   contents: read
 
 jobs:
+  quality:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          # Run mypy against the project's minimum supported Python and its
+          # compatible dependency set.
+          python-version: "3.10"
+
+      - name: Install uv
+        run: python -m pip install "uv==0.12.0"
+
+      - name: Sync locked environment
+        run: uv sync --frozen --extra dev
+
+      - name: Lint
+        run: uv run --frozen ruff check .
+
+      - name: Check formatting
+        run: uv run --frozen ruff format --check .
+
+      - name: Type check
+        run: uv run --frozen mypy .
+
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -33,9 +60,6 @@ jobs:
       - name: Sync locked environment
         run: uv sync --frozen --extra dev
 
-      - name: Lint
-        run: uv run --frozen ruff check .
-
       - name: Test (including conformance ROMs)
         run: uv run --frozen pytest --cov=. --cov-report=term-missing
 
@@ -54,3 +78,18 @@ jobs:
           uv run --frozen python benchmark_cpu.py
           --repeats 1
           --json /tmp/benchmark.json
+
+  required:
+    name: CI
+    if: always()
+    needs: [quality, test]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Verify required jobs
+        env:
+          QUALITY_RESULT: ${{ needs.quality.result }}
+          TEST_RESULT: ${{ needs.test.result }}
+        run: |
+          test "$QUALITY_RESULT" = success
+          test "$TEST_RESULT" = success

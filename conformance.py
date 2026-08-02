@@ -7,9 +7,10 @@ import html
 import json
 import os
 import sys
+from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Final, Iterable, Optional, Sequence
+from typing import Final
 
 from clock import SystemClock
 from constants import GB_CLOCK_HZ
@@ -19,9 +20,10 @@ from memory import Memory
 from video import VideoChip
 
 AUTO: Final = "auto"
+OTR: Final = "otr"
 MOONEYE: Final = "mooneye"
 BLARGG: Final = "blargg"
-PROTOCOLS: Final = (AUTO, MOONEYE, BLARGG)
+PROTOCOLS: Final = (AUTO, OTR, MOONEYE, BLARGG)
 
 PASS: Final = "pass"
 FAIL: Final = "fail"
@@ -35,6 +37,13 @@ BLARGG_RESULT_RUNNING: Final = 0x80
 BLARGG_RESULT_SIGNATURE: Final = bytes((0xDE, 0xB0, 0x61))
 BLARGG_OUTPUT_ADDRESS: Final = 0xA004
 BLARGG_OUTPUT_END: Final = 0xC000
+OTR_RESULT_ADDRESS: Final = 0xA000
+OTR_RESULT_MAGIC: Final = b"OTR1"
+OTR_RESULT_STATE: Final = 0xA004
+OTR_RESULT_RUNNING: Final = 0x7E
+OTR_RESULT_PASS: Final = 0x00
+OTR_RESULT_FAIL: Final = 0xE0
+OTR_OUTPUT_ADDRESS: Final = 0xA010
 
 
 @dataclass(frozen=True)
@@ -53,7 +62,7 @@ class ConformanceResult:
     def passed(self) -> bool:
         return self.status == PASS
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, object]:
         return asdict(self)
 
 
@@ -78,9 +87,46 @@ def _detect_result(
     memory: Memory,
     serial_bytes: bytearray,
     protocol: str,
-) -> Optional[tuple[str, str, str, str]]:
+) -> tuple[str, str, str, str] | None:
     signature = _register_signature(cpu)
     serial_output = serial_bytes.decode("latin-1")
+    if protocol in (AUTO, OTR):
+        if "OTR/1 FAIL\n" in serial_output:
+            return (
+                FAIL,
+                OTR,
+                "OTR serial event indicated failure",
+                serial_output,
+            )
+        if "OTR/1 PASS\n" in serial_output:
+            return (
+                PASS,
+                OTR,
+                "OTR serial event indicated success",
+                serial_output,
+            )
+
+        storage = memory.storage
+        memory_magic = bytes(
+            storage[OTR_RESULT_ADDRESS : OTR_RESULT_ADDRESS + len(OTR_RESULT_MAGIC)]
+        )
+        if memory_magic == OTR_RESULT_MAGIC:
+            result_state = storage[OTR_RESULT_STATE]
+            if result_state != OTR_RESULT_RUNNING:
+                memory_output = (
+                    bytes(storage[OTR_OUTPUT_ADDRESS:BLARGG_OUTPUT_END])
+                    .partition(b"\0")[0]
+                    .decode("latin-1")
+                )
+                if result_state == OTR_RESULT_PASS:
+                    status = PASS
+                elif result_state == OTR_RESULT_FAIL:
+                    status = FAIL
+                else:
+                    status = ERROR
+                detail = f"OTR memory mailbox indicated {status}"
+                return status, OTR, detail, memory_output
+
     if protocol in (AUTO, MOONEYE):
         if signature == MOONEYE_PASS_SIGNATURE:
             return (
@@ -105,9 +151,7 @@ def _detect_result(
 
         storage = memory.storage
         memory_signature = bytes(
-            storage[
-                BLARGG_RESULT_ADDRESS + 1 : BLARGG_RESULT_ADDRESS + 4
-            ]
+            storage[BLARGG_RESULT_ADDRESS + 1 : BLARGG_RESULT_ADDRESS + 4]
         )
         if memory_signature != BLARGG_RESULT_SIGNATURE:
             return None
@@ -243,7 +287,9 @@ def _report_metadata() -> dict[str, str]:
         if repository and commit != "local"
         else ""
     )
-    run_url = f"{server}/{repository}/actions/runs/{run_id}" if repository and run_id else ""
+    run_url = (
+        f"{server}/{repository}/actions/runs/{run_id}" if repository and run_id else ""
+    )
     return {
         "repository": repository,
         "commit": commit,
@@ -342,8 +388,7 @@ def render_html(results: Sequence[ConformanceResult]) -> str:
     commit = html.escape(metadata["commit"][:12])
     if metadata["commit_url"]:
         commit_html = (
-            f'<a href="{html.escape(metadata["commit_url"], quote=True)}">'
-            f"{commit}</a>"
+            f'<a href="{html.escape(metadata["commit_url"], quote=True)}">{commit}</a>'
         )
     else:
         commit_html = commit
@@ -432,7 +477,7 @@ def render_html(results: Sequence[ConformanceResult]) -> str:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run Mooneye or Blargg Game Boy conformance ROMs headlessly."
+        description=("Run OTR, Mooneye, or Blargg Game Boy test ROMs headlessly.")
     )
     parser.add_argument("rom", nargs="+", help="ROM file or directory")
     parser.add_argument(
@@ -484,7 +529,7 @@ def _print_results(results: Sequence[ConformanceResult]) -> None:
     print(f"\n{passed}/{len(results)} conformance ROMs passed")
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         results = run_suite(
