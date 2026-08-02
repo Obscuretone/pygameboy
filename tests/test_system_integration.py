@@ -2,11 +2,12 @@ from clock import SystemClock
 from cpu import CPU
 from mbc import MBC0, MBC1
 from memory import Memory
+from protocols import MemoryBankController
 
 ROM_BANK_SIZE = 0x4000
 
 
-def make_system(rom: bytearray, controller):
+def make_system(rom: bytearray, controller: MemoryBankController) -> tuple[CPU, Memory]:
     clock = SystemClock(4_194_304)
     memory = Memory(clock)
     memory.mbc = controller

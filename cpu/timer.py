@@ -1,4 +1,4 @@
-from typing import Any, Final, Tuple
+from typing import Any, Final, Protocol
 
 from constants import (
     INT_TIMER_BIT,
@@ -10,7 +10,11 @@ from constants import (
     TAC_ENABLE_BIT,
 )
 from gb_types import Cycles
-from protocols import MemoryBus
+
+
+class TimerMemoryBus(Protocol):
+    def read_byte(self, address: int) -> int: ...
+    def write_byte(self, address: int, value: int) -> None: ...
 
 
 class Timer:
@@ -19,10 +23,10 @@ class Timer:
     """
 
     # Cycles between TIMA increments for each clock selection (0-3)
-    PERIODS: Final[Tuple[int, ...]] = (1024, 16, 64, 256)
+    PERIODS: Final[tuple[int, ...]] = (1024, 16, 64, 256)
 
-    def __init__(self, memory: MemoryBus, interrupt_manager: Any):
-        self.memory: MemoryBus = memory
+    def __init__(self, memory: TimerMemoryBus, interrupt_manager: Any) -> None:
+        self.memory = memory
         self.storage: Any = getattr(memory, "storage", None)
         self.interrupt_manager: Any = interrupt_manager
         self.divider_cycles: int = 0

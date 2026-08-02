@@ -5,12 +5,12 @@ from memory import Memory
 
 
 class TestMemoryAccuracy(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.clock = SystemClock(4194304)
         self.mem_data = bytearray(0x10000)
         self.memory = Memory(self.clock, self.mem_data)
 
-    def test_echo_ram(self):
+    def test_echo_ram(self) -> None:
         # Write to WRAM Bank 0 (0xC000)
         self.memory.write_byte(0xC000, 0x42)
         # Read from Echo RAM (0xE000)
@@ -21,7 +21,7 @@ class TestMemoryAccuracy(unittest.TestCase):
         # Echo address 0xFDFF maps back to WRAM address 0xDDFF.
         self.assertEqual(self.memory.read_byte(0xDDFF), 0x77)
 
-    def test_unusable_memory(self):
+    def test_unusable_memory(self) -> None:
         # Read from 0xFEA0
         self.assertEqual(self.memory.read_byte(0xFEA0), 0x00)
         # Write should be ignored

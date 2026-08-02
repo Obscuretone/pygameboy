@@ -6,7 +6,7 @@ from memory import Memory
 
 
 class TestMBC1(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         # Create a mock ROM of 128KB (8 banks of 16KB)
         self.rom_data = bytearray([0] * (0x4000 * 8))
         # Fill bank 1 (0x4000-0x7FFF) with 1s
@@ -18,7 +18,7 @@ class TestMBC1(unittest.TestCase):
 
         self.mbc = MBC1(self.rom_data, ram_size=0x8000)
 
-    def test_rom_banking(self):
+    def test_rom_banking(self) -> None:
         # Initial bank should be 1
         self.assertEqual(self.mbc.read_rom(0x4000), 1)
 
@@ -30,7 +30,7 @@ class TestMBC1(unittest.TestCase):
         self.mbc.write_rom(0x2000, 0)
         self.assertEqual(self.mbc.read_rom(0x4000), 1)
 
-    def test_advanced_mode_maps_high_bank_into_fixed_window(self):
+    def test_advanced_mode_maps_high_bank_into_fixed_window(self) -> None:
         rom = bytearray(0x4000 * 128)
         for bank in range(128):
             rom[bank * 0x4000 : (bank + 1) * 0x4000] = bytes([bank]) * 0x4000
@@ -44,7 +44,7 @@ class TestMBC1(unittest.TestCase):
         self.assertEqual(mbc.read_rom(0x0000), 64)
         self.assertEqual(mbc.read_rom(0x4000), 1)
 
-    def test_ram_banking(self):
+    def test_ram_banking(self) -> None:
         # RAM initially disabled
         self.assertEqual(self.mbc.read_ram(0xA000), 0xFF)
 
@@ -72,11 +72,11 @@ class TestMBC1(unittest.TestCase):
 
 
 class TestMBCMemoryIntegration(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.rom_data = bytearray(0x8000)
         self.memory = Memory(SystemClock(4_194_304))
 
-    def test_mbc2_bus_reads_masked_and_mirrored_nibbles(self):
+    def test_mbc2_bus_reads_masked_and_mirrored_nibbles(self) -> None:
         self.memory.mbc = MBC2(self.rom_data)
         self.memory.write_byte(0x0000, 0x0A)
 
@@ -85,7 +85,7 @@ class TestMBCMemoryIntegration(unittest.TestCase):
         self.assertEqual(self.memory.read_byte(0xA000), 0xFB)
         self.assertEqual(self.memory.read_byte(0xA200), 0xFB)
 
-    def test_mbc1_advanced_mode_refreshes_both_rom_windows(self):
+    def test_mbc1_advanced_mode_refreshes_both_rom_windows(self) -> None:
         rom = bytearray(0x4000 * 128)
         for bank in range(128):
             rom[bank * 0x4000 : (bank + 1) * 0x4000] = bytes([bank]) * 0x4000
@@ -97,7 +97,7 @@ class TestMBCMemoryIntegration(unittest.TestCase):
         self.assertEqual(self.memory.read_byte(0x0000), 64)
         self.assertEqual(self.memory.read_byte(0x4000), 1)
 
-    def test_mbc3_rtc_register_is_visible_across_external_ram_window(self):
+    def test_mbc3_rtc_register_is_visible_across_external_ram_window(self) -> None:
         self.memory.mbc = MBC3(self.rom_data, ram_size=0x8000)
         self.memory.write_byte(0x0000, 0x0A)
         self.memory.write_byte(0x4000, 0x08)
@@ -119,7 +119,7 @@ class TestMBCMemoryIntegration(unittest.TestCase):
         self.memory.write_byte(0x6000, 1)
         self.assertEqual(self.memory.read_byte(0xBFFF), 12)
 
-    def test_mbc0_can_expose_and_persist_unbanked_ram(self):
+    def test_mbc0_can_expose_and_persist_unbanked_ram(self) -> None:
         self.memory.mbc = MBC0(self.rom_data, ram_size=0x800)
 
         self.memory.write_byte(0xA000, 0x42)

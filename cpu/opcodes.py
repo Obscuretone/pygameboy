@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING, Any, Final, Union
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Final
 
 from constants import REG_LY
 from gb_types import (
@@ -28,13 +29,13 @@ from gb_types import (
 )
 
 if TYPE_CHECKING:
-    from protocols import MemoryBus
+    from protocols import MemoryBus, VideoDevice
 
     from .interrupts import InterruptManager
     from .registers import RegisterFile
 
 
-_CB_REGISTERS: Final[tuple[Union[int, str], ...]] = (
+_CB_REGISTERS: Final[tuple[int | str, ...]] = (
     REG_B,
     REG_C,
     REG_D,
@@ -53,6 +54,7 @@ class CPUOpcodes:
         ram: "MemoryBus"
         interrupts: "InterruptManager"
         memory: Any
+        video: "VideoDevice | None"
         halted: bool
         stopped: bool
 
@@ -97,10 +99,10 @@ class CPUOpcodes:
         def _set_cb_result_flags(self, res: Byte, carry: bool) -> None: ...
         def _set_bit_flags(self, val: Byte, bit: int) -> None: ...
         def get_flag(self, flag: str) -> bool: ...
-        def set_flag(self, flag: str, value: Union[bool, int] = True) -> None: ...
+        def set_flag(self, flag: str, value: bool | int = True) -> None: ...
 
     # 0x00 - LOW_NIBBLE_MASK
-    def _nop(self):
+    def _nop(self) -> int:
         """
         Opcode 0x00 (NOP)
 
@@ -114,7 +116,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_bc_n16(self):
+    def _ld_bc_n16(self) -> int:
         # Extract the lower byte and higher byte of the immediate data
         # Combine the lower byte and higher byte to form the 16-bit value
         # Load the 16-bit immediate data into register pair BC
@@ -133,11 +135,12 @@ class CPUOpcodes:
         n16 = self.memory[(self.registers.PC + 1) & 0xFFFF] | (
             self.memory[(self.registers.PC + 2) & 0xFFFF] << 8
         )
-        self.registers.data[2] = (n16) >> 8; self.registers.data[3] = (n16) & 0xFF
+        self.registers.data[2] = (n16) >> 8
+        self.registers.data[3] = (n16) & 0xFF
         self.registers.PC += 3
         return 12
 
-    def _ld_bc_a(self):
+    def _ld_bc_a(self) -> int:
         """
         Opcode BIT_1 (LD 'BC','A',)
 
@@ -148,11 +151,14 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self._write_memory_byte(((self.registers.data[2] << 8) | self.registers.data[3]), self.registers.data[0])
+        self._write_memory_byte(
+            ((self.registers.data[2] << 8) | self.registers.data[3]),
+            self.registers.data[0],
+        )
         self.registers.PC += 1
         return 8
 
-    def _inc_bc(self):
+    def _inc_bc(self) -> int:
         """
         Opcode 0x03 (INC 'BC',)
 
@@ -163,11 +169,16 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self.registers.data[2] = ((((self.registers.data[2] << 8) | self.registers.data[3]) + 1) & WORD_MASK) >> 8; self.registers.data[3] = ((((self.registers.data[2] << 8) | self.registers.data[3]) + 1) & WORD_MASK) & 0xFF
+        self.registers.data[2] = (
+            (((self.registers.data[2] << 8) | self.registers.data[3]) + 1) & WORD_MASK
+        ) >> 8
+        self.registers.data[3] = (
+            (((self.registers.data[2] << 8) | self.registers.data[3]) + 1) & WORD_MASK
+        ) & 0xFF
         self.registers.PC += 1
         return 8
 
-    def _inc_b(self):
+    def _inc_b(self) -> int:
         """
         Opcode BIT_2 (INC 'B',)
 
@@ -185,7 +196,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _dec_b(self):
+    def _dec_b(self) -> int:
         """
         Opcode 0x05 (DEC 'B',)
 
@@ -203,7 +214,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_b_n8(self):
+    def _ld_b_n8(self) -> int:
         """
         Opcode 0x06 (LD 'B','n8',)
 
@@ -219,7 +230,7 @@ class CPUOpcodes:
         self.registers.PC += 2
         return 8
 
-    def _rlca(self):
+    def _rlca(self) -> int:
         """
         Opcode 0x07 (RLCA)
         """
@@ -231,7 +242,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_a16_sp(self):
+    def _ld_a16_sp(self) -> int:
         """
         Opcode BIT_3 (LD 'a16','SP',)
         """
@@ -246,26 +257,32 @@ class CPUOpcodes:
         self.registers.PC += 3
         return 20
 
-    def _add_hl_bc(self):
+    def _add_hl_bc(self) -> int:
         """
         Opcode 0x09 (ADD 'HL','BC',)
         """
-        left, right = ((self.registers.data[6] << 8) | self.registers.data[7]), ((self.registers.data[2] << 8) | self.registers.data[3])
+        left, right = (
+            ((self.registers.data[6] << 8) | self.registers.data[7]),
+            ((self.registers.data[2] << 8) | self.registers.data[3]),
+        )
         res = left + right
-        self.registers.data[6] = (res & WORD_MASK) >> 8; self.registers.data[7] = (res & WORD_MASK) & 0xFF
+        self.registers.data[6] = (res & WORD_MASK) >> 8
+        self.registers.data[7] = (res & WORD_MASK) & 0xFF
         self._set_add_hl_flags(left, right, res)
         self.registers.PC += 1
         return 8
 
-    def _ld_a_bc(self):
+    def _ld_a_bc(self) -> int:
         """
         Opcode 0x0A (LD 'A','BC',)
         """
-        self.registers.data[0] = self._read_memory_byte(((self.registers.data[2] << 8) | self.registers.data[3]))
+        self.registers.data[0] = self._read_memory_byte(
+            (self.registers.data[2] << 8) | self.registers.data[3]
+        )
         self.registers.PC += 1
         return 8
 
-    def _dec_bc(self):
+    def _dec_bc(self) -> int:
         """
         Opcode 0x0B (DEC 'BC',)
 
@@ -276,11 +293,16 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self.registers.data[2] = ((((self.registers.data[2] << 8) | self.registers.data[3]) - 1) & WORD_MASK) >> 8; self.registers.data[3] = ((((self.registers.data[2] << 8) | self.registers.data[3]) - 1) & WORD_MASK) & 0xFF
+        self.registers.data[2] = (
+            (((self.registers.data[2] << 8) | self.registers.data[3]) - 1) & WORD_MASK
+        ) >> 8
+        self.registers.data[3] = (
+            (((self.registers.data[2] << 8) | self.registers.data[3]) - 1) & WORD_MASK
+        ) & 0xFF
         self.registers.PC += 1
         return 8
 
-    def _inc_c(self):
+    def _inc_c(self) -> int:
         """
         Opcode 0x0C (INC 'C',)
 
@@ -298,7 +320,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _dec_c(self):
+    def _dec_c(self) -> int:
         """
         Opcode 0x0D (DEC 'C',)
 
@@ -316,7 +338,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_c_n8(self):
+    def _ld_c_n8(self) -> int:
         """
         Opcode 0x0E (LD 'C','n8',)
 
@@ -332,7 +354,7 @@ class CPUOpcodes:
         self.registers.PC += 2
         return 8
 
-    def _rrca(self):
+    def _rrca(self) -> int:
         """
         Opcode LOW_NIBBLE_MASK (RRCA )
 
@@ -352,7 +374,7 @@ class CPUOpcodes:
         return 4
 
     # BIT_4 - 0x1F
-    def _stop(self):
+    def _stop(self) -> int:
         # print("stop_n8")
         # print(data)
         """
@@ -374,7 +396,7 @@ class CPUOpcodes:
         self.registers.PC += 2
         return 4
 
-    def _ld_de_n16(self):
+    def _ld_de_n16(self) -> int:
         """
         Opcode 0x11 (LD 'DE','n16',)
 
@@ -389,11 +411,12 @@ class CPUOpcodes:
         n16 = self.memory[(self.registers.PC + 1) & 0xFFFF] | (
             self.memory[(self.registers.PC + 2) & 0xFFFF] << 8
         )
-        self.registers.data[4] = (n16) >> 8; self.registers.data[5] = (n16) & 0xFF
+        self.registers.data[4] = (n16) >> 8
+        self.registers.data[5] = (n16) & 0xFF
         self.registers.PC += 3
         return 12
 
-    def _ld_de_a(self):
+    def _ld_de_a(self) -> int:
         """
         Opcode 0x12 (LD 'DE','A',)
 
@@ -404,11 +427,14 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self._write_memory_byte(((self.registers.data[4] << 8) | self.registers.data[5]), self.registers.data[0])
+        self._write_memory_byte(
+            ((self.registers.data[4] << 8) | self.registers.data[5]),
+            self.registers.data[0],
+        )
         self.registers.PC += 1
         return 8
 
-    def _inc_de(self):
+    def _inc_de(self) -> int:
         """
         Opcode 0x13 (INC 'DE',)
 
@@ -419,11 +445,16 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self.registers.data[4] = ((((self.registers.data[4] << 8) | self.registers.data[5]) + 1) & WORD_MASK) >> 8; self.registers.data[5] = ((((self.registers.data[4] << 8) | self.registers.data[5]) + 1) & WORD_MASK) & 0xFF
+        self.registers.data[4] = (
+            (((self.registers.data[4] << 8) | self.registers.data[5]) + 1) & WORD_MASK
+        ) >> 8
+        self.registers.data[5] = (
+            (((self.registers.data[4] << 8) | self.registers.data[5]) + 1) & WORD_MASK
+        ) & 0xFF
         self.registers.PC += 1
         return 8
 
-    def _inc_d(self):
+    def _inc_d(self) -> int:
         """
         Opcode 0x14 (INC 'D',)
 
@@ -441,7 +472,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _dec_d(self):
+    def _dec_d(self) -> int:
         """
         Opcode 0x15 (DEC 'D',)
 
@@ -459,7 +490,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_d_n8(self):
+    def _ld_d_n8(self) -> int:
         """
         Opcode 0x16 (LD 'D','n8',)
 
@@ -475,7 +506,7 @@ class CPUOpcodes:
         self.registers.PC += 2
         return 8
 
-    def _rla(self):
+    def _rla(self) -> int:
         # Get the value of register A
         # Save the original carry flag
         # Determine the new value of the carry flag
@@ -501,7 +532,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _jr_e8(self):
+    def _jr_e8(self) -> int:
         # Calculate the relative jump offset (s8)
         # Convert the signed 8-bit offset to a signed integer
         # Calculate the target address n16
@@ -520,7 +551,7 @@ class CPUOpcodes:
         self.registers.PC += 2 + self._signed_e8(n8)
         return 12
 
-    def _add_hl_de(self):
+    def _add_hl_de(self) -> int:
         """
         Opcode 0x19 (ADD 'HL','DE',)
 
@@ -531,14 +562,18 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        left, right = ((self.registers.data[6] << 8) | self.registers.data[7]), ((self.registers.data[4] << 8) | self.registers.data[5])
+        left, right = (
+            ((self.registers.data[6] << 8) | self.registers.data[7]),
+            ((self.registers.data[4] << 8) | self.registers.data[5]),
+        )
         res = left + right
-        self.registers.data[6] = (res & WORD_MASK) >> 8; self.registers.data[7] = (res & WORD_MASK) & 0xFF
+        self.registers.data[6] = (res & WORD_MASK) >> 8
+        self.registers.data[7] = (res & WORD_MASK) & 0xFF
         self._set_add_hl_flags(left, right, res)
         self.registers.PC += 1
         return 8
 
-    def _ld_a_de(self):
+    def _ld_a_de(self) -> int:
         """
         Opcode 0x1A (LD 'A','DE',)
 
@@ -549,11 +584,13 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self.registers.data[0] = self._read_memory_byte(((self.registers.data[4] << 8) | self.registers.data[5]))
+        self.registers.data[0] = self._read_memory_byte(
+            (self.registers.data[4] << 8) | self.registers.data[5]
+        )
         self.registers.PC += 1
         return 8
 
-    def _dec_de(self):
+    def _dec_de(self) -> int:
         """
         Opcode 0x1B (DEC 'DE',)
 
@@ -564,11 +601,16 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self.registers.data[4] = ((((self.registers.data[4] << 8) | self.registers.data[5]) - 1) & WORD_MASK) >> 8; self.registers.data[5] = ((((self.registers.data[4] << 8) | self.registers.data[5]) - 1) & WORD_MASK) & 0xFF
+        self.registers.data[4] = (
+            (((self.registers.data[4] << 8) | self.registers.data[5]) - 1) & WORD_MASK
+        ) >> 8
+        self.registers.data[5] = (
+            (((self.registers.data[4] << 8) | self.registers.data[5]) - 1) & WORD_MASK
+        ) & 0xFF
         self.registers.PC += 1
         return 8
 
-    def _inc_e(self):
+    def _inc_e(self) -> int:
         """
         Opcode 0x1C (INC 'E',)
 
@@ -586,7 +628,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _dec_e(self):
+    def _dec_e(self) -> int:
         """
         Opcode 0x1D (DEC 'E',)
 
@@ -604,7 +646,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_e_n8(self):
+    def _ld_e_n8(self) -> int:
         """
         Opcode 0x1E (LD 'E','n8',)
 
@@ -620,7 +662,7 @@ class CPUOpcodes:
         self.registers.PC += 2
         return 8
 
-    def _rra(self):
+    def _rra(self) -> int:
         """
         Opcode 0x1F (RRA )
 
@@ -641,7 +683,7 @@ class CPUOpcodes:
         return 4
 
     # BIT_5 - 0x2F
-    def _jr_nz_e8(self):
+    def _jr_nz_e8(self) -> int:
         # print("- JR NZ, Addr_0098")
         # Check if the Z flag is 0
         # Read the signed 8-bit offset from the next byte in memory
@@ -665,7 +707,7 @@ class CPUOpcodes:
         self.registers.PC += 2
         return 8
 
-    def _ld_hl_n16(self):
+    def _ld_hl_n16(self) -> int:
         # Read the immediate 16-bit value from the next two bytes in memory
         # Combine the bytes to form the 16-bit value
         # write the 16-bit value to HL register
@@ -685,11 +727,12 @@ class CPUOpcodes:
         n16 = self.memory[(self.registers.PC + 1) & 0xFFFF] | (
             self.memory[(self.registers.PC + 2) & 0xFFFF] << 8
         )
-        self.registers.data[6] = (n16) >> 8; self.registers.data[7] = (n16) & 0xFF
+        self.registers.data[6] = (n16) >> 8
+        self.registers.data[7] = (n16) & 0xFF
         self.registers.PC += 3
         return 12
 
-    def _ld_hlinc_a(self):
+    def _ld_hlinc_a(self) -> int:
         """
         Opcode 0x22 (LD 'HL','A',)
 
@@ -700,12 +743,20 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self._write_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]), self.registers.data[0])
-        self.registers.data[6] = ((((self.registers.data[6] << 8) | self.registers.data[7]) + 1) & WORD_MASK) >> 8; self.registers.data[7] = ((((self.registers.data[6] << 8) | self.registers.data[7]) + 1) & WORD_MASK) & 0xFF
+        self._write_memory_byte(
+            ((self.registers.data[6] << 8) | self.registers.data[7]),
+            self.registers.data[0],
+        )
+        self.registers.data[6] = (
+            (((self.registers.data[6] << 8) | self.registers.data[7]) + 1) & WORD_MASK
+        ) >> 8
+        self.registers.data[7] = (
+            (((self.registers.data[6] << 8) | self.registers.data[7]) + 1) & WORD_MASK
+        ) & 0xFF
         self.registers.PC += 1
         return 8
 
-    def _inc_hl_reg(self):
+    def _inc_hl_reg(self) -> int:
         """
         Opcode 0x34 (INC 'HL',)
 
@@ -716,11 +767,16 @@ class CPUOpcodes:
         cycles = 12
         bytes = 1
         """
-        self.registers.data[6] = ((((self.registers.data[6] << 8) | self.registers.data[7]) + 1) & WORD_MASK) >> 8; self.registers.data[7] = ((((self.registers.data[6] << 8) | self.registers.data[7]) + 1) & WORD_MASK) & 0xFF
+        self.registers.data[6] = (
+            (((self.registers.data[6] << 8) | self.registers.data[7]) + 1) & WORD_MASK
+        ) >> 8
+        self.registers.data[7] = (
+            (((self.registers.data[6] << 8) | self.registers.data[7]) + 1) & WORD_MASK
+        ) & 0xFF
         self.registers.PC += 1
         return 8
 
-    def _inc_h(self):
+    def _inc_h(self) -> int:
         """
         Opcode 0x24 (INC 'H',)
 
@@ -738,7 +794,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _dec_h(self):
+    def _dec_h(self) -> int:
         """
         Opcode 0x25 (DEC 'H',)
 
@@ -756,7 +812,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_h_n8(self):
+    def _ld_h_n8(self) -> int:
         """
         Opcode 0x26 (LD 'H','n8',)
 
@@ -772,7 +828,7 @@ class CPUOpcodes:
         self.registers.PC += 2
         return 8
 
-    def _daa(self):
+    def _daa(self) -> int:
         """
         Opcode 0x27 (DAA )
 
@@ -785,18 +841,20 @@ class CPUOpcodes:
         """
         v = self.registers.data[0]
         adj = 0
-        c = (self.registers.data[1] & 0x10)
+        c = self.registers.data[1] & 0x10
         if not (self.registers.data[1] & 0x40):
-            if (self.registers.data[1] & 0x20) or (v & LOW_NIBBLE_MASK) > DAA_LOW_THRESHOLD:
+            if (self.registers.data[1] & 0x20) or (
+                v & LOW_NIBBLE_MASK
+            ) > DAA_LOW_THRESHOLD:
                 adj |= DAA_LOW_ADJUST
             if (self.registers.data[1] & 0x10) or v > DAA_HIGH_THRESHOLD:
                 adj |= DAA_HIGH_ADJUST
                 c = True
             v = (v + adj) & BYTE_MASK
         else:
-            if (self.registers.data[1] & 0x20):
+            if self.registers.data[1] & 0x20:
                 adj |= DAA_LOW_ADJUST
-            if (self.registers.data[1] & 0x10):
+            if self.registers.data[1] & 0x10:
                 adj |= DAA_HIGH_ADJUST
             v = (v - adj) & BYTE_MASK
         self.registers.data[0] = v
@@ -806,7 +864,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _jr_z_e8(self):
+    def _jr_z_e8(self) -> int:
         """
         Opcode 0x28 (JR 'Z','e8',)
 
@@ -817,14 +875,14 @@ class CPUOpcodes:
         cycles = 8 or 12
         bytes = 2
         """
-        if (self.registers.data[1] & 0x80):
+        if self.registers.data[1] & 0x80:
             n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
             self.registers.PC += 2 + self._signed_e8(n8)
             return 12
         self.registers.PC += 2
         return 8
 
-    def _add_hl_hl(self):
+    def _add_hl_hl(self) -> int:
         """
         Opcode 0x29 (ADD 'HL','HL',)
 
@@ -835,14 +893,18 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        left, right = ((self.registers.data[6] << 8) | self.registers.data[7]), ((self.registers.data[6] << 8) | self.registers.data[7])
+        left, right = (
+            ((self.registers.data[6] << 8) | self.registers.data[7]),
+            ((self.registers.data[6] << 8) | self.registers.data[7]),
+        )
         res = left + right
-        self.registers.data[6] = (res & WORD_MASK) >> 8; self.registers.data[7] = (res & WORD_MASK) & 0xFF
+        self.registers.data[6] = (res & WORD_MASK) >> 8
+        self.registers.data[7] = (res & WORD_MASK) & 0xFF
         self._set_add_hl_flags(left, right, res)
         self.registers.PC += 1
         return 8
 
-    def _ld_a_hlinc(self):
+    def _ld_a_hlinc(self) -> int:
         """
         Opcode 0x3A (LD 'A','HL',)
 
@@ -853,12 +915,19 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self.registers.data[0] = self._read_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]))
-        self.registers.data[6] = ((((self.registers.data[6] << 8) | self.registers.data[7]) + 1) & WORD_MASK) >> 8; self.registers.data[7] = ((((self.registers.data[6] << 8) | self.registers.data[7]) + 1) & WORD_MASK) & 0xFF
+        self.registers.data[0] = self._read_memory_byte(
+            (self.registers.data[6] << 8) | self.registers.data[7]
+        )
+        self.registers.data[6] = (
+            (((self.registers.data[6] << 8) | self.registers.data[7]) + 1) & WORD_MASK
+        ) >> 8
+        self.registers.data[7] = (
+            (((self.registers.data[6] << 8) | self.registers.data[7]) + 1) & WORD_MASK
+        ) & 0xFF
         self.registers.PC += 1
         return 8
 
-    def _dec_hl_reg(self):
+    def _dec_hl_reg(self) -> int:
         """
         Opcode 0x35 (DEC 'HL',)
 
@@ -869,11 +938,16 @@ class CPUOpcodes:
         cycles = 12
         bytes = 1
         """
-        self.registers.data[6] = ((((self.registers.data[6] << 8) | self.registers.data[7]) - 1) & WORD_MASK) >> 8; self.registers.data[7] = ((((self.registers.data[6] << 8) | self.registers.data[7]) - 1) & WORD_MASK) & 0xFF
+        self.registers.data[6] = (
+            (((self.registers.data[6] << 8) | self.registers.data[7]) - 1) & WORD_MASK
+        ) >> 8
+        self.registers.data[7] = (
+            (((self.registers.data[6] << 8) | self.registers.data[7]) - 1) & WORD_MASK
+        ) & 0xFF
         self.registers.PC += 1
         return 8
 
-    def _inc_l(self):
+    def _inc_l(self) -> int:
         """
         Opcode 0x2C (INC 'L',)
 
@@ -891,7 +965,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _dec_l(self):
+    def _dec_l(self) -> int:
         """
         Opcode 0x2D (DEC 'L',)
 
@@ -909,7 +983,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_l_n8(self):
+    def _ld_l_n8(self) -> int:
         """
         Opcode 0x2E (LD 'L','n8',)
 
@@ -925,7 +999,7 @@ class CPUOpcodes:
         self.registers.PC += 2
         return 8
 
-    def _cpl(self):
+    def _cpl(self) -> int:
         # Update register A with the complemented value
         # Set flags: N = 1, H = 1
         # Move to the next instruction
@@ -946,7 +1020,7 @@ class CPUOpcodes:
         return 4
 
     # 0x30 - 0x3F
-    def _jr_nc_e8(self):
+    def _jr_nc_e8(self) -> int:
         # Calculate relative jump offset (signed byte)
         # Update program counter (PC) to jump address
         # If carry flag is set, continue to the next instruction
@@ -967,7 +1041,7 @@ class CPUOpcodes:
         self.registers.PC += 2
         return 8
 
-    def _ld_sp_n16(self):
+    def _ld_sp_n16(self) -> int:
         # Extract the 16-bit immediate value from the data
         # print("_ld_sp_n16 " + hex(n16))
         # Load the immediate value into the stack pointer (SP)
@@ -990,7 +1064,7 @@ class CPUOpcodes:
         self.registers.PC += 3
         return 12
 
-    def _ld_hldec_a(self):
+    def _ld_hldec_a(self) -> int:
         """
         Opcode 0x32 (LD 'HL','A',)
 
@@ -1001,12 +1075,20 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self._write_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]), self.registers.data[0])
-        self.registers.data[6] = ((((self.registers.data[6] << 8) | self.registers.data[7]) - 1) & WORD_MASK) >> 8; self.registers.data[7] = ((((self.registers.data[6] << 8) | self.registers.data[7]) - 1) & WORD_MASK) & 0xFF
+        self._write_memory_byte(
+            ((self.registers.data[6] << 8) | self.registers.data[7]),
+            self.registers.data[0],
+        )
+        self.registers.data[6] = (
+            (((self.registers.data[6] << 8) | self.registers.data[7]) - 1) & WORD_MASK
+        ) >> 8
+        self.registers.data[7] = (
+            (((self.registers.data[6] << 8) | self.registers.data[7]) - 1) & WORD_MASK
+        ) & 0xFF
         self.registers.PC += 1
         return 8
 
-    def _inc_sp(self):
+    def _inc_sp(self) -> int:
         """
         Opcode 0x33 (INC 'SP',)
 
@@ -1021,7 +1103,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 8
 
-    def _inc_hl_mem(self):
+    def _inc_hl_mem(self) -> int:
         """
         Opcode 0x34 (INC 'HL',)
 
@@ -1032,7 +1114,7 @@ class CPUOpcodes:
         cycles = 12
         bytes = 1
         """
-        addr = ((self.registers.data[6] << 8) | self.registers.data[7])
+        addr = (self.registers.data[6] << 8) | self.registers.data[7]
         self._advance_to_memory_access(0)
         v = self._read_memory_byte(addr)
         res = (v + 1) & BYTE_MASK
@@ -1042,7 +1124,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 12
 
-    def _dec_hl_mem(self):
+    def _dec_hl_mem(self) -> int:
         """
         Opcode 0x35 (DEC 'HL',)
 
@@ -1053,7 +1135,7 @@ class CPUOpcodes:
         cycles = 12
         bytes = 1
         """
-        addr = ((self.registers.data[6] << 8) | self.registers.data[7])
+        addr = (self.registers.data[6] << 8) | self.registers.data[7]
         self._advance_to_memory_access(0)
         v = self._read_memory_byte(addr)
         res = (v - 1) & BYTE_MASK
@@ -1063,7 +1145,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 12
 
-    def _ld_hl_n8(self):
+    def _ld_hl_n8(self) -> int:
         """
         Opcode 0x36 (LD 'HL','n8',)
 
@@ -1076,11 +1158,13 @@ class CPUOpcodes:
         """
         n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
         self._advance_to_memory_access(4)
-        self._write_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]), n8)
+        self._write_memory_byte(
+            ((self.registers.data[6] << 8) | self.registers.data[7]), n8
+        )
         self.registers.PC += 2
         return 12
 
-    def _scf(self):
+    def _scf(self) -> int:
         """
         Opcode 0x37 (SCF )
 
@@ -1097,7 +1181,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _jr_c_e8(self):
+    def _jr_c_e8(self) -> int:
         """
         Opcode 0x38 (JR 'C','e8',)
 
@@ -1108,14 +1192,14 @@ class CPUOpcodes:
         cycles = 8 or 12
         bytes = 2
         """
-        if (self.registers.data[1] & 0x10):
+        if self.registers.data[1] & 0x10:
             n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
             self.registers.PC += 2 + self._signed_e8(n8)
             return 12
         self.registers.PC += 2
         return 8
 
-    def _add_hl_sp(self):
+    def _add_hl_sp(self) -> int:
         """
         Opcode 0x39 (ADD 'HL','SP',)
 
@@ -1126,14 +1210,18 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        left, right = ((self.registers.data[6] << 8) | self.registers.data[7]), self.registers.SP
+        left, right = (
+            ((self.registers.data[6] << 8) | self.registers.data[7]),
+            self.registers.SP,
+        )
         res = left + right
-        self.registers.data[6] = (res & WORD_MASK) >> 8; self.registers.data[7] = (res & WORD_MASK) & 0xFF
+        self.registers.data[6] = (res & WORD_MASK) >> 8
+        self.registers.data[7] = (res & WORD_MASK) & 0xFF
         self._set_add_hl_flags(left, right, res)
         self.registers.PC += 1
         return 8
 
-    def _ld_a_hldec(self):
+    def _ld_a_hldec(self) -> int:
         """
         Opcode 0x3A (LD 'A','HL',)
 
@@ -1144,12 +1232,19 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self.registers.data[0] = self._read_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]))
-        self.registers.data[6] = ((((self.registers.data[6] << 8) | self.registers.data[7]) - 1) & WORD_MASK) >> 8; self.registers.data[7] = ((((self.registers.data[6] << 8) | self.registers.data[7]) - 1) & WORD_MASK) & 0xFF
+        self.registers.data[0] = self._read_memory_byte(
+            (self.registers.data[6] << 8) | self.registers.data[7]
+        )
+        self.registers.data[6] = (
+            (((self.registers.data[6] << 8) | self.registers.data[7]) - 1) & WORD_MASK
+        ) >> 8
+        self.registers.data[7] = (
+            (((self.registers.data[6] << 8) | self.registers.data[7]) - 1) & WORD_MASK
+        ) & 0xFF
         self.registers.PC += 1
         return 8
 
-    def _dec_sp(self):
+    def _dec_sp(self) -> int:
         """
         Opcode 0x3B (DEC 'SP',)
 
@@ -1164,7 +1259,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 8
 
-    def _inc_a(self):
+    def _inc_a(self) -> int:
         """
         Opcode 0x3C (INC 'A',)
 
@@ -1182,7 +1277,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _dec_a(self):
+    def _dec_a(self) -> int:
         """
         Opcode 0x3D (DEC 'A',)
 
@@ -1200,7 +1295,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_a_n8(self):
+    def _ld_a_n8(self) -> int:
         """
         Opcode 0x3E (LD 'A','n8',)
 
@@ -1216,7 +1311,7 @@ class CPUOpcodes:
         self.registers.PC += 2
         return 8
 
-    def _ccf(self):
+    def _ccf(self) -> int:
         """
         Opcode 0x3F (CCF )
 
@@ -1234,7 +1329,7 @@ class CPUOpcodes:
         return 4
 
     # BIT_6 - 0x7F (LD right, right and HALT)
-    def _ld_b_b(self):
+    def _ld_b_b(self) -> int:
         """
         Opcode BIT_6 (LD 'B','B',)
 
@@ -1249,7 +1344,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_b_c(self):
+    def _ld_b_c(self) -> int:
         """
         Opcode 0x41 (LD 'B','C',)
 
@@ -1264,7 +1359,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_b_d(self):
+    def _ld_b_d(self) -> int:
         """
         Opcode 0x42 (LD 'B','D',)
 
@@ -1279,7 +1374,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_b_e(self):
+    def _ld_b_e(self) -> int:
         """
         Opcode 0x43 (LD 'B','E',)
 
@@ -1294,7 +1389,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_b_h(self):
+    def _ld_b_h(self) -> int:
         """
         Opcode 0x44 (LD 'B','H',)
 
@@ -1309,7 +1404,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_b_l(self):
+    def _ld_b_l(self) -> int:
         """
         Opcode 0x45 (LD 'B','L',)
 
@@ -1324,7 +1419,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_b_hl(self):
+    def _ld_b_hl(self) -> int:
         """
         Opcode 0x46 (LD 'B','HL',)
 
@@ -1335,11 +1430,13 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self.registers.data[2] = self._read_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]))
+        self.registers.data[2] = self._read_memory_byte(
+            (self.registers.data[6] << 8) | self.registers.data[7]
+        )
         self.registers.PC += 1
         return 8
 
-    def _ld_b_a(self):
+    def _ld_b_a(self) -> int:
         """
         Opcode 0x47 (LD 'B','A',)
 
@@ -1354,7 +1451,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_c_b(self):
+    def _ld_c_b(self) -> int:
         """
         Opcode 0x48 (LD 'C','B',)
 
@@ -1369,7 +1466,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_c_c(self):
+    def _ld_c_c(self) -> int:
         # self._ld_reg_reg("C", "C")
         """
         Opcode 0x49 (LD 'C','C',)
@@ -1385,7 +1482,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_c_d(self):
+    def _ld_c_d(self) -> int:
         """
         Opcode 0x4A (LD 'C','D',)
 
@@ -1400,7 +1497,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_c_e(self):
+    def _ld_c_e(self) -> int:
         """
         Opcode 0x4B (LD 'C','E',)
 
@@ -1415,7 +1512,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_c_h(self):
+    def _ld_c_h(self) -> int:
         """
         Opcode 0x4C (LD 'C','H',)
 
@@ -1430,7 +1527,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_c_l(self):
+    def _ld_c_l(self) -> int:
         """
         Opcode 0x4D (LD 'C','L',)
 
@@ -1445,7 +1542,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_c_hl(self):
+    def _ld_c_hl(self) -> int:
         """
         Opcode 0x4E (LD 'C','HL',)
 
@@ -1456,17 +1553,19 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self.registers.data[3] = self._read_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]))
+        self.registers.data[3] = self._read_memory_byte(
+            (self.registers.data[6] << 8) | self.registers.data[7]
+        )
         self.registers.PC += 1
         return 8
 
-    def _ld_c_a(self):
+    def _ld_c_a(self) -> int:
         """Opcode 0xE2 (LD 'C','A',)"""
         self.registers.data[3] = self.registers.data[0]
         self.registers.PC += 1
         return 4
 
-    def _ld_d_b(self):
+    def _ld_d_b(self) -> int:
         """
         Opcode 0x50 (LD 'D','B',)
 
@@ -1481,7 +1580,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_d_c(self):
+    def _ld_d_c(self) -> int:
         """
         Opcode 0x51 (LD 'D','C',)
 
@@ -1496,7 +1595,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_d_d(self):
+    def _ld_d_d(self) -> int:
         # self._ld_reg_reg("D", "D")
         """
         Opcode 0x52 (LD 'D','D',)
@@ -1512,7 +1611,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_d_e(self):
+    def _ld_d_e(self) -> int:
         """
         Opcode 0x53 (LD 'D','E',)
 
@@ -1527,7 +1626,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_d_h(self):
+    def _ld_d_h(self) -> int:
         """
         Opcode 0x54 (LD 'D','H',)
 
@@ -1542,7 +1641,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_d_l(self):
+    def _ld_d_l(self) -> int:
         """
         Opcode 0x55 (LD 'D','L',)
 
@@ -1557,7 +1656,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_d_hl(self):
+    def _ld_d_hl(self) -> int:
         """
         Opcode 0x56 (LD 'D','HL',)
 
@@ -1568,11 +1667,13 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self.registers.data[4] = self._read_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]))
+        self.registers.data[4] = self._read_memory_byte(
+            (self.registers.data[6] << 8) | self.registers.data[7]
+        )
         self.registers.PC += 1
         return 8
 
-    def _ld_d_a(self):
+    def _ld_d_a(self) -> int:
         """
         Opcode 0x57 (LD 'D','A',)
 
@@ -1587,7 +1688,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_e_b(self):
+    def _ld_e_b(self) -> int:
         """
         Opcode 0x58 (LD 'E','B',)
 
@@ -1602,7 +1703,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_e_c(self):
+    def _ld_e_c(self) -> int:
         """
         Opcode 0x59 (LD 'E','C',)
 
@@ -1617,7 +1718,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_e_d(self):
+    def _ld_e_d(self) -> int:
         """
         Opcode 0x5A (LD 'E','D',)
 
@@ -1632,7 +1733,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_e_e(self):
+    def _ld_e_e(self) -> int:
         # self._ld_reg_reg("E", "E")
         """
         Opcode 0x5B (LD 'E','E',)
@@ -1648,7 +1749,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_e_h(self):
+    def _ld_e_h(self) -> int:
         """
         Opcode 0x5C (LD 'E','H',)
 
@@ -1663,7 +1764,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_e_l(self):
+    def _ld_e_l(self) -> int:
         """
         Opcode 0x5D (LD 'E','L',)
 
@@ -1678,7 +1779,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_e_hl(self):
+    def _ld_e_hl(self) -> int:
         """
         Opcode 0x5E (LD 'E','HL',)
 
@@ -1689,11 +1790,13 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self.registers.data[5] = self._read_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]))
+        self.registers.data[5] = self._read_memory_byte(
+            (self.registers.data[6] << 8) | self.registers.data[7]
+        )
         self.registers.PC += 1
         return 8
 
-    def _ld_e_a(self):
+    def _ld_e_a(self) -> int:
         """
         Opcode 0x5F (LD 'E','A',)
 
@@ -1708,7 +1811,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_h_b(self):
+    def _ld_h_b(self) -> int:
         """
         Opcode 0x60 (LD 'H','B',)
 
@@ -1723,7 +1826,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_h_c(self):
+    def _ld_h_c(self) -> int:
         """
         Opcode 0x61 (LD 'H','C',)
 
@@ -1738,7 +1841,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_h_d(self):
+    def _ld_h_d(self) -> int:
         """
         Opcode 0x62 (LD 'H','D',)
 
@@ -1753,7 +1856,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_h_e(self):
+    def _ld_h_e(self) -> int:
         """
         Opcode 0x63 (LD 'H','E',)
 
@@ -1768,7 +1871,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_h_h(self):
+    def _ld_h_h(self) -> int:
         # self._ld_reg_reg("H", "H")
         """
         Opcode 0x64 (LD 'H','H',)
@@ -1784,7 +1887,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_h_l(self):
+    def _ld_h_l(self) -> int:
         """
         Opcode 0x65 (LD 'H','L',)
 
@@ -1799,7 +1902,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_h_hl(self):
+    def _ld_h_hl(self) -> int:
         """
         Opcode 0x66 (LD 'H','HL',)
 
@@ -1810,11 +1913,13 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self.registers.data[6] = self._read_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]))
+        self.registers.data[6] = self._read_memory_byte(
+            (self.registers.data[6] << 8) | self.registers.data[7]
+        )
         self.registers.PC += 1
         return 8
 
-    def _ld_h_a(self):
+    def _ld_h_a(self) -> int:
         """
         Opcode 0x67 (LD 'H','A',)
 
@@ -1829,7 +1934,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_l_b(self):
+    def _ld_l_b(self) -> int:
         """
         Opcode 0x68 (LD 'L','B',)
 
@@ -1844,7 +1949,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_l_c(self):
+    def _ld_l_c(self) -> int:
         """
         Opcode 0x69 (LD 'L','C',)
 
@@ -1859,7 +1964,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_l_d(self):
+    def _ld_l_d(self) -> int:
         """
         Opcode 0x6A (LD 'L','D',)
 
@@ -1874,7 +1979,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_l_e(self):
+    def _ld_l_e(self) -> int:
         """
         Opcode 0x6B (LD 'L','E',)
 
@@ -1889,7 +1994,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_l_h(self):
+    def _ld_l_h(self) -> int:
         """
         Opcode 0x6C (LD 'L','H',)
 
@@ -1904,7 +2009,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_l_l(self):
+    def _ld_l_l(self) -> int:
         # self._ld_reg_reg("L", "L")
         """
         Opcode 0x6D (LD 'L','L',)
@@ -1920,7 +2025,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_l_hl(self):
+    def _ld_l_hl(self) -> int:
         """
         Opcode 0x6E (LD 'L','HL',)
 
@@ -1931,11 +2036,13 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self.registers.data[7] = self._read_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]))
+        self.registers.data[7] = self._read_memory_byte(
+            (self.registers.data[6] << 8) | self.registers.data[7]
+        )
         self.registers.PC += 1
         return 8
 
-    def _ld_l_a(self):
+    def _ld_l_a(self) -> int:
         """
         Opcode 0x6F (LD 'L','A',)
 
@@ -1950,7 +2057,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_hl_b(self):
+    def _ld_hl_b(self) -> int:
         """
         Opcode 0x70 (LD 'HL','B',)
 
@@ -1961,11 +2068,14 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self._write_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]), self.registers.data[2])
+        self._write_memory_byte(
+            ((self.registers.data[6] << 8) | self.registers.data[7]),
+            self.registers.data[2],
+        )
         self.registers.PC += 1
         return 8
 
-    def _ld_hl_c(self):
+    def _ld_hl_c(self) -> int:
         """
         Opcode 0x71 (LD 'HL','C',)
 
@@ -1976,11 +2086,14 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self._write_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]), self.registers.data[3])
+        self._write_memory_byte(
+            ((self.registers.data[6] << 8) | self.registers.data[7]),
+            self.registers.data[3],
+        )
         self.registers.PC += 1
         return 8
 
-    def _ld_hl_d(self):
+    def _ld_hl_d(self) -> int:
         """
         Opcode 0x72 (LD 'HL','D',)
 
@@ -1991,11 +2104,14 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self._write_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]), self.registers.data[4])
+        self._write_memory_byte(
+            ((self.registers.data[6] << 8) | self.registers.data[7]),
+            self.registers.data[4],
+        )
         self.registers.PC += 1
         return 8
 
-    def _ld_hl_e(self):
+    def _ld_hl_e(self) -> int:
         """
         Opcode 0x73 (LD 'HL','E',)
 
@@ -2006,11 +2122,14 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self._write_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]), self.registers.data[5])
+        self._write_memory_byte(
+            ((self.registers.data[6] << 8) | self.registers.data[7]),
+            self.registers.data[5],
+        )
         self.registers.PC += 1
         return 8
 
-    def _ld_hl_h(self):
+    def _ld_hl_h(self) -> int:
         """
         Opcode 0x74 (LD 'HL','H',)
 
@@ -2021,11 +2140,14 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self._write_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]), self.registers.data[6])
+        self._write_memory_byte(
+            ((self.registers.data[6] << 8) | self.registers.data[7]),
+            self.registers.data[6],
+        )
         self.registers.PC += 1
         return 8
 
-    def _ld_hl_l(self):
+    def _ld_hl_l(self) -> int:
         """
         Opcode 0x75 (LD 'HL','L',)
 
@@ -2036,11 +2158,14 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self._write_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]), self.registers.data[7])
+        self._write_memory_byte(
+            ((self.registers.data[6] << 8) | self.registers.data[7]),
+            self.registers.data[7],
+        )
         self.registers.PC += 1
         return 8
 
-    def _halt(self):
+    def _halt(self) -> int:
         """
         Opcode 0x76 (HALT )
 
@@ -2061,7 +2186,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_hl_a(self):
+    def _ld_hl_a(self) -> int:
         """
         Opcode 0x77 (LD 'HL','A',)
 
@@ -2072,11 +2197,14 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self._write_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]), self.registers.data[0])
+        self._write_memory_byte(
+            ((self.registers.data[6] << 8) | self.registers.data[7]),
+            self.registers.data[0],
+        )
         self.registers.PC += 1
         return 8
 
-    def _ld_a_b(self):
+    def _ld_a_b(self) -> int:
         """
         Opcode 0x78 (LD 'A','B',)
 
@@ -2091,7 +2219,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_a_c(self):
+    def _ld_a_c(self) -> int:
         """
         Opcode 0x79 (LD 'A','C',)
 
@@ -2106,7 +2234,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_a_d(self):
+    def _ld_a_d(self) -> int:
         """
         Opcode 0x7A (LD 'A','D',)
 
@@ -2121,7 +2249,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_a_e(self):
+    def _ld_a_e(self) -> int:
         """
         Opcode 0x7B (LD 'A','E',)
 
@@ -2136,7 +2264,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_a_h(self):
+    def _ld_a_h(self) -> int:
         """
         Opcode 0x7C (LD 'A','H',)
 
@@ -2151,7 +2279,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_a_l(self):
+    def _ld_a_l(self) -> int:
         """
         Opcode 0x7D (LD 'A','L',)
 
@@ -2166,7 +2294,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _ld_a_hl(self):
+    def _ld_a_hl(self) -> int:
         """
         Opcode 0x3A (LD 'A','HL',)
 
@@ -2177,11 +2305,13 @@ class CPUOpcodes:
         cycles = 8
         bytes = 1
         """
-        self.registers.data[0] = self._read_memory_byte(((self.registers.data[6] << 8) | self.registers.data[7]))
+        self.registers.data[0] = self._read_memory_byte(
+            (self.registers.data[6] << 8) | self.registers.data[7]
+        )
         self.registers.PC += 1
         return 8
 
-    def _ld_a_a(self):
+    def _ld_a_a(self) -> int:
         """
         Opcode 0x7F (LD 'A','A',)
 
@@ -2197,7 +2327,7 @@ class CPUOpcodes:
         return 4
 
     # BIT_7 - 0xBF (ALU)
-    def _add_a_b(self):
+    def _add_a_b(self) -> int:
         """
         Opcode BIT_7 (ADD 'A','B',)
 
@@ -2212,7 +2342,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _add_a_c(self):
+    def _add_a_c(self) -> int:
         """
         Opcode 0x81 (ADD 'A','C',)
 
@@ -2227,7 +2357,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _add_a_d(self):
+    def _add_a_d(self) -> int:
         """
         Opcode 0x82 (ADD 'A','D',)
 
@@ -2242,7 +2372,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _add_a_e(self):
+    def _add_a_e(self) -> int:
         """
         Opcode 0x83 (ADD 'A','E',)
 
@@ -2257,7 +2387,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _add_a_h(self):
+    def _add_a_h(self) -> int:
         """
         Opcode 0x84 (ADD 'A','H',)
 
@@ -2272,7 +2402,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _add_a_l(self):
+    def _add_a_l(self) -> int:
         """
         Opcode 0x85 (ADD 'A','L',)
 
@@ -2287,7 +2417,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _add_a_hl(self):
+    def _add_a_hl(self) -> int:
         """
         Opcode 0x86 (ADD 'A','HL',)
 
@@ -2302,7 +2432,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 8
 
-    def _add_a_a(self):
+    def _add_a_a(self) -> int:
         """
         Opcode 0x87 (ADD 'A','A',)
 
@@ -2317,7 +2447,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _adc_a_b(self):
+    def _adc_a_b(self) -> int:
         # Move to the next instruction
         """
         Opcode 0x88 (ADC 'A','B',)
@@ -2333,7 +2463,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _adc_a_c(self):
+    def _adc_a_c(self) -> int:
         """
         Opcode 0x89 (ADC 'A','C',)
 
@@ -2348,7 +2478,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _adc_a_d(self):
+    def _adc_a_d(self) -> int:
         """
         Opcode 0x8A (ADC 'A','D',)
 
@@ -2363,7 +2493,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _adc_a_e(self):
+    def _adc_a_e(self) -> int:
         """
         Opcode 0x8B (ADC 'A','E',)
 
@@ -2378,7 +2508,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _adc_a_h(self):
+    def _adc_a_h(self) -> int:
         """
         Opcode 0x8C (ADC 'A','H',)
 
@@ -2393,7 +2523,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _adc_a_l(self):
+    def _adc_a_l(self) -> int:
         """
         Opcode 0x8D (ADC 'A','L',)
 
@@ -2408,7 +2538,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _adc_a_hl(self):
+    def _adc_a_hl(self) -> int:
         """
         Opcode 0x8E (ADC 'A','HL',)
 
@@ -2423,7 +2553,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 8
 
-    def _adc_a_a(self):
+    def _adc_a_a(self) -> int:
         """
         Opcode 0x8F (ADC 'A','A',)
 
@@ -2438,7 +2568,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _sub_b(self):
+    def _sub_b(self) -> int:
         """
         Opcode 0x90 (SUB 'A','B',)
 
@@ -2453,7 +2583,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _sub_c(self):
+    def _sub_c(self) -> int:
         """
         Opcode 0x91 (SUB 'A','C',)
 
@@ -2468,7 +2598,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _sub_d(self):
+    def _sub_d(self) -> int:
         """
         Opcode 0x92 (SUB 'A','D',)
 
@@ -2483,7 +2613,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _sub_e(self):
+    def _sub_e(self) -> int:
         """
         Opcode 0x93 (SUB 'A','E',)
 
@@ -2498,7 +2628,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _sub_h(self):
+    def _sub_h(self) -> int:
         """
         Opcode 0x94 (SUB 'A','H',)
 
@@ -2513,7 +2643,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _sub_l(self):
+    def _sub_l(self) -> int:
         """
         Opcode 0x95 (SUB 'A','L',)
 
@@ -2528,7 +2658,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _sub_hl(self):
+    def _sub_hl(self) -> int:
         """
         Opcode 0x96 (SUB 'A','HL',)
 
@@ -2543,7 +2673,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 8
 
-    def _sub_a(self):
+    def _sub_a(self) -> int:
         """
         Opcode 0x97 (SUB 'A','A',)
 
@@ -2558,7 +2688,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _sbc_a_b(self):
+    def _sbc_a_b(self) -> int:
         """
         Opcode 0x98 (SBC 'A','B',)
 
@@ -2573,7 +2703,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _sbc_a_c(self):
+    def _sbc_a_c(self) -> int:
         """
         Opcode 0x99 (SBC 'A','C',)
 
@@ -2588,7 +2718,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _sbc_a_d(self):
+    def _sbc_a_d(self) -> int:
         """
         Opcode 0x9A (SBC 'A','D',)
 
@@ -2603,7 +2733,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _sbc_a_e(self):
+    def _sbc_a_e(self) -> int:
         """
         Opcode 0x9B (SBC 'A','E',)
 
@@ -2618,7 +2748,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _sbc_a_h(self):
+    def _sbc_a_h(self) -> int:
         """
         Opcode 0x9C (SBC 'A','H',)
 
@@ -2633,7 +2763,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _sbc_a_l(self):
+    def _sbc_a_l(self) -> int:
         """
         Opcode 0x9D (SBC 'A','L',)
 
@@ -2648,7 +2778,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _sbc_a_hl(self):
+    def _sbc_a_hl(self) -> int:
         """
         Opcode 0x9E (SBC 'A','HL',)
 
@@ -2663,7 +2793,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 8
 
-    def _sbc_a_a(self):
+    def _sbc_a_a(self) -> int:
         """
         Opcode 0x9F (SBC 'A','A',)
 
@@ -2678,7 +2808,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _and_b(self):
+    def _and_b(self) -> int:
         """
         Opcode 0xA0 (AND 'A','B',)
 
@@ -2693,7 +2823,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _and_c(self):
+    def _and_c(self) -> int:
         """
         Opcode 0xA1 (AND 'A','C',)
 
@@ -2708,7 +2838,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _and_d(self):
+    def _and_d(self) -> int:
         """
         Opcode 0xA2 (AND 'A','D',)
 
@@ -2723,7 +2853,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _and_e(self):
+    def _and_e(self) -> int:
         """
         Opcode 0xA3 (AND 'A','E',)
 
@@ -2738,7 +2868,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _and_h(self):
+    def _and_h(self) -> int:
         """
         Opcode 0xA4 (AND 'A','H',)
 
@@ -2753,7 +2883,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _and_l(self):
+    def _and_l(self) -> int:
         """
         Opcode 0xA5 (AND 'A','L',)
 
@@ -2768,7 +2898,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _and_hl(self):
+    def _and_hl(self) -> int:
         """
         Opcode 0xA6 (AND 'A','HL',)
 
@@ -2783,7 +2913,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 8
 
-    def _and_a(self):
+    def _and_a(self) -> int:
         """
         Opcode 0xA7 (AND 'A','A',)
 
@@ -2802,7 +2932,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _xor_b(self):
+    def _xor_b(self) -> int:
         """
         Opcode 0xA8 (XOR 'A','B',)
 
@@ -2817,7 +2947,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _xor_c(self):
+    def _xor_c(self) -> int:
         """
         Opcode 0xA9 (XOR 'A','C',)
 
@@ -2832,7 +2962,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _xor_d(self):
+    def _xor_d(self) -> int:
         """
         Opcode 0xAA (XOR 'A','D',)
 
@@ -2847,7 +2977,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _xor_e(self):
+    def _xor_e(self) -> int:
         """
         Opcode 0xAB (XOR 'A','E',)
 
@@ -2862,7 +2992,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _xor_h(self):
+    def _xor_h(self) -> int:
         """
         Opcode 0xAC (XOR 'A','H',)
 
@@ -2877,7 +3007,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _xor_l(self):
+    def _xor_l(self) -> int:
         """
         Opcode 0xAD (XOR 'A','L',)
 
@@ -2892,7 +3022,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _xor_hl(self):
+    def _xor_hl(self) -> int:
         """
         Opcode 0xAE (XOR 'A','HL',)
 
@@ -2907,7 +3037,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 8
 
-    def _xor_a(self):
+    def _xor_a(self) -> int:
         """
         Opcode 0xAF (XOR 'A','A',)
 
@@ -2923,7 +3053,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _or_b(self):
+    def _or_b(self) -> int:
         """
         Opcode 0xB0 (OR 'A','B',)
 
@@ -2938,7 +3068,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _or_c(self):
+    def _or_c(self) -> int:
         """
         Opcode 0xB1 (OR 'A','C',)
 
@@ -2953,7 +3083,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _or_d(self):
+    def _or_d(self) -> int:
         """
         Opcode 0xB2 (OR 'A','D',)
 
@@ -2968,7 +3098,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _or_e(self):
+    def _or_e(self) -> int:
         """
         Opcode 0xB3 (OR 'A','E',)
 
@@ -2983,7 +3113,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _or_h(self):
+    def _or_h(self) -> int:
         """
         Opcode 0xB4 (OR 'A','H',)
 
@@ -2998,7 +3128,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _or_l(self):
+    def _or_l(self) -> int:
         """
         Opcode 0xB5 (OR 'A','L',)
 
@@ -3013,7 +3143,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _or_hl(self):
+    def _or_hl(self) -> int:
         """
         Opcode 0xB6 (OR 'A','HL',)
 
@@ -3028,7 +3158,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 8
 
-    def _or_a(self):
+    def _or_a(self) -> int:
         """
         Opcode 0xB7 (OR 'A','A',)
 
@@ -3043,7 +3173,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _cp_b(self):
+    def _cp_b(self) -> int:
         """
         Opcode 0xB8 (CP 'A','B',)
 
@@ -3059,7 +3189,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _cp_c(self):
+    def _cp_c(self) -> int:
         """
         Opcode 0xB9 (CP 'A','C',)
 
@@ -3075,7 +3205,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _cp_d(self):
+    def _cp_d(self) -> int:
         """
         Opcode 0xBA (CP 'A','D',)
 
@@ -3091,7 +3221,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _cp_e(self):
+    def _cp_e(self) -> int:
         """
         Opcode 0xBB (CP 'A','E',)
 
@@ -3107,7 +3237,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _cp_h(self):
+    def _cp_h(self) -> int:
         """
         Opcode 0xBC (CP 'A','H',)
 
@@ -3123,7 +3253,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _cp_l(self):
+    def _cp_l(self) -> int:
         """
         Opcode 0xBD (CP 'A','L',)
 
@@ -3139,7 +3269,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 4
 
-    def _cp_hl(self):
+    def _cp_hl(self) -> int:
         """
         Opcode 0xBE (CP 'A','HL',)
 
@@ -3155,7 +3285,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 8
 
-    def _cp_a(self):
+    def _cp_a(self) -> int:
         """
         Opcode 0xBF (CP 'A','A',)
 
@@ -3172,7 +3302,7 @@ class CPUOpcodes:
         return 4
 
     # 0xC0 - 0xCF
-    def _ret_nz(self):
+    def _ret_nz(self) -> int:
         """
         Opcode 0xC0 (RET 'NZ',)
 
@@ -3190,7 +3320,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 8
 
-    def _pop_bc(self):
+    def _pop_bc(self) -> int:
         # print('pop_bc start ' + hex(self.registers.SP))
         # Pop the lower byte of BC from the stack
         # Pop the upper byte of BC from the stack
@@ -3217,7 +3347,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 12
 
-    def _jp_nz_n16(self):
+    def _jp_nz_n16(self) -> int:
         """
         Opcode 0xC2 (JP 'NZ','a16',)
 
@@ -3238,7 +3368,7 @@ class CPUOpcodes:
         self.registers.PC += 3
         return 12
 
-    def _jp_n16(self):
+    def _jp_n16(self) -> int:
         """
         Opcode 0xC3 (JP 'a16',)
 
@@ -3256,7 +3386,7 @@ class CPUOpcodes:
         self.registers.PC = n16
         return 16
 
-    def _call_nz_n16(self):
+    def _call_nz_n16(self) -> int:
         """
         Opcode 0xC4 (CALL 'NZ','a16',)
 
@@ -3278,7 +3408,7 @@ class CPUOpcodes:
         self.registers.PC += 3
         return 12
 
-    def _push_bc(self):
+    def _push_bc(self) -> int:
         # Get the value of the BC register pair
         # Decrement SP and store the high byte (B)
         # Decrement SP and store the low byte (C)
@@ -3296,11 +3426,11 @@ class CPUOpcodes:
         cycles = 16
         bytes = 1
         """
-        self.push_stack(((self.registers.data[2] << 8) | self.registers.data[3]))
+        self.push_stack((self.registers.data[2] << 8) | self.registers.data[3])
         self.registers.PC += 1
         return 16
 
-    def _add_a_n8(self):
+    def _add_a_n8(self) -> int:
         """
         Opcode 0xC6 (ADD 'A','n8',)
 
@@ -3316,13 +3446,13 @@ class CPUOpcodes:
         self.registers.PC += 2
         return 8
 
-    def _rst_00(self):
+    def _rst_00(self) -> int:
         """Opcode 0xC7 (RST $00)"""
         self.push_stack((self.registers.PC + 1) & 0xFFFF)
         self.registers.PC = 0x00
         return 16
 
-    def _ret_z(self):
+    def _ret_z(self) -> int:
         """
         Opcode 0xC8 (RET 'Z',)
 
@@ -3334,13 +3464,13 @@ class CPUOpcodes:
         cycles = 8 - 20
         bytes = 1
         """
-        if (self.registers.data[1] & 0x80):
+        if self.registers.data[1] & 0x80:
             self.registers.PC = self.pop_stack()
             return 20
         self.registers.PC += 1
         return 8
 
-    def _ret(self):
+    def _ret(self) -> int:
         """
         Opcode 0xC9 (RET )
 
@@ -3355,7 +3485,7 @@ class CPUOpcodes:
         self.registers.PC = self.pop_stack()
         return 16
 
-    def _jp_z_n16(self):
+    def _jp_z_n16(self) -> int:
         """
         Opcode 0xCA (JP 'Z','a16',)
 
@@ -3370,13 +3500,13 @@ class CPUOpcodes:
         n16 = self.memory[(self.registers.PC + 1) & 0xFFFF] | (
             self.memory[(self.registers.PC + 2) & 0xFFFF] << 8
         )
-        if (self.registers.data[1] & 0x80):
+        if self.registers.data[1] & 0x80:
             self.registers.PC = n16
             return 16
         self.registers.PC += 3
         return 12
 
-    def _call_z_n16(self):
+    def _call_z_n16(self) -> int:
         """
         Opcode 0xCC (CALL 'Z','a16',)
 
@@ -3391,14 +3521,14 @@ class CPUOpcodes:
         n16 = self.memory[(self.registers.PC + 1) & 0xFFFF] | (
             self.memory[(self.registers.PC + 2) & 0xFFFF] << 8
         )
-        if (self.registers.data[1] & 0x80):
+        if self.registers.data[1] & 0x80:
             self.push_stack((self.registers.PC + 3) & WORD_MASK)
             self.registers.PC = n16
             return 24
         self.registers.PC += 3
         return 12
 
-    def _call_n16(self):
+    def _call_n16(self) -> int:
         # Check if data contains at least two elements
         # Extract the 16-bit target address (a16) from the data
         # print(f"Target address (a16): {hex(a16)}")
@@ -3429,7 +3559,7 @@ class CPUOpcodes:
         self.registers.PC = n16
         return 24
 
-    def _adc_a_n8(self):
+    def _adc_a_n8(self) -> int:
         # Move to the next instruction
         """
         Opcode 0xCE (ADC 'A','n8',)
@@ -3446,14 +3576,14 @@ class CPUOpcodes:
         self.registers.PC += 2
         return 8
 
-    def _rst_08(self):
+    def _rst_08(self) -> int:
         """Opcode 0xCF (RST $08)"""
         self.push_stack((self.registers.PC + 1) & 0xFFFF)
         self.registers.PC = 0x08
         return 16
 
     # 0xD0 - 0xDF
-    def _ret_nc(self):
+    def _ret_nc(self) -> int:
         """
         Opcode 0xD0 (RET 'NC',)
 
@@ -3471,7 +3601,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 8
 
-    def _pop_de(self):
+    def _pop_de(self) -> int:
         """
         Opcode 0xD1 (POP 'DE',)
 
@@ -3491,7 +3621,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 12
 
-    def _jp_nc_n16(self):
+    def _jp_nc_n16(self) -> int:
         """
         Opcode 0xD2 (JP 'NC','a16',)
 
@@ -3512,7 +3642,7 @@ class CPUOpcodes:
         self.registers.PC += 3
         return 12
 
-    def _call_nc_n16(self):
+    def _call_nc_n16(self) -> int:
         """Opcode 0xD4 (CALL 'NC','a16',)"""
         n16 = self.memory[(self.registers.PC + 1) & 0xFFFF] | (
             self.memory[(self.registers.PC + 2) & 0xFFFF] << 8
@@ -3524,78 +3654,78 @@ class CPUOpcodes:
         self.registers.PC += 3
         return 12
 
-    def _push_de(self):
+    def _push_de(self) -> int:
         """Opcode 0xD5 (PUSH 'DE',)"""
-        self.push_stack(((self.registers.data[4] << 8) | self.registers.data[5]))
+        self.push_stack((self.registers.data[4] << 8) | self.registers.data[5])
         self.registers.PC += 1
         return 16
 
-    def _sub_n8(self):
+    def _sub_n8(self) -> int:
         """Opcode 0xD6 (SUB 'A','n8',)"""
         n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
         self._sub_int(REG_A, n8)
         self.registers.PC += 2
         return 8
 
-    def _rst_10(self):
+    def _rst_10(self) -> int:
         """Opcode 0xD7 (RST $10)"""
         self.push_stack((self.registers.PC + 1) & 0xFFFF)
         self.registers.PC = 0x10
         return 16
 
-    def _ret_c(self):
+    def _ret_c(self) -> int:
         """Opcode 0xD8 (RET 'C',)"""
-        if (self.registers.data[1] & 0x10):
+        if self.registers.data[1] & 0x10:
             self.registers.PC = self.pop_stack()
             return 20
         self.registers.PC += 1
         return 8
 
-    def _reti(self):
+    def _reti(self) -> int:
         """Opcode 0xD9 (RETI )"""
         self.registers.PC = self.pop_stack()
         self.interrupts.ime = True
         self.interrupts.pending_ime_enable = False
         return 16
 
-    def _jp_c_n16(self):
+    def _jp_c_n16(self) -> int:
         """Opcode 0xDA (JP 'C','a16',)"""
         n16 = self.memory[(self.registers.PC + 1) & 0xFFFF] | (
             self.memory[(self.registers.PC + 2) & 0xFFFF] << 8
         )
-        if (self.registers.data[1] & 0x10):
+        if self.registers.data[1] & 0x10:
             self.registers.PC = n16
             return 16
         self.registers.PC += 3
         return 12
 
-    def _call_c_n16(self):
+    def _call_c_n16(self) -> int:
         """Opcode 0xDC (CALL 'C','a16',)"""
         n16 = self.memory[(self.registers.PC + 1) & 0xFFFF] | (
             self.memory[(self.registers.PC + 2) & 0xFFFF] << 8
         )
-        if (self.registers.data[1] & 0x10):
+        if self.registers.data[1] & 0x10:
             self.push_stack((self.registers.PC + 3) & WORD_MASK)
             self.registers.PC = n16
             return 24
         self.registers.PC += 3
         return 12
 
-    def _sbc_a_n8(self):
+    def _sbc_a_n8(self) -> int:
         """Opcode 0xDE (SBC 'A','n8',)"""
         n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
         self._sbc_reg_int(REG_A, n8)
         self.registers.PC += 2
         return 8
 
-    def _rst_18(self):
+    def _rst_18(self) -> int:
         """Opcode 0xDF (RST $18)"""
         self.push_stack((self.registers.PC + 1) & 0xFFFF)
         self.registers.PC = 0x18
         return 16
 
     # 0xE0 - 0xEF
-    def _ldh_n8_a(self):
+    def _ldh_n8_a(self) -> int:
         """Opcode 0xE0 (LDH 'a8','A',)"""
         n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
         self._advance_to_memory_access(4)
@@ -3603,7 +3733,7 @@ class CPUOpcodes:
         self.registers.PC += 2
         return 12
 
-    def _pop_hl(self):
+    def _pop_hl(self) -> int:
         """Opcode 0xE1 (POP 'HL',)"""
         val = self.pop_stack()
         self.registers.data[6] = val >> 8
@@ -3611,7 +3741,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 12
 
-    def _ld_c_a_mem(self):
+    def _ld_c_a_mem(self) -> int:
         """Opcode 0xE2 (LD 'C','A',)"""
         self._write_memory_byte(
             int(0xFF00 + self.registers.data[3]), self.registers.data[0]
@@ -3619,26 +3749,26 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 8
 
-    def _push_hl(self):
+    def _push_hl(self) -> int:
         """Opcode 0xE5 (PUSH 'HL',)"""
-        self.push_stack(((self.registers.data[6] << 8) | self.registers.data[7]))
+        self.push_stack((self.registers.data[6] << 8) | self.registers.data[7])
         self.registers.PC += 1
         return 16
 
-    def _and_n8(self):
+    def _and_n8(self) -> int:
         """Opcode 0xE6 (AND 'A','n8',)"""
         n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
         self._and_int(REG_A, n8)
         self.registers.PC += 2
         return 8
 
-    def _rst_20(self):
+    def _rst_20(self) -> int:
         """Opcode 0xE7 (RST $20)"""
         self.push_stack((self.registers.PC + 1) & 0xFFFF)
         self.registers.PC = 0x20
         return 16
 
-    def _add_sp_e8(self):
+    def _add_sp_e8(self) -> int:
         """Opcode 0xE8 (ADD 'SP','e8',)"""
         n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
         off = self._signed_e8(n8)
@@ -3648,12 +3778,12 @@ class CPUOpcodes:
         self.registers.PC += 2
         return 16
 
-    def _jp_hl(self):
+    def _jp_hl(self) -> int:
         """Opcode 0xE9 (JP 'HL',)"""
-        self.registers.PC = ((self.registers.data[6] << 8) | self.registers.data[7])
+        self.registers.PC = (self.registers.data[6] << 8) | self.registers.data[7]
         return 4
 
-    def _ld_n16_a(self):
+    def _ld_n16_a(self) -> int:
         """Opcode 0xEA (LD 'a16','A',)"""
         n16 = self.memory[(self.registers.PC + 1) & 0xFFFF] | (
             self.memory[(self.registers.PC + 2) & 0xFFFF] << 8
@@ -3663,21 +3793,21 @@ class CPUOpcodes:
         self.registers.PC += 3
         return 16
 
-    def _xor_n8(self):
+    def _xor_n8(self) -> int:
         """Opcode 0xEE (XOR 'A','n8',)"""
         n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
         self._xor_int(REG_A, n8)
         self.registers.PC += 2
         return 8
 
-    def _rst_28(self):
+    def _rst_28(self) -> int:
         """Opcode 0xEF (RST $28)"""
         self.push_stack((self.registers.PC + 1) & 0xFFFF)
         self.registers.PC = 0x28
         return 16
 
     # HIGH_NIBBLE_MASK - BYTE_MASK
-    def _ldh_a_n8(self):
+    def _ldh_a_n8(self) -> int:
         """Opcode HIGH_NIBBLE_MASK (LDH 'A','a8',)"""
         registers = self.registers
         pc = registers.PC
@@ -3695,7 +3825,7 @@ class CPUOpcodes:
         registers.PC = pc + 2
         return 12
 
-    def _pop_af(self):
+    def _pop_af(self) -> int:
         """Opcode 0xF1 (POP 'AF',)"""
         val = self.pop_stack()
         self.registers.data[0] = val >> 8
@@ -3703,7 +3833,7 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 12
 
-    def _ld_a_c_mem(self):
+    def _ld_a_c_mem(self) -> int:
         """Opcode 0xF2 (LD 'A','C',)"""
         self.registers.data[0] = self._read_memory_byte(
             int(0xFF00 + self.registers.data[3])
@@ -3711,49 +3841,50 @@ class CPUOpcodes:
         self.registers.PC += 1
         return 8
 
-    def _di(self):
+    def _di(self) -> int:
         """Opcode 0xF3 (DI )"""
         self.interrupts.ime = False
         self.interrupts.pending_ime_enable = False
         self.registers.PC += 1
         return 4
 
-    def _push_af(self):
+    def _push_af(self) -> int:
         """Opcode 0xF5 (PUSH 'AF',)"""
-        self.push_stack(((self.registers.data[0] << 8) | self.registers.data[1]))
+        self.push_stack((self.registers.data[0] << 8) | self.registers.data[1])
         self.registers.PC += 1
         return 16
 
-    def _or_n8(self):
+    def _or_n8(self) -> int:
         """Opcode 0xF6 (OR 'A','n8',)"""
         n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
         self._or_int(REG_A, n8)
         self.registers.PC += 2
         return 8
 
-    def _rst_30(self):
+    def _rst_30(self) -> int:
         """Opcode 0xF7 (RST $30)"""
         self.push_stack((self.registers.PC + 1) & 0xFFFF)
         self.registers.PC = 0x30
         return 16
 
-    def _ld_hl_sp_e8(self):
+    def _ld_hl_sp_e8(self) -> int:
         """Opcode 0xF8 (LD 'HL','SP','e8',)"""
         n8 = self.memory[(self.registers.PC + 1) & 0xFFFF]
         off = self._signed_e8(n8)
         v = self.registers.SP
-        self.registers.data[6] = ((v + off) & WORD_MASK) >> 8; self.registers.data[7] = ((v + off) & WORD_MASK) & 0xFF
+        self.registers.data[6] = ((v + off) & WORD_MASK) >> 8
+        self.registers.data[7] = ((v + off) & WORD_MASK) & 0xFF
         self._set_sp_e8_flags(v, n8)
         self.registers.PC += 2
         return 12
 
-    def _ld_sp_hl(self):
+    def _ld_sp_hl(self) -> int:
         """Opcode 0xF9 (LD 'SP','HL',)"""
-        self.registers.SP = ((self.registers.data[6] << 8) | self.registers.data[7])
+        self.registers.SP = (self.registers.data[6] << 8) | self.registers.data[7]
         self.registers.PC += 1
         return 8
 
-    def _ld_a_n16(self):
+    def _ld_a_n16(self) -> int:
         """Opcode 0xFA (LD 'A','a16',)"""
         n16 = self.memory[(self.registers.PC + 1) & 0xFFFF] | (
             self.memory[(self.registers.PC + 2) & 0xFFFF] << 8
@@ -3763,14 +3894,14 @@ class CPUOpcodes:
         self.registers.PC += 3
         return 16
 
-    def _ei(self):
+    def _ei(self) -> int:
         """Opcode 0xFB (EI )"""
         self.interrupts.pending_ime_enable = True
         self.interrupts.ime_enable_delay = 2
         self.registers.PC += 1
         return 4
 
-    def _cp_n8(self):
+    def _cp_n8(self) -> int:
         """Opcode 0xFE (CP 'A','n8',)"""
         b = self.memory[(self.registers.PC + 1) & 0xFFFF]
         a = self.registers.data[0]
@@ -3786,14 +3917,14 @@ class CPUOpcodes:
         self.registers.PC += 2
         return 8
 
-    def _rst_38(self):
+    def _rst_38(self) -> int:
         """Opcode 0xFF (RST $38)"""
         self.push_stack((self.registers.PC + 1) & 0xFFFF)
         self.registers.PC = 0x38
         return 16
 
     # CB Prefix Implementation
-    def _prefix_cb(self):
+    def _prefix_cb(self) -> int:
         """Allocation-free CB-prefix opcode dispatcher."""
         registers = self.registers
         data = registers.data
@@ -3839,9 +3970,7 @@ class CPUOpcodes:
                 res = (val >> 1) | (val & BIT_7)
                 self._set_cb_result_flags(res, bool(c))
             elif bit == 6:
-                res = ((val & LOW_NIBBLE_MASK) << 4) | (
-                    (val & HIGH_NIBBLE_MASK) >> 4
-                )
+                res = ((val & LOW_NIBBLE_MASK) << 4) | ((val & HIGH_NIBBLE_MASK) >> 4)
                 data[REG_F] = FLAG_Z if res == 0 else 0
             else:
                 c = val & BIT_0
@@ -3866,7 +3995,7 @@ class CPUOpcodes:
             return 12 if category == 1 else 16
         return 8
 
-    def instruction_set(self):
+    def instruction_set(self) -> dict[int, Callable[[], int]]:
         return {
             0x00: self._nop,
             0x01: self._ld_bc_n16,

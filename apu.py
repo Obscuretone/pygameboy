@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import threading
 from array import array
-from typing import ClassVar, Final, List
+from typing import ClassVar, Final, Protocol, cast
 
 import numpy as np
+import numpy.typing as npt
 
 from constants import (
     APU_ENVELOPE_DIR_BIT,
@@ -56,25 +59,34 @@ _NOISE_JUMP_SIZE: Final[int] = 12
 _NOISE_STATE_COUNT: Final[int] = 1 << 15
 
 
-def _build_noise_jump_tables() -> tuple[array, array]:
+class _LengthChannel(Protocol):
+    length_enabled: bool
+
+    def step_length(self) -> None: ...
+
+
+def _build_noise_jump_tables() -> tuple[array[int], array[int]]:
     """Precompute compact scalar lookup tables for exact LFSR advancement."""
     tables = np.empty((2, _NOISE_JUMP_SIZE + 1, _NOISE_STATE_COUNT), dtype=np.uint16)
     states = np.arange(_NOISE_STATE_COUNT, dtype=np.uint16)
     tables[:, 0, :] = states
 
     for width_mode in range(2):
-        current = states
+        current: npt.NDArray[np.uint16] = states
         for edge_count in range(1, _NOISE_JUMP_SIZE + 1):
             feedback = (current & 1) ^ ((current >> 1) & 1)
-            current = (current >> 1) | (feedback << 14)
+            current = cast(npt.NDArray[np.uint16], (current >> 1) | (feedback << 14))
             if width_mode:
-                current = (current & np.uint16(0x7FBF)) | (feedback << 6)
+                current = cast(
+                    npt.NDArray[np.uint16],
+                    (current & np.uint16(0x7FBF)) | (feedback << 6),
+                )
             tables[width_mode, edge_count, :] = current
 
     return array("H", tables[0].ravel()), array("H", tables[1].ravel())
 
 
-_NOISE_JUMP_TABLES: Final[tuple[array, array]] = _build_noise_jump_tables()
+_NOISE_JUMP_TABLES: Final[tuple[array[int], array[int]]] = _build_noise_jump_tables()
 
 
 class PulseChannel:
@@ -82,7 +94,7 @@ class PulseChannel:
     Implements a GameBoy Pulse (Square Wave) audio channel.
     """
 
-    DUTY_CYCLES: Final[List[List[int]]] = [
+    DUTY_CYCLES: Final[list[list[int]]] = [
         [0, 0, 0, 0, 0, 0, 0, 1],  # 12.5%
         [1, 0, 0, 0, 0, 0, 0, 1],  # 25%
         [1, 0, 0, 0, 0, 1, 1, 1],  # 50%
@@ -114,7 +126,7 @@ class PulseChannel:
         self.envelope_direction: int = 0  # 1: up, 0: down
         self.initial_volume: int = 0
 
-    def step(self, cycles: Cycles) -> None:
+    def step(self, cycles: float) -> None:
         """Advance the channel timer and update output."""
         if not self.enabled:
             self.output = 0
@@ -131,9 +143,7 @@ class PulseChannel:
         edge_count = int((-self.timer) // period) + 1
         self.timer += edge_count * period
         self.duty_step = (self.duty_step + edge_count) & 7
-        self.output = (
-            self.volume if self.DUTY_CYCLES[self.duty][self.duty_step] else 0
-        )
+        self.output = self.volume if self.DUTY_CYCLES[self.duty][self.duty_step] else 0
 
     def step_length(self) -> None:
         """Advance the length counter."""
@@ -198,7 +208,7 @@ class WaveChannel:
     FREQUENCY_BASE: Final[int] = 2048
     SAMPLE_COUNT: Final[int] = 32
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.enabled: bool = False
         self.timer: float = 0.0
         self.frequency: int = 0
@@ -209,7 +219,7 @@ class WaveChannel:
         self.length_enabled: bool = False
         self.volume_shift: int = 0  # 0: 0%, 1: 100%, 2: 50%, 3: 25%
 
-    def step(self, cycles: Cycles) -> None:
+    def step(self, cycles: float) -> None:
         """Advance the wave timer and update output."""
         if not self.enabled:
             self.output = 0
@@ -274,7 +284,7 @@ class NoiseChannel:
 
     MAX_LENGTH: Final[int] = 64
     MAX_VOLUME: Final[int] = 15
-    DIVISORS: Final[List[int]] = [8, 16, 32, 48, 64, 80, 96, 112]
+    DIVISORS: Final[list[int]] = [8, 16, 32, 48, 64, 80, 96, 112]
     LFSR_INITIAL: Final[int] = 0x7FFF
     LFSR_BIT_COUNT: Final[int] = 14
     LFSR_WIDTH_BIT: Final[int] = 6
@@ -282,7 +292,7 @@ class NoiseChannel:
     WIDTH_MODE_MASK: Final[int] = 0x08
     DIVISOR_CODE_MASK: Final[int] = 0x07
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.enabled: bool = False
         self.timer: float = 0.0
         self.lfsr: int = self.LFSR_INITIAL
@@ -298,7 +308,7 @@ class NoiseChannel:
         self.width_mode: bool = False
         self.divisor_code: int = 0
 
-    def step(self, cycles: Cycles) -> None:
+    def step(self, cycles: float) -> None:
         """Advance the noise timer and update output."""
         if not self.enabled:
             self.output = 0
@@ -610,9 +620,7 @@ class APU:
                     self._clock_triggered_zero_length(
                         self.ch3, length_enabled, length_was_zero
                     )
-                    if not (
-                        self.registers[REG_NR30 - REG_NR10] & AUDIO_TRIGGER_BIT
-                    ):
+                    if not (self.registers[REG_NR30 - REG_NR10] & AUDIO_TRIGGER_BIT):
                         self.ch3.enabled = False
             elif REG_WAVE_RAM_START <= address <= REG_WAVE_RAM_END:
                 self.ch3.wave_ram[address - REG_WAVE_RAM_START] = value
@@ -647,9 +655,7 @@ class APU:
         regs = self.registers
         nr50 = regs[REG_NR50 - REG_NR10]
         nr51 = regs[REG_NR51 - REG_NR10]
-        self._left_gain = (((nr50 & APU_VOL_LEFT_MASK) >> 4) + 1) / (
-            self.MIX_DIVISOR
-        )
+        self._left_gain = (((nr50 & APU_VOL_LEFT_MASK) >> 4) + 1) / (self.MIX_DIVISOR)
         self._right_gain = ((nr50 & APU_VOL_RIGHT_MASK) + 1) / self.MIX_DIVISOR
 
         dac_mask = (
@@ -661,7 +667,7 @@ class APU:
         self._right_mix_mask = (nr51 & 0x0F) & dac_mask
         self._left_mix_mask = ((nr51 >> 4) & 0x0F) & dac_mask
 
-    def _apply_length_enable(self, channel, enabled: bool) -> None:
+    def _apply_length_enable(self, channel: _LengthChannel, enabled: bool) -> None:
         """Apply the DMG extra length clock on a disabled-to-enabled edge."""
         was_enabled = channel.length_enabled
         channel.length_enabled = enabled
@@ -669,14 +675,13 @@ class APU:
             channel.step_length()
 
     def _clock_triggered_zero_length(
-        self, channel, length_enabled: bool, length_was_zero: bool
+        self,
+        channel: _LengthChannel,
+        length_enabled: bool,
+        length_was_zero: bool,
     ) -> None:
         """Clock a just-reloaded zero length in the non-length sequencer phase."""
-        if (
-            length_enabled
-            and length_was_zero
-            and (self.frame_sequencer_step & 1)
-        ):
+        if length_enabled and length_was_zero and (self.frame_sequencer_step & 1):
             channel.step_length()
 
     def step(self, cycles: Cycles) -> None:

@@ -13,6 +13,10 @@ from constants import (
 )
 
 
+def assert_value(actual: object, expected: object) -> None:
+    assert actual == expected
+
+
 def test_pulse_channel_disabled_invalid_period_length_and_trigger_edges() -> None:
     channel = PulseChannel()
     channel.output = 7
@@ -224,26 +228,26 @@ def test_apu_frequency_writes_and_dac_power_control_channels() -> None:
     apu = APU()
     apu.write_byte(REG_NR52, 0x80)
 
-    for low_address, high_address, channel in (
+    for low_address, high_address, frequency_channel in (
         (0xFF13, 0xFF14, apu.ch1),
         (0xFF18, 0xFF19, apu.ch2),
         (0xFF1D, 0xFF1E, apu.ch3),
     ):
         apu.write_byte(low_address, 0x5A)
         apu.write_byte(high_address, 0x03)
-        assert channel.frequency == 0x35A
+        assert frequency_channel.frequency == 0x35A
 
-    for dac_address, trigger_address, channel in (
+    for dac_address, trigger_address, dac_channel in (
         (0xFF12, 0xFF14, apu.ch1),
         (0xFF17, 0xFF19, apu.ch2),
         (0xFF1A, 0xFF1E, apu.ch3),
         (0xFF21, 0xFF23, apu.ch4),
     ):
-        channel.enabled = True
+        dac_channel.enabled = True
         apu.write_byte(dac_address, 0)
-        assert not channel.enabled
+        assert not dac_channel.enabled
         apu.write_byte(trigger_address, 0x80)
-        assert not channel.enabled
+        assert not dac_channel.enabled
 
 
 def test_apu_register_masks_and_dynamic_channel_status() -> None:
@@ -286,8 +290,8 @@ def test_apu_extra_length_clocks_on_enable_and_zero_length_trigger() -> None:
     apu.ch1.length_counter = 0
     apu.write_byte(0xFF14, 0xC0)
 
-    assert apu.ch1.enabled
-    assert apu.ch1.length_counter == apu.ch1.MAX_LENGTH - 1
+    assert_value(apu.ch1.enabled, True)
+    assert_value(apu.ch1.length_counter, apu.ch1.MAX_LENGTH - 1)
 
 
 def test_apu_step_handles_disabled_zero_boundary_and_frame_boundary() -> None:

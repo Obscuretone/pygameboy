@@ -5,21 +5,21 @@ from video import VideoChip
 
 
 class MockMemory:
-    def __init__(self):
+    def __init__(self) -> None:
         self.storage = bytearray(0x10000)
         self.interrupts = 0
 
-    def request_interrupt(self, mask):
+    def request_interrupt(self, mask: int) -> None:
         self.interrupts |= mask
 
 
 class TestVideo(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.clock = SystemClock(4194304)
         self.mem = MockMemory()
-        self.video = VideoChip(self.clock, self.mem)  # type: ignore
+        self.video = VideoChip(self.clock, self.mem)
 
-    def test_mode_transitions(self):
+    def test_mode_transitions(self) -> None:
         # Start from mode 2 so each transition can be asserted independently.
         self.video.STAT = (self.video.STAT & 0xFC) | 2
         self.video.mode_clock = 0
@@ -39,7 +39,7 @@ class TestVideo(unittest.TestCase):
         self.assertEqual(self.video.STAT & 0x03, 2)
         self.assertEqual(self.video.LY, 1)
 
-    def test_vblank_transition(self):
+    def test_vblank_transition(self) -> None:
         self.video.STAT = (self.video.STAT & 0xFC) | 0
         self.video.mode_clock = 0
         self.video.LY = 143
@@ -50,7 +50,7 @@ class TestVideo(unittest.TestCase):
         self.assertEqual(self.video.LY, 144)
         self.assertEqual(self.mem.interrupts & 0x01, 0x01)
 
-    def test_large_step_crosses_a_complete_visible_frame(self):
+    def test_large_step_crosses_a_complete_visible_frame(self) -> None:
         self.video.STAT = (self.video.STAT & 0xFC) | 2
         self.video.mode_clock = 0
         self.video.LY = 0
@@ -62,7 +62,7 @@ class TestVideo(unittest.TestCase):
         self.assertTrue(self.video.frame_done)
         self.assertEqual(self.mem.interrupts & 0x01, 0x01)
 
-    def test_vblank_wraps_to_line_zero_after_ten_lines(self):
+    def test_vblank_wraps_to_line_zero_after_ten_lines(self) -> None:
         self.video.STAT = (self.video.STAT & 0xFC) | 1
         self.video.mode_clock = 0
         self.video.LY = 144
@@ -74,7 +74,7 @@ class TestVideo(unittest.TestCase):
         self.assertEqual(self.video.STAT & 0x03, 2)
         self.assertEqual(self.video.window_line, 0)
 
-    def test_stat_interrupt_is_edge_triggered(self):
+    def test_stat_interrupt_is_edge_triggered(self) -> None:
         self.video.STAT = 0x80 | 0x40
         self.video.LY = 7
         self.video.LYC = 7

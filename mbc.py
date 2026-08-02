@@ -1,4 +1,5 @@
-from typing import Callable, Final, List, Optional, Union
+from collections.abc import Callable
+from typing import Final
 
 from constants import (
     ERAM_START,
@@ -30,18 +31,14 @@ class MBC:
 
     RAM_ENABLE_VAL: Final[int] = 0x0A
 
-    def __init__(self, rom_data: ROMData, ram_size: int = 0):
+    def __init__(self, rom_data: ROMData, ram_size: int = 0) -> None:
         self.rom: ROMData = rom_data
         self.ram: RAMData = bytearray(ram_size)
         self.ram_enabled: bool = False
         self.ram_dirty: bool = False
-        self.on_bank_change: Optional[
-            Callable[[int, int, Union[bytes, bytearray]], None]
-        ] = None
-        self.on_ram_bank_change: Optional[
-            Callable[[int, Union[bytes, bytearray]], None]
-        ] = None
-        self.on_ram_write: Optional[Callable[[int, int], None]] = None
+        self.on_bank_change: Callable[[int, int, bytes | bytearray], None] | None = None
+        self.on_ram_bank_change: Callable[[int, bytes | bytearray], None] | None = None
+        self.on_ram_write: Callable[[int, int], None] | None = None
 
     def read_rom(self, address: int) -> int:
         return self.rom[address]
@@ -63,7 +60,7 @@ class MBC:
         for mirror_offset in range(offset, RAM_BANK_SIZE, len(self.ram)):
             self._trigger_ram_write(ERAM_START + mirror_offset, value)
 
-    def _ram_bank_data(self, bank_num: int) -> Union[bytes, bytearray]:
+    def _ram_bank_data(self, bank_num: int) -> bytes | bytearray:
         if not self.ram:
             return bytes([UNMAPPED_BYTE] * RAM_BANK_SIZE)
         if len(self.ram) < RAM_BANK_SIZE:
@@ -82,14 +79,12 @@ class MBC:
         )
 
     def _trigger_bank_change(
-        self, start_addr: int, bank_num: int, data: Union[bytes, bytearray]
+        self, start_addr: int, bank_num: int, data: bytes | bytearray
     ) -> None:
         if self.on_bank_change:
             self.on_bank_change(start_addr, bank_num, data)
 
-    def _trigger_ram_bank_change(
-        self, bank_num: int, data: Union[bytes, bytearray]
-    ) -> None:
+    def _trigger_ram_bank_change(self, bank_num: int, data: bytes | bytearray) -> None:
         if self.on_ram_bank_change:
             self.on_ram_bank_change(bank_num, data)
 
@@ -101,7 +96,7 @@ class MBC:
 class MBC0(MBC):
     """No ROM banking, with optional directly mapped cartridge RAM."""
 
-    def __init__(self, rom_data: ROMData, ram_size: int = 0):
+    def __init__(self, rom_data: ROMData, ram_size: int = 0) -> None:
         super().__init__(rom_data, ram_size)
         self.ram_enabled = ram_size > 0
 
@@ -117,7 +112,7 @@ class MBC1(MBC):
 
     DEFAULT_RAM_SIZE: Final[int] = 0x8000
 
-    def __init__(self, rom_data: ROMData, ram_size: int = DEFAULT_RAM_SIZE):
+    def __init__(self, rom_data: ROMData, ram_size: int = DEFAULT_RAM_SIZE) -> None:
         super().__init__(rom_data, ram_size)
         self.rom_bank_low: int = 1
         self.rom_bank: int = 1
@@ -213,12 +208,12 @@ class MBC3(MBC):
 
     DEFAULT_RAM_SIZE: Final[int] = 0x8000
 
-    def __init__(self, rom_data: ROMData, ram_size: int = DEFAULT_RAM_SIZE):
+    def __init__(self, rom_data: ROMData, ram_size: int = DEFAULT_RAM_SIZE) -> None:
         super().__init__(rom_data, ram_size)
         self.rom_bank: int = 1
         self.ram_bank: int = 0
-        self.rtc_registers: List[int] = [0] * self.RTC_REGISTER_COUNT
-        self.latched_rtc_registers: List[int] = [0] * self.RTC_REGISTER_COUNT
+        self.rtc_registers: list[int] = [0] * self.RTC_REGISTER_COUNT
+        self.latched_rtc_registers: list[int] = [0] * self.RTC_REGISTER_COUNT
         self.rtc_latched: bool = False
         self.latch_state: int = 0
 
@@ -396,7 +391,7 @@ class MBC2(MBC):
     RAM_SIZE: Final[int] = 512
     ROM_BANK_MASK: Final[int] = 0x0F
 
-    def __init__(self, rom_data: ROMData):
+    def __init__(self, rom_data: ROMData) -> None:
         super().__init__(rom_data, self.RAM_SIZE)
         self.rom_bank: int = 1
 

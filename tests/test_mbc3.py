@@ -4,7 +4,7 @@ from mbc import MBC3
 
 
 class TestMBC3(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         # Create a mock ROM of 128KB (8 banks of 16KB)
         self.rom_data = bytearray([0] * (0x4000 * 8))
         for i in range(0x4000, 0x8000):
@@ -14,7 +14,7 @@ class TestMBC3(unittest.TestCase):
 
         self.mbc = MBC3(self.rom_data, ram_size=0x8000)
 
-    def test_rom_banking(self):
+    def test_rom_banking(self) -> None:
         # Initial bank should be 1
         self.assertEqual(self.mbc.read_rom(0x4000), 1)
 
@@ -26,7 +26,7 @@ class TestMBC3(unittest.TestCase):
         self.mbc.write_rom(0x2000, 0)
         self.assertEqual(self.mbc.read_rom(0x4000), 1)
 
-    def test_ram_and_rtc_banking(self):
+    def test_ram_and_rtc_banking(self) -> None:
         # RAM initially disabled
         self.assertEqual(self.mbc.read_ram(0xA000), 0xFF)
 
@@ -55,7 +55,7 @@ class TestMBC3(unittest.TestCase):
         self.mbc.write_rom(0x4000, 0)
         self.assertEqual(self.mbc.read_ram(0xA000), 0x42)
 
-    def test_rtc_latch_holds_snapshot_until_next_zero_to_one_transition(self):
+    def test_rtc_latch_holds_snapshot_until_next_zero_to_one_transition(self) -> None:
         self.mbc.write_rom(0x0000, 0x0A)
         self.mbc.write_rom(0x4000, 0x08)
         self.mbc.write_ram(0xA000, 12)
