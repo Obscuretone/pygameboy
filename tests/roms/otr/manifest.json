@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "rom": "pygameboy-test-rom.gb",
-  "sha256": "ccabcd7c4803cfb5d8206e526d8ef77d73d4c7aed3ad6da90c5c5f57da6d8c73",
+  "rom": "otr.gb",
+  "sha256": "13a5c134c8ce9f1d6f5e9b519726e7c26ffe97cccea38c6cf45ce6b7d2e0ea85",
   "size": 32768,
-  "code_end": 19063,
-  "protocol": "PYGB/1",
+  "code_end": 19062,
+  "protocol": "OTR/1",
   "base_opcodes": [
     "00",
     "01",
@@ -787,33 +787,33 @@
   "controller_roms": {
     "mbc1.gb": {
       "size": 65536,
-      "sha256": "d08cb55cdd57f3354256e348b570f2893fc77fe33e31385426379a70b647af7a"
+      "sha256": "1997bfe0a10188cf0807c8606127db10f42c070f6780d618680374c0a388190d"
     },
     "mbc2.gb": {
       "size": 65536,
-      "sha256": "4663d04697e7b86017a9e970271bd4c3efda2d1b3ee02d7ef6079d5f884070d8"
+      "sha256": "30e98b715ad5b9ee36f304da384a3b21ee0372884f4360c9fabbc948fc3b7eae"
     },
     "mbc3.gb": {
       "size": 65536,
-      "sha256": "e8f23f82e2d91f99a0dbd2bebbc26252e42d7f6b21078d44f2ff8f1385898129"
+      "sha256": "88ca0a03c24f6c99c68b28e776b003032fa79f438851a29449dc4e63546b023a"
     },
     "mbc5.gb": {
       "size": 8388608,
-      "sha256": "957caef31c471bf1981ef0458b6c772a377cb7fa28b57b003aec5b05e85df7fc"
+      "sha256": "b78fde7ab23993658858a27fb720836b5ac2c923873f8cf269837878e26500bb"
     }
   },
   "probe_roms": {
-    "10.gb": "6e134bdedf1f78c36badfd3fb3df562025ca24e04c2ec0a2683c1bd437718864",
-    "d3.gb": "4c8014b00a7f6c78c89a6c236df163fd0076f1c8bc924967c68b2d4a70cc8a22",
-    "db.gb": "cf1a1aa879c541c4d5b5b78b39cc2b2cbc8fc8b629e4f237ce636fcef5ebdea7",
-    "dd.gb": "580d469b13d80f0edd3c329a384dc65f2da9550022d0f01a92a94de0b5a83964",
-    "e3.gb": "a4c5fa5bb3c33fe10143d0b6e0f74ca95a740ddd3b1175cfe16265103664f27e",
-    "e4.gb": "09537fe8be7ce723ed997bb8e18f73f5c9f41b76dfbbbaacb1b004630b442cdd",
-    "eb.gb": "517cdc0aba32603f2a80d7a6cfbe099188718fd5644407e601e511e515882fc1",
-    "ec.gb": "1110eb48763f4d188d339647b058a72a398894bd5ccf8e3128b90d156d73225d",
-    "ed.gb": "c24e445120021be578835047f7f813549dee86ca029dab261ec0bda18192c517",
-    "f4.gb": "790a5d793ee251a74ab4dcd1b72b864b2b97cab015722c5bdb64024b8fc25fa0",
-    "fc.gb": "21cbcf50e8a5b2514ca2e9a4d6a02e4b0949c5c335fc1f0ce97c602dc7f2ea65",
-    "fd.gb": "2cf6912065627ff5169d200cd2a526ea8bcd96d814fd5fbf17e36d3eb65200dd"
+    "10.gb": "176b8a05ec3287070ff2aedf5b4a9f3a0d7fcd846fd1d41c73d94c63492aaf7b",
+    "d3.gb": "531a762bd9425601443c8c4ba9a0fc216f8fc23d404a6b87a2da75707017cfaf",
+    "db.gb": "e52c785045b0980352a87c3159cf3878b449a0cfb759168ebd94d38fc50c5c86",
+    "dd.gb": "ff68152395f4883fd7301607b9a45949827978ccf1e1908b75bc2d09a9a596bb",
+    "e3.gb": "93d022dae9994b98f6fcf4644b913394276a443b8450facbc7e1885f7a3a4ae4",
+    "e4.gb": "6c2a24531740e08e9fd87f174e108c34d145dd38f50723e3026b168a77510cbf",
+    "eb.gb": "d20489fba45867242ee531dc59b0dc9b547eec8c5f8d7283f079c5fedcdf4ddb",
+    "ec.gb": "064b5779fbc1073ca262c8aaccaf1574f709985449c4a58ae0e5413899daa212",
+    "ed.gb": "77ddc96540b79e51bd89527463631cbf9dbe0c6fe0299b3aa924d0733156369e",
+    "f4.gb": "eb0653c642403a35408cbe117e5b1f6c82b2f0212db08c4cb687e495e53a563a",
+    "fc.gb": "617c5065a88ebf698948e04662669fd19cfb752ba20cf95d3d00184474d51215",
+    "fd.gb": "80b9ee58f43bcbc633dc38378b81c90beff88cfd9219254f54a39bff2e88aee1"
   }
 }
