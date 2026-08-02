@@ -1,4 +1,4 @@
-from typing import Dict, Final, Tuple, Union
+from typing import Final
 
 from gb_types import (
     REG_A,
@@ -30,7 +30,7 @@ class RegisterFile:
     H: Final[int] = REG_H
     L: Final[int] = REG_L
 
-    _single: Final[Dict[str, int]] = {
+    _single: Final[dict[str, int]] = {
         "A": A,
         "F": F,
         "B": B,
@@ -40,7 +40,7 @@ class RegisterFile:
         "H": H,
         "L": L,
     }
-    _pairs: Final[Dict[str, Tuple[int, int]]] = {
+    _pairs: Final[dict[str, tuple[int, int]]] = {
         "AF": (A, F),
         "BC": (B, C),
         "DE": (D, E),
@@ -54,11 +54,11 @@ class RegisterFile:
         self.SP: int = 0
 
     @property
-    def shape(self) -> Tuple[int, ...]:
+    def shape(self) -> tuple[int, ...]:
         """Return the shape of the internal data array."""
         return (8,)
 
-    def __getitem__(self, reg: Union[str, int]) -> int:
+    def __getitem__(self, reg: str | int) -> int:
         """
         Read a value from a register or register pair.
         """
@@ -75,7 +75,7 @@ class RegisterFile:
             raise KeyError(reg)
         return self.data[reg]
 
-    def __setitem__(self, reg: Union[str, int], value: int) -> None:
+    def __setitem__(self, reg: str | int, value: int) -> None:
         """
         Write a value to a register or register pair.
         """

@@ -1,7 +1,20 @@
 import pytest
 
 from apu import APU, NoiseChannel, PulseChannel, WaveChannel
-from constants import FRAME_SEQUENCER_PERIOD, REG_NR52
+from constants import (
+    FRAME_SEQUENCER_PERIOD,
+    REG_NR12,
+    REG_NR22,
+    REG_NR30,
+    REG_NR42,
+    REG_NR50,
+    REG_NR51,
+    REG_NR52,
+)
+
+
+def assert_value(actual: object, expected: object) -> None:
+    assert actual == expected
 
 
 def test_pulse_channel_disabled_invalid_period_length_and_trigger_edges() -> None:
@@ -215,26 +228,26 @@ def test_apu_frequency_writes_and_dac_power_control_channels() -> None:
     apu = APU()
     apu.write_byte(REG_NR52, 0x80)
 
-    for low_address, high_address, channel in (
+    for low_address, high_address, frequency_channel in (
         (0xFF13, 0xFF14, apu.ch1),
         (0xFF18, 0xFF19, apu.ch2),
         (0xFF1D, 0xFF1E, apu.ch3),
     ):
         apu.write_byte(low_address, 0x5A)
         apu.write_byte(high_address, 0x03)
-        assert channel.frequency == 0x35A
+        assert frequency_channel.frequency == 0x35A
 
-    for dac_address, trigger_address, channel in (
+    for dac_address, trigger_address, dac_channel in (
         (0xFF12, 0xFF14, apu.ch1),
         (0xFF17, 0xFF19, apu.ch2),
         (0xFF1A, 0xFF1E, apu.ch3),
         (0xFF21, 0xFF23, apu.ch4),
     ):
-        channel.enabled = True
+        dac_channel.enabled = True
         apu.write_byte(dac_address, 0)
-        assert not channel.enabled
+        assert not dac_channel.enabled
         apu.write_byte(trigger_address, 0x80)
-        assert not channel.enabled
+        assert not dac_channel.enabled
 
 
 def test_apu_register_masks_and_dynamic_channel_status() -> None:
@@ -277,8 +290,8 @@ def test_apu_extra_length_clocks_on_enable_and_zero_length_trigger() -> None:
     apu.ch1.length_counter = 0
     apu.write_byte(0xFF14, 0xC0)
 
-    assert apu.ch1.enabled
-    assert apu.ch1.length_counter == apu.ch1.MAX_LENGTH - 1
+    assert_value(apu.ch1.enabled, True)
+    assert_value(apu.ch1.length_counter, apu.ch1.MAX_LENGTH - 1)
 
 
 def test_apu_step_handles_disabled_zero_boundary_and_frame_boundary() -> None:
@@ -343,12 +356,16 @@ def test_apu_frame_sequencer_steps_lengths_and_envelopes() -> None:
 
 def test_apu_mixes_every_route_and_overwrites_oldest_full_buffer_sample() -> None:
     apu = APU()
-    apu.registers[0x02] = 0xF8  # NR12: channel 1 DAC on
-    apu.registers[0x07] = 0xF8  # NR22: channel 2 DAC on
-    apu.registers[0x0A] = 0x80  # NR30: channel 3 DAC on
-    apu.registers[0x11] = 0xF8  # NR42: channel 4 DAC on
-    apu.registers[0x14] = 0x77  # NR50
-    apu.registers[0x15] = 0xFF  # NR51
+    apu.write_byte(REG_NR52, 0x80)
+    for address, value in (
+        (REG_NR12, 0xF8),
+        (REG_NR22, 0xF8),
+        (REG_NR30, 0x80),
+        (REG_NR42, 0xF8),
+        (REG_NR50, 0x77),
+        (REG_NR51, 0xFF),
+    ):
+        apu.write_byte(address, value)
     apu.ch1.output = 15
     apu.ch2.output = 15
     apu.ch3.output = 15
@@ -367,10 +384,10 @@ def test_apu_mixes_every_route_and_overwrites_oldest_full_buffer_sample() -> Non
 
 def test_apu_power_off_resets_mixer_outputs() -> None:
     apu = APU()
-    apu.sound_enabled = True
-    apu.registers[0x02] = 0xF8  # NR12: channel 1 DAC on
-    apu.registers[0x14] = 0x77  # NR50
-    apu.registers[0x15] = 0x11  # NR51: channel 1 to left and right
+    apu.write_byte(REG_NR52, 0x80)
+    apu.write_byte(REG_NR12, 0xF8)
+    apu.write_byte(REG_NR50, 0x77)
+    apu.write_byte(REG_NR51, 0x11)
     apu.ch1.output = 15
 
     apu.sample()

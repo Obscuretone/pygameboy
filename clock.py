@@ -8,7 +8,7 @@ class SystemClock:
     The GameBoy runs at a base clock speed of 4,194,304 Hz.
     """
 
-    def __init__(self, clock_speed_hz: int):
+    def __init__(self, clock_speed_hz: int) -> None:
         """
         Initialize the system clock.
 

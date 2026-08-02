@@ -4,7 +4,7 @@ from mbc import MBC5
 
 
 class TestMBC5(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         # Create a mock ROM of 512 banks (8MB)
         self.rom_data = bytearray([0] * (0x4000 * 512))
         # Fill bank 256 with 256s (mod 256)
@@ -13,7 +13,7 @@ class TestMBC5(unittest.TestCase):
 
         self.mbc = MBC5(self.rom_data, ram_size=0x20000)
 
-    def test_rom_banking_9bit(self):
+    def test_rom_banking_9bit(self) -> None:
         # Initial bank should be 1
         self.assertEqual(self.mbc.read_rom(0x4000), 0)
 
@@ -26,7 +26,7 @@ class TestMBC5(unittest.TestCase):
         self.assertEqual(self.mbc.rom_bank, 256)
         self.assertEqual(self.mbc.read_rom(0x4000), 42)
 
-    def test_ram_banking_16banks(self):
+    def test_ram_banking_16banks(self) -> None:
         self.mbc.write_rom(0x0000, 0x0A)  # Enable RAM
 
         # Switch to RAM bank 15
@@ -39,7 +39,7 @@ class TestMBC5(unittest.TestCase):
         self.mbc.write_rom(0x4000, 0)
         self.assertEqual(self.mbc.read_ram(0xA000), 0)
 
-    def test_rumble_bit_does_not_become_ram_bank_bit(self):
+    def test_rumble_bit_does_not_become_ram_bank_bit(self) -> None:
         mbc = MBC5(self.rom_data, ram_size=0x10000, has_rumble=True)
         mbc.write_rom(0x0000, 0x0A)
 

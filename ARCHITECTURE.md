@@ -68,9 +68,13 @@ is opt-in and accumulates counts in a fixed 256-entry list; the fast path pays
 no counting cost when profiling is disabled.
 
 Opcode bodies are explicit Python methods. Some hot register operations are
-inlined, which improves throughput at the cost of repetition. `refactor.py` is
-a guarded, dry-run-by-default historical rewrite tool; importing it never
-changes source code.
+inlined against the register bytearray, while their string-register
+compatibility paths remain available for tests and instrumentation. CB-prefixed
+instructions decode their register and operation directly instead of creating
+per-instruction wrapper calls or operand tuples. This improves throughput at
+the cost of some deliberate repetition. `refactor.py` is a guarded,
+dry-run-by-default historical rewrite tool; importing it never changes source
+code.
 
 Instructions with externally observable multi-cycle bus activity advance the
 timer at their actual read and write phases. This covers immediate-address,
@@ -81,14 +85,18 @@ phases at the system level.
 ## 3. PPU rendering
 
 The PPU advances through OAM search, pixel transfer, HBlank, and VBlank using
-cycle counts. Background and window scanlines use preallocated NumPy vectors for
-tile-map selection, tile addressing, bit extraction, and palette lookup.
+cycle counts. Background and window spans fetch at most 21 tile rows through
+NumPy, then decode their two bitplanes with a read-only 65,536-entry lookup
+table. A second lookup table maps raw two-bit colors through each DMG palette.
+This removes per-pixel shifts and temporary 160-element coordinate arrays while
+preserving signed tile addressing, wrapping, and negative window positions.
 
-Sprite selection uses NumPy for scanline filtering and priority sorting. The
-final overlay currently uses short Python loops over at most ten sprites and
-their visible pixels. Describing the entire sprite path as vectorized would be
-inaccurate; this hybrid keeps priority behavior straightforward while bounding
-Python work.
+Sprite selection scans the 40 OAM entries in hardware order and stops after the
+first ten visible objects. Priority sorting remains bounded to those ten
+entries, and the final overlay uses short Python loops over their visible
+pixels. Describing the entire sprite path as vectorized would be inaccurate;
+the lookup-table/Python hybrid keeps priority behavior straightforward while
+bounding both allocation and Python work.
 
 The renderer produces palette indices rather than RGB pixels. The display loop
 maps the complete frame through a four-color NumPy palette and transfers it to
@@ -103,6 +111,12 @@ not yet modeled.
 The APU advances oscillator state in CPU-cycle units and emits 44.1 kHz stereo
 samples into a fixed-size NumPy ring buffer. A lock protects read/write
 positions shared with the `sounddevice` callback.
+
+Pulse and wave oscillators batch elapsed timer edges arithmetically while still
+landing on the exact final phase. Noise uses precomputed, compact LFSR jump
+tables for both seven- and fifteen-bit modes. NR50/NR51 routing, gain, and DAC
+enable masks are recomputed only when their controlling registers change,
+rather than once per output sample.
 
 Pan Docs documents the DMG DAC, mixer, and analog high-pass capacitor in the
 hardware references below. The sample producer maps each active 4-bit channel
@@ -131,21 +145,24 @@ internal clock. Transfers retain a divider phase aligned to hardware reset,
 complete after eight edges, clear SC's start bit, place `0xFF` on SB when no
 peer is connected, and request the serial interrupt.
 
-The CPU advances this clock after every dispatched instruction. Because
-PyGameBoy skips Nintendo firmware by default, the post-boot initializer seeds
-the divider phase observed after a DMG ABC boot. This behavior is locked by
-Mooneye's `boot_sclk_align-dmgABCmgb` acceptance ROM as well as focused unit
-tests.
+The CPU advances this clock after every dispatched instruction. While no
+transfer is active, it updates the divider phase inline and avoids a Python
+method call; active and newly started transfers continue through the full
+serial state machine. Because PyGameBoy skips Nintendo firmware by default, the
+post-boot initializer seeds the divider phase observed after a DMG ABC boot.
+This behavior is locked by Mooneye's `boot_sclk_align-dmgABCmgb` acceptance ROM
+as well as focused unit tests.
 
 External-clock transfers remain pending because link-cable peer emulation is
 not implemented yet.
 
 ## 6. Benchmark methodology
 
-`benchmark_cpu.py` measures one real configuration: the bytearray-backed direct
-dispatch path used by the emulator. Each case receives one warm-up, followed by
-multiple measured runs summarized by the median. Reports include minimum and
-maximum cycle rates in JSON, along with Python and platform metadata.
+`benchmark_cpu.py` measures one real configuration: the bytearray-backed,
+max-cycle production dispatch path used for normal emulator frames. Each case
+receives one warm-up, followed by multiple measured runs summarized by the
+median. Reports include minimum and maximum cycle rates in JSON, along with
+Python, platform, and execution-path metadata.
 
 The benchmark does not claim full-emulator performance. PPU, APU, display,
 input, and host scheduling costs are intentionally excluded. A benchmark change

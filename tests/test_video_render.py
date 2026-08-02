@@ -5,21 +5,21 @@ from video import VideoChip
 
 
 class MockMemory:
-    def __init__(self):
+    def __init__(self) -> None:
         self.storage = bytearray(0x10000)
         self.interrupts = 0
 
-    def request_interrupt(self, mask):
+    def request_interrupt(self, mask: int) -> None:
         self.interrupts |= mask
 
 
 class TestVideoRender(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.clock = SystemClock(4194304)
         self.mem = MockMemory()
-        self.video = VideoChip(self.clock, self.mem)  # type: ignore
+        self.video = VideoChip(self.clock, self.mem)
 
-    def test_background_rendering(self):
+    def test_background_rendering(self) -> None:
         # Configure LCDC for BG enable, 0x8000 tile data, 0x9800 tile map
         self.video.LCDC = 0b10010001
         self.video.BGP = 0b11100100  # Palette: 3, 2, 1, 0
@@ -46,7 +46,7 @@ class TestVideoRender(unittest.TestCase):
         for i in range(8):
             self.assertEqual(self.video.frame_buffer[i], expected_pixels[i])
 
-    def test_signed_tile_indexing(self):
+    def test_signed_tile_indexing(self) -> None:
         # Configure LCDC for BG enable, 0x8800 tile data (signed), 0x9800 tile map
         self.video.LCDC = 0b10000001  # bit 4 = 0 (signed)
         self.video.BGP = 0b11100100
@@ -67,7 +67,7 @@ class TestVideoRender(unittest.TestCase):
         for i in range(8):
             self.assertEqual(self.video.frame_buffer[i], 1)
 
-    def test_window_replaces_background_at_wx_minus_seven(self):
+    def test_window_replaces_background_at_wx_minus_seven(self) -> None:
         # LCD on, window on, unsigned tiles, BG map 1, window map 0, BG on.
         self.video.LCDC = 0x80 | 0x20 | 0x10 | 0x08 | 0x01
         self.video.BGP = 0xE4
@@ -87,7 +87,7 @@ class TestVideoRender(unittest.TestCase):
         self.assertEqual(self.video.frame_buffer[8:16].tolist(), [2] * 8)
         self.assertEqual(self.video.window_line, 1)
 
-    def test_window_line_does_not_advance_when_window_is_off_screen(self):
+    def test_window_line_does_not_advance_when_window_is_off_screen(self) -> None:
         self.video.LCDC = 0x80 | 0x20 | 0x10 | 0x01
         self.video.LY = 0
         self.video.WY = 0

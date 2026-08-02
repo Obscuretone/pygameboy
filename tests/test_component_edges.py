@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
@@ -15,27 +16,31 @@ from memory import Memory
 from video import VideoChip
 
 
+def assert_identical(actual: object, expected: object) -> None:
+    assert actual is expected
+
+
 class IndirectMemoryBus:
-    def __init__(self):
-        self.values = {
+    def __init__(self) -> None:
+        self.values: dict[int, int] = {
             0xFF04: 0,
             0xFF05: 0,
             0xFF06: 0,
             0xFF07: 0,
         }
 
-    def read_byte(self, address):
+    def read_byte(self, address: int) -> int:
         return self.values.get(address, 0)
 
-    def write_byte(self, address, value):
+    def write_byte(self, address: int, value: int) -> None:
         self.values[address] = value & 0xFF
 
 
 class InterruptRecorder:
-    def __init__(self):
-        self.requests = []
+    def __init__(self) -> None:
+        self.requests: list[int] = []
 
-    def request(self, mask):
+    def request(self, mask: int) -> None:
         self.requests.append(mask)
 
 
@@ -84,7 +89,7 @@ def test_interrupt_manager_services_every_vector(bit: int, vector: int) -> None:
     cycles = cpu.interrupts.service(cpu)
 
     assert cycles == 20
-    assert cpu.registers.PC == vector
+    assert vector == cpu.registers.PC
     assert cpu.registers.SP == 0xC0FE
     assert memory.storage[0xC0FE:0xC100] == bytes([0x34, 0x12])
     assert not cpu.halted
@@ -103,8 +108,8 @@ def test_interrupt_manager_delay_pending_and_disabled_paths() -> None:
     assert manager.ime_enable_delay == 1
     assert not manager.ime
     manager.update_ime_delay()
-    assert manager.ime
-    assert not manager.pending_ime_enable
+    assert_identical(manager.ime, True)
+    assert_identical(manager.pending_ime_enable, False)
     manager.update_ime_delay()
 
     cpu = Mock(halted=True)
@@ -187,8 +192,8 @@ def test_serial_read_non_start_and_unknown_writes_have_no_side_effects() -> None
 
 
 def test_save_without_directory_and_double_failure_preserve_dirty_ram(
-    tmp_path,
-    monkeypatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.chdir(tmp_path)
     controller = MBC0(bytearray(0x8000), ram_size=0x0800)
@@ -211,16 +216,16 @@ def test_memory_component_helpers_and_defensive_fallbacks() -> None:
     initial[0xFF30] = 0x77
     memory = Memory(data=initial)
     assert memory.clock is None
-    assert memory.video is None
-    assert memory.mbc is None
+    assert_identical(memory.video, None)
+    assert_identical(memory.mbc, None)
 
     controller = MBC0(bytearray(0x8000), ram_size=0x0800)
     memory.set_mbc(controller)
-    assert memory.mbc is controller
+    assert_identical(memory.mbc, controller)
 
     video = Mock()
     memory.set_video(video)
-    assert memory.video is video
+    assert_identical(memory.video, video)
 
     memory.mbc = None
     memory._write_mbc_rom(0x1234, 0x56)
@@ -261,7 +266,7 @@ def test_base_and_banked_controllers_cover_disabled_and_out_of_range_paths() -> 
     rom = bytearray(0x8000)
     base = MBC(rom)
     assert base.read_rom(0) == 0
-    assert base.write_rom(0, 1) is None
+    base.write_rom(0, 1)
     assert base.read_ram(0xA000) == 0xFF
     base.write_ram(0xA000, 1)
     assert base._ram_bank_data(0) == bytes([0xFF]) * 0x2000
@@ -276,24 +281,21 @@ def test_base_and_banked_controllers_cover_disabled_and_out_of_range_paths() -> 
     mirrored.ram[0] = 0x55
     assert mirrored._ram_bank_data(0)[::0x0800] == bytes([0x55]) * 4
 
-    controllers = [
-        MBC1(rom, ram_size=0),
-        MBC3(rom, ram_size=0),
-        MBC5(rom, ram_size=0),
-        MBC2(rom),
-    ]
+    mbc1 = MBC1(rom, ram_size=0)
+    mbc3 = MBC3(rom, ram_size=0)
+    mbc5 = MBC5(rom, ram_size=0)
+    mbc2 = MBC2(rom)
+    controllers: tuple[MBC, ...] = (mbc1, mbc3, mbc5, mbc2)
     for controller in controllers:
         assert controller.read_rom(0x8000) == 0xFF
         controller.write_ram(0xA000, 0x42)
 
-    mbc3 = controllers[1]
     mbc3.write_rom(0, 0x0A)
     assert mbc3.read_ram(0xA000) == 0xFF
     mbc3.write_ram(0xA000, 0x42)
     mbc3.ram_bank = 5
     mbc3.write_ram(0xA000, 0x42)
 
-    mbc2 = controllers[3]
     mbc2.write_rom(0x0100, 0)
     assert mbc2.rom_bank == 1
 
@@ -307,8 +309,14 @@ def test_banked_controller_disable_callbacks_publish_unmapped_ram() -> None:
         MBC3(rom, ram_size=0x2000),
         MBC5(rom, ram_size=0x2000),
     ):
-        windows = []
-        controller.on_ram_bank_change = lambda _bank, data: windows.append(data)
+        windows: list[bytes] = []
+
+        def record_window(
+            _bank: int, data: bytes | bytearray, target: list[bytes] = windows
+        ) -> None:
+            target.append(bytes(data))
+
+        controller.on_ram_bank_change = record_window
         controller.write_rom(0, 0x0A)
         controller.write_rom(0, 0)
         assert windows[-1] == bytes([0xFF]) * 0x2000
@@ -321,8 +329,9 @@ def test_memory_accepts_a_single_rom_bank_for_defensive_embedding() -> None:
 
 
 def test_video_register_bus_clipped_window_stat_sources_and_early_returns() -> None:
-    memory = Memory(SystemClock(4_194_304))
-    video = VideoChip(memory.clock, memory)
+    clock = SystemClock(4_194_304)
+    memory = Memory(clock)
+    video = VideoChip(clock, memory)
     memory.video = video
 
     properties = (
@@ -373,8 +382,9 @@ def test_video_register_bus_clipped_window_stat_sources_and_early_returns() -> N
 
 
 def test_video_8x16_sprite_vertical_flip_and_empty_scanline() -> None:
-    memory = Memory(SystemClock(4_194_304))
-    video = VideoChip(memory.clock, memory)
+    clock = SystemClock(4_194_304)
+    memory = Memory(clock)
+    video = VideoChip(clock, memory)
     video.LCDC = 0x80 | 0x04 | 0x02
     video.LY = 0
     video.render_scanline()

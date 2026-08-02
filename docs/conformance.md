@@ -2,7 +2,12 @@
 
 Unit coverage answers “did this Python path run?” Test ROMs answer the more
 important emulator question: “did the complete machine behave like a Game
-Boy?” PyGameBoy supports both major machine-readable conventions:
+Boy?” PyGameBoy supports Obscuretone Test ROM plus both major external
+machine-readable conventions:
+
+- Obscuretone Test ROM streams versioned `OTR/1` progress/final events and uses
+  an `OTR1` cartridge-RAM mailbox containing state, group, case, and result text.
+  It displays the same progress on the emulated LCD and halts on failure.
 
 - Mooneye reports success with `3, 5, 8, 13, 21, 34` in registers
   B/C/D/E/H/L and over the serial port; it reports failure with six `0x42`
@@ -12,6 +17,15 @@ Boy?” PyGameBoy supports both major machine-readable conventions:
   signature and final-status handshake used by suites without serial output.
 
 ## Bundled CI floor
+
+The generated OTR suite under `tests/roms/otr` executes every
+legal base opcode, every CB opcode, CPU-visible memory/timer/interrupt/serial/
+joypad/PPU/APU behavior, and MBC0/1/2/3/5 variants. Its generator, protocol,
+coverage contract, standalone release workflow, and build instructions live in
+the [Obscuretone Test ROM repository](https://github.com/Obscuretone/obscuretone-test-rom).
+PyGameBoy vendors its release artifacts, verifies them against the upstream
+SHA-256 manifest, and uses its host harness to inspect framebuffer/audio
+behavior that a cartridge cannot observe internally.
 
 Seven MIT-licensed Mooneye acceptance ROMs are pinned under
 `tests/roms/mooneye`. They cover register flags, decimal-adjust behavior, OAM
@@ -30,6 +44,9 @@ accuracy work.
 Pass one ROM, several ROMs, or directories:
 
 ```bash
+pygameboy-conformance \
+  tests/roms/otr/otr.gb \
+  tests/roms/otr/controllers
 pygameboy-conformance tests/roms/mooneye
 pygameboy-conformance ~/roms/mooneye/acceptance --json mooneye-report.json
 pygameboy-conformance ~/roms/blargg/cpu_instrs --protocol blargg
@@ -52,6 +69,8 @@ device.
 
 The test ROMs intentionally use a hybrid layout rather than a Git submodule:
 
+- Obscuretone Test ROM artifacts are vendored from its standalone project and
+  checked against the upstream SHA-256 manifest in the normal test suite.
 - The small, MIT-licensed Mooneye compatibility floor is vendored with its
   upstream commit, archive checksum, per-ROM checksums, and license.
 - The larger [Blargg suite](https://github.com/retrio/gb-test-roms/tree/c240dd7d700e5c0b00a7bbba52b53e4ee67b5f15)

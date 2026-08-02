@@ -1,4 +1,4 @@
-from typing import Any, Final, List
+from typing import Any, Final
 
 from constants import (
     IE_REG,
@@ -18,7 +18,7 @@ class InterruptManager:
     Manages GameBoy hardware interrupts using direct memory access.
     """
 
-    VECTORS: Final[List[Address]] = [
+    VECTORS: Final[list[Address]] = [
         VEC_VBLANK,
         VEC_STAT,
         VEC_TIMER,
@@ -26,7 +26,7 @@ class InterruptManager:
         VEC_JOYPAD,
     ]
 
-    def __init__(self, memory: Any):
+    def __init__(self, memory: Any) -> None:
         self.memory: Any = memory
         # In Flat Memory, memory.storage is the source of truth
         self.storage: bytearray = memory.storage

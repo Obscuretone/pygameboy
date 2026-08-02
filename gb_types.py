@@ -1,4 +1,4 @@
-from typing import Final, Tuple, TypeAlias, Union
+from typing import Any, Final, TypeAlias
 
 import numpy as np
 
@@ -46,12 +46,12 @@ DAA_LOW_ADJUST: Final[int] = 0x06
 DAA_HIGH_ADJUST: Final[int] = 0x60
 
 # Data types
-MemoryData: TypeAlias = Union[bytearray, np.ndarray]
-ROMData: TypeAlias = Union[bytes, bytearray]
+MemoryData: TypeAlias = bytearray | np.ndarray[Any, Any]
+ROMData: TypeAlias = bytes | bytearray
 RAMData: TypeAlias = bytearray
 
 # Audio types
-Sample: TypeAlias = Tuple[float, float]
+Sample: TypeAlias = tuple[float, float]
 
 # Video types
 ColorIndex: TypeAlias = int  # 0-3
@@ -93,9 +93,9 @@ TIMER_CONTROL_MASK: Final[int] = 0x07
 INTERRUPT_MASK: Final[int] = 0x1F
 
 # Opcode group constants
-FAST_INC_OPS: Final[Tuple[int, ...]] = (0x04, 0x0C, 0x14, 0x1C, 0x24, 0x2C, 0x34, 0x3C)
-FAST_DEC_OPS: Final[Tuple[int, ...]] = (0x05, 0x0D, 0x15, 0x1D, 0x25, 0x2D, 0x35, 0x3D)
-FAST_LD_N8_OPS: Final[Tuple[int, ...]] = (
+FAST_INC_OPS: Final[tuple[int, ...]] = (0x04, 0x0C, 0x14, 0x1C, 0x24, 0x2C, 0x34, 0x3C)
+FAST_DEC_OPS: Final[tuple[int, ...]] = (0x05, 0x0D, 0x15, 0x1D, 0x25, 0x2D, 0x35, 0x3D)
+FAST_LD_N8_OPS: Final[tuple[int, ...]] = (
     0x06,
     0x0E,
     0x16,
@@ -105,18 +105,18 @@ FAST_LD_N8_OPS: Final[Tuple[int, ...]] = (
     0x36,
     0x3E,
 )
-FAST_LD_N16_OPS: Final[Tuple[int, ...]] = (0x01, 0x11, 0x21, 0x31)
-FAST_INC_R16_OPS: Final[Tuple[int, ...]] = (0x03, 0x13, 0x23, 0x33)
-FAST_DEC_R16_OPS: Final[Tuple[int, ...]] = (0x0B, 0x1B, 0x2B, 0x3B)
-FAST_ADD_HL_OPS: Final[Tuple[int, ...]] = (0x09, 0x19, 0x29, 0x39)
-FAST_JR_OPS: Final[Tuple[int, ...]] = (0x18, 0x20, 0x28, 0x30, 0x38)
-FAST_JP_OPS: Final[Tuple[int, ...]] = (0xC2, 0xC3, 0xCA, 0xD2, 0xDA)
-FAST_CALL_OPS: Final[Tuple[int, ...]] = (0xC4, 0xCC, 0xCD, 0xD4, 0xDC)
-FAST_RET_OPS: Final[Tuple[int, ...]] = (0xC0, 0xC8, 0xC9, 0xD0, 0xD8)
-FAST_PUSH_OPS: Final[Tuple[int, ...]] = (0xC5, 0xD5, 0xE5, 0xF5)
-FAST_POP_OPS: Final[Tuple[int, ...]] = (0xC1, 0xD1, 0xE1, 0xF1)
-FAST_RST_OPS: Final[Tuple[int, ...]] = (0xC7, 0xCF, 0xD7, 0xDF, 0xE7, 0xEF, 0xF7, 0xFF)
-FAST_ADD_A_OPS: Final[Tuple[int, ...]] = (
+FAST_LD_N16_OPS: Final[tuple[int, ...]] = (0x01, 0x11, 0x21, 0x31)
+FAST_INC_R16_OPS: Final[tuple[int, ...]] = (0x03, 0x13, 0x23, 0x33)
+FAST_DEC_R16_OPS: Final[tuple[int, ...]] = (0x0B, 0x1B, 0x2B, 0x3B)
+FAST_ADD_HL_OPS: Final[tuple[int, ...]] = (0x09, 0x19, 0x29, 0x39)
+FAST_JR_OPS: Final[tuple[int, ...]] = (0x18, 0x20, 0x28, 0x30, 0x38)
+FAST_JP_OPS: Final[tuple[int, ...]] = (0xC2, 0xC3, 0xCA, 0xD2, 0xDA)
+FAST_CALL_OPS: Final[tuple[int, ...]] = (0xC4, 0xCC, 0xCD, 0xD4, 0xDC)
+FAST_RET_OPS: Final[tuple[int, ...]] = (0xC0, 0xC8, 0xC9, 0xD0, 0xD8)
+FAST_PUSH_OPS: Final[tuple[int, ...]] = (0xC5, 0xD5, 0xE5, 0xF5)
+FAST_POP_OPS: Final[tuple[int, ...]] = (0xC1, 0xD1, 0xE1, 0xF1)
+FAST_RST_OPS: Final[tuple[int, ...]] = (0xC7, 0xCF, 0xD7, 0xDF, 0xE7, 0xEF, 0xF7, 0xFF)
+FAST_ADD_A_OPS: Final[tuple[int, ...]] = (
     0x80,
     0x81,
     0x82,
@@ -127,7 +127,7 @@ FAST_ADD_A_OPS: Final[Tuple[int, ...]] = (
     0x87,
     0xC6,
 )
-FAST_ADC_A_OPS: Final[Tuple[int, ...]] = (
+FAST_ADC_A_OPS: Final[tuple[int, ...]] = (
     0x88,
     0x89,
     0x8A,
@@ -138,7 +138,7 @@ FAST_ADC_A_OPS: Final[Tuple[int, ...]] = (
     0x8F,
     0xCE,
 )
-FAST_SUB_A_OPS: Final[Tuple[int, ...]] = (
+FAST_SUB_A_OPS: Final[tuple[int, ...]] = (
     0x90,
     0x91,
     0x92,
@@ -149,7 +149,7 @@ FAST_SUB_A_OPS: Final[Tuple[int, ...]] = (
     0x97,
     0xD6,
 )
-FAST_SBC_A_OPS: Final[Tuple[int, ...]] = (
+FAST_SBC_A_OPS: Final[tuple[int, ...]] = (
     0x98,
     0x99,
     0x9A,
@@ -160,7 +160,7 @@ FAST_SBC_A_OPS: Final[Tuple[int, ...]] = (
     0x9F,
     0xDE,
 )
-FAST_XOR_A_OPS: Final[Tuple[int, ...]] = (
+FAST_XOR_A_OPS: Final[tuple[int, ...]] = (
     0xA8,
     0xA9,
     0xAA,
@@ -171,7 +171,7 @@ FAST_XOR_A_OPS: Final[Tuple[int, ...]] = (
     0xAF,
     0xEE,
 )
-FAST_AND_A_OPS: Final[Tuple[int, ...]] = (
+FAST_AND_A_OPS: Final[tuple[int, ...]] = (
     0xA0,
     0xA1,
     0xA2,
@@ -182,7 +182,7 @@ FAST_AND_A_OPS: Final[Tuple[int, ...]] = (
     0xA7,
     0xE6,
 )
-FAST_OR_A_OPS: Final[Tuple[int, ...]] = (
+FAST_OR_A_OPS: Final[tuple[int, ...]] = (
     0xB0,
     0xB1,
     0xB2,
@@ -193,7 +193,7 @@ FAST_OR_A_OPS: Final[Tuple[int, ...]] = (
     0xB7,
     0xF6,
 )
-FAST_CP_A_OPS: Final[Tuple[int, ...]] = (
+FAST_CP_A_OPS: Final[tuple[int, ...]] = (
     0xB8,
     0xB9,
     0xBA,

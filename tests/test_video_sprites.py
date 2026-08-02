@@ -5,21 +5,21 @@ from video import VideoChip
 
 
 class MockMemory:
-    def __init__(self):
+    def __init__(self) -> None:
         self.storage = bytearray(0x10000)
         self.interrupts = 0
 
-    def request_interrupt(self, mask):
+    def request_interrupt(self, mask: int) -> None:
         self.interrupts |= mask
 
 
 class TestVideoSprites(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.clock = SystemClock(4194304)
         self.mem = MockMemory()
-        self.video = VideoChip(self.clock, self.mem)  # type: ignore
+        self.video = VideoChip(self.clock, self.mem)
 
-    def test_sprite_rendering(self):
+    def test_sprite_rendering(self) -> None:
         # Configure LCDC for BG enable and OBJ enable
         self.video.LCDC = 0b10000011  # bit 1 = 1 (OBJ enable)
         self.video.BGP = 0xE4
@@ -44,7 +44,7 @@ class TestVideoSprites(unittest.TestCase):
         for i in range(8):
             self.assertEqual(self.video.frame_buffer[i], 1)
 
-    def test_sprite_transparency(self):
+    def test_sprite_transparency(self) -> None:
         self.video.LCDC = 0b10000011
         self.video.LY = 0
         self.video.oam[0] = 16
@@ -66,7 +66,7 @@ class TestVideoSprites(unittest.TestCase):
         for i in range(8):
             self.assertEqual(self.video.frame_buffer[i], 3)
 
-    def test_sprite_horizontal_flip_reverses_pixels(self):
+    def test_sprite_horizontal_flip_reverses_pixels(self) -> None:
         self.video.LCDC = 0x80 | 0x02
         self.video.OBP0 = 0xE4
         self.video.LY = 0
@@ -79,7 +79,7 @@ class TestVideoSprites(unittest.TestCase):
         self.assertEqual(self.video.frame_buffer[:7].tolist(), [0] * 7)
         self.assertEqual(self.video.frame_buffer[7], 1)
 
-    def test_sprite_behind_background_uses_raw_bg_color_for_priority(self):
+    def test_sprite_behind_background_uses_raw_bg_color_for_priority(self) -> None:
         self.video.LCDC = 0x80 | 0x10 | 0x02 | 0x01
         self.video.BGP = 0xE4
         self.video.OBP0 = 0xE4
@@ -99,7 +99,7 @@ class TestVideoSprites(unittest.TestCase):
 
         self.assertEqual(self.video.frame_buffer[:8].tolist(), [1] * 8)
 
-    def test_only_first_ten_oam_entries_on_a_line_are_considered(self):
+    def test_only_first_ten_oam_entries_on_a_line_are_considered(self) -> None:
         self.video.LCDC = 0x80 | 0x02
         self.video.OBP0 = 0xE4
         self.video.LY = 0

@@ -6,14 +6,14 @@ from video import VideoChip
 
 
 class TestRegressions(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.clock = SystemClock(4194304)
         self.mem_data = bytearray(0x10000)
         self.memory = Memory(self.clock, self.mem_data)
         self.video = VideoChip(self.clock, self.memory)
         self.memory.video = self.video
 
-    def test_io_register_defaults(self):
+    def test_io_register_defaults(self) -> None:
         """Verify critical I/O registers have correct hardware defaults at start."""
         # IF ($FF0F) on DMG should have top 3 bits as 1 (0xE1)
         self.assertEqual(self.memory.read_byte(0xFF0F), 0xE1)
@@ -22,7 +22,7 @@ class TestRegressions(unittest.TestCase):
         # STAT ($FF41) Bit 7 should always be 1
         self.assertEqual(self.memory.read_byte(0xFF41) & 0x80, 0x80)
 
-    def test_echo_ram_bidirectional_mirroring(self):
+    def test_echo_ram_bidirectional_mirroring(self) -> None:
         """Verify WRAM and Echo RAM are perfectly mirrored both ways."""
         # Write to WRAM, read from Echo
         self.memory.write_byte(0xC000, 0x42)
@@ -36,13 +36,13 @@ class TestRegressions(unittest.TestCase):
         self.memory.write_byte(0xDDFF, 0x99)
         self.assertEqual(self.memory.read_byte(0xFDFF), 0x99)
 
-    def test_unusable_memory_reads(self):
+    def test_unusable_memory_reads(self) -> None:
         """Verify unusable memory regions return 0x00 as expected on DMG."""
         # $FEA0 - $FEFF is unusable
         self.memory.storage[0xFEA0] = 0xAA
         self.assertEqual(self.memory.read_byte(0xFEA0), 0x00)
 
-    def test_apu_nr52_power_toggle_behavior(self):
+    def test_apu_nr52_power_toggle_behavior(self) -> None:
         """Verify APU registers are managed correctly during power toggles."""
         # Turn APU ON (NR52 Bit 7 = 1)
         self.memory.write_byte(0xFF26, 0x80)

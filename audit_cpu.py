@@ -40,11 +40,11 @@ INVALID_OPCODES = {
 }
 
 
-def opcode_range(start, stop):
+def opcode_range(start: int, stop: int) -> set[int]:
     return set(range(start, stop + 1))
 
 
-def fast_base_opcodes():
+def fast_base_opcodes() -> set[int]:
     fast = {
         0x00,
         0x08,
@@ -105,7 +105,7 @@ def fast_base_opcodes():
     return fast
 
 
-def main():
+def main() -> None:
     cpu = CPU(Memory())
     legal = {opcode for opcode in cpu.instruction_set() if opcode <= 0xFF}
     legal.update(set(range(256)) - INVALID_OPCODES)

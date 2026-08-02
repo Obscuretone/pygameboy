@@ -6,14 +6,14 @@ from video import VideoChip
 
 
 class TestDMAJoypad(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.clock = SystemClock(4194304)
         self.mem_data = bytearray(0x10000)
         self.memory = Memory(self.clock, self.mem_data)
         self.video = VideoChip(self.clock, self.memory)
         self.memory.video = self.video
 
-    def test_oam_dma_transfer(self):
+    def test_oam_dma_transfer(self) -> None:
         # Set up source data at 0xC000
         for i in range(160):
             self.memory.storage[0xC000 + i] = i
@@ -27,7 +27,7 @@ class TestDMAJoypad(unittest.TestCase):
             # Verify routing through Memory
             self.assertEqual(self.memory.read_byte(0xFE00 + i), i)
 
-    def test_joypad_direction_keys(self):
+    def test_joypad_direction_keys(self) -> None:
         # Select direction keys (bit 4 = 0)
         self.memory.write_byte(0xFF00, 0x20)  # bit 5=1, bit 4=0
 
@@ -45,7 +45,7 @@ class TestDMAJoypad(unittest.TestCase):
         res = self.memory.read_byte(0xFF00)
         self.assertEqual(res & 0x04, 0x04)
 
-    def test_joypad_button_keys(self):
+    def test_joypad_button_keys(self) -> None:
         # Select button keys (bit 5 = 0)
         self.memory.write_byte(0xFF00, 0x10)  # bit 5=0, bit 4=1
 

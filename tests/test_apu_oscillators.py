@@ -5,13 +5,13 @@ from memory import Memory
 
 
 class TestAPUOscillators(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.clock = SystemClock(4194304)
         self.mem_data = bytearray(0x10000)
         self.memory = Memory(self.clock, self.mem_data)
         self.apu = self.memory.apu
 
-    def test_pulse_oscillator(self):
+    def test_pulse_oscillator(self) -> None:
         # Turn APU on
         self.memory.write_byte(0xFF26, 0x80)
 
@@ -41,7 +41,7 @@ class TestAPUOscillators(unittest.TestCase):
         # Step 2, output 0
         self.assertEqual(self.apu.ch2.output, 0)
 
-    def test_pulse_oscillator_large_batch_advances_multiple_edges(self):
+    def test_pulse_oscillator_large_batch_advances_multiple_edges(self) -> None:
         self.memory.write_byte(0xFF26, 0x80)
         self.memory.write_byte(0xFF16, 0x80)
         self.memory.write_byte(0xFF17, 0xA0)
@@ -53,7 +53,7 @@ class TestAPUOscillators(unittest.TestCase):
         self.assertEqual(self.apu.ch2.duty_step, 2)
         self.assertEqual(self.apu.ch2.output, 0)
 
-    def test_wave_oscillator(self):
+    def test_wave_oscillator(self) -> None:
         self.memory.write_byte(0xFF26, 0x80)
 
         # Fill wave RAM with 0x42
@@ -73,7 +73,7 @@ class TestAPUOscillators(unittest.TestCase):
         # Sample 1 should be 2
         self.assertEqual(self.apu.ch3.output, 2)
 
-    def test_apu_mixing(self):
+    def test_apu_mixing(self) -> None:
         self.memory.write_byte(0xFF26, 0x80)
 
         # Enable Ch 1 and Ch 2 for both Left and Right output (0xFF25)
@@ -99,7 +99,7 @@ class TestAPUOscillators(unittest.TestCase):
         self.assertAlmostEqual(self.apu.left_output, 1 / 3)
         self.assertAlmostEqual(self.apu.right_output, 1 / 3)
 
-    def test_noise_oscillator_uses_nr43_period(self):
+    def test_noise_oscillator_uses_nr43_period(self) -> None:
         self.memory.write_byte(0xFF26, 0x80)
         self.memory.write_byte(0xFF21, 0xF0)
         self.memory.write_byte(0xFF22, 0x00)
@@ -115,7 +115,7 @@ class TestAPUOscillators(unittest.TestCase):
         self.memory.write_byte(0xFF22, 0x17)
         self.assertEqual(self.apu.ch4.period, 224)
 
-    def test_noise_oscillator_uses_width_mode(self):
+    def test_noise_oscillator_uses_width_mode(self) -> None:
         self.memory.write_byte(0xFF26, 0x80)
         self.memory.write_byte(0xFF21, 0xF0)
         self.memory.write_byte(0xFF22, 0x08)
@@ -125,7 +125,7 @@ class TestAPUOscillators(unittest.TestCase):
 
         self.assertEqual((self.apu.ch4.lfsr >> 6) & 1, 0)
 
-    def test_noise_oscillator_batches_many_exact_lfsr_edges(self):
+    def test_noise_oscillator_batches_many_exact_lfsr_edges(self) -> None:
         self.memory.write_byte(0xFF26, 0x80)
         self.memory.write_byte(0xFF21, 0xF0)
         self.memory.write_byte(0xFF22, 0x00)
@@ -141,7 +141,36 @@ class TestAPUOscillators(unittest.TestCase):
         self.assertEqual(self.apu.ch4.lfsr, expected)
         self.assertEqual(self.apu.ch4.timer, self.apu.ch4.period)
 
-    def test_apu_samples_before_later_noise_edges_in_large_steps(self):
+    def test_pulse_and_wave_channels_batch_many_exact_timer_edges(self) -> None:
+        pulse = self.apu.ch1
+        pulse.enabled = True
+        pulse.frequency = 2040
+        pulse.timer = 32
+        pulse.duty = 2
+        pulse.duty_step = 0
+        pulse.volume = 9
+
+        pulse.step(13 * 32)
+
+        self.assertEqual(pulse.timer, 32)
+        self.assertEqual(pulse.duty_step, 5)
+        self.assertEqual(pulse.output, 9)
+
+        wave = self.apu.ch3
+        wave.enabled = True
+        wave.frequency = 2040
+        wave.timer = 16
+        wave.sample_index = 0
+        wave.volume_shift = 1
+        wave.wave_ram[:] = bytes(range(16))
+
+        wave.step(35 * 16)
+
+        self.assertEqual(wave.timer, 16)
+        self.assertEqual(wave.sample_index, 3)
+        self.assertEqual(wave.output, 1)
+
+    def test_apu_samples_before_later_noise_edges_in_large_steps(self) -> None:
         self.memory.write_byte(0xFF26, 0x80)
         self.memory.write_byte(0xFF24, 0x77)
         self.memory.write_byte(0xFF25, 0x88)
