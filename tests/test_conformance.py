@@ -3,6 +3,7 @@ import os
 import runpy
 import sys
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -12,7 +13,7 @@ import conformance
 
 def make_rom(program: bytes = b"\x18\xfe") -> bytearray:
     rom = bytearray(32 * 1024)
-    rom[0x0100:0x0103] = b"\xC3\x50\x01"
+    rom[0x0100:0x0103] = b"\xc3\x50\x01"
     rom[0x0134:0x0138] = b"TEST"
     rom[0x0147] = 0
     rom[0x0148] = 0
@@ -36,7 +37,9 @@ def serial_program(message: bytes) -> bytes:
 
 def mooneye_program(signature: bytes) -> bytes:
     program = bytearray()
-    for opcode, value in zip((0x06, 0x0E, 0x16, 0x1E, 0x26, 0x2E), signature):
+    for opcode, value in zip(
+        (0x06, 0x0E, 0x16, 0x1E, 0x26, 0x2E), signature, strict=True
+    ):
         program.extend((opcode, value))
     program.extend(serial_program(signature))
     return bytes(program)
@@ -58,9 +61,9 @@ def blargg_memory_program(message: bytes, status: int) -> bytes:
     return bytes(program)
 
 
-def pygameboy_memory_program(message: bytes, status: int) -> bytes:
+def otr_memory_program(message: bytes, status: int) -> bytes:
     values = (
-        *((0xA000 + index, value) for index, value in enumerate(b"PYGB")),
+        *((0xA000 + index, value) for index, value in enumerate(b"OTR1")),
         *((0xA010 + index, value) for index, value in enumerate(message + b"\0")),
         (0xA004, status),
     )
@@ -143,8 +146,8 @@ def test_run_rom_detects_blargg_serial_reports(
 @pytest.mark.parametrize(
     ("event", "expected_status"),
     [
-        (b"PYGB/1 PASS\n", conformance.PASS),
-        (b"PYGB/1 FAIL\n", conformance.FAIL),
+        (b"OTR/1 PASS\n", conformance.PASS),
+        (b"OTR/1 FAIL\n", conformance.FAIL),
     ],
 )
 def test_run_rom_detects_first_party_serial_events(
@@ -157,22 +160,22 @@ def test_run_rom_detects_first_party_serial_events(
 
     result = conformance.run_rom(
         rom,
-        protocol=conformance.PYGAMEBOY,
+        protocol=conformance.OTR,
         batch_size=100,
         max_instructions=10_000,
     )
 
     assert result.status == expected_status
-    assert result.protocol == conformance.PYGAMEBOY
+    assert result.protocol == conformance.OTR
     assert result.serial_output == event.decode()
-    assert "PyGameBoy serial event" in result.detail
+    assert "OTR serial event" in result.detail
 
 
 @pytest.mark.parametrize(
     ("status", "expected_status"),
     [
-        (conformance.PYGAMEBOY_RESULT_PASS, conformance.PASS),
-        (conformance.PYGAMEBOY_RESULT_FAIL, conformance.FAIL),
+        (conformance.OTR_RESULT_PASS, conformance.PASS),
+        (conformance.OTR_RESULT_FAIL, conformance.FAIL),
         (0x55, conformance.ERROR),
     ],
 )
@@ -182,7 +185,7 @@ def test_run_rom_detects_first_party_memory_mailbox(
     expected_status: str,
 ) -> None:
     message = b"Mailbox report"
-    rom = make_rom(pygameboy_memory_program(message, status))
+    rom = make_rom(otr_memory_program(message, status))
     rom[0x0147] = 0x08
     rom[0x0149] = 0x02
     rom_path = tmp_path / "pygameboy-memory.gb"
@@ -190,22 +193,21 @@ def test_run_rom_detects_first_party_memory_mailbox(
 
     result = conformance.run_rom(
         rom_path,
-        protocol=conformance.PYGAMEBOY,
+        protocol=conformance.OTR,
         batch_size=100,
         max_instructions=1_000,
     )
 
     assert result.status == expected_status
-    assert result.protocol == conformance.PYGAMEBOY
+    assert result.protocol == conformance.OTR
     assert result.serial_output == message.decode()
     assert "memory mailbox" in result.detail
 
 
 def test_first_party_memory_mailbox_waits_for_final_state() -> None:
     cpu, memory = conformance.create_headless_system(make_rom())
-    memory.storage[0xA000:0xA005] = (
-        conformance.PYGAMEBOY_RESULT_MAGIC
-        + bytes((conformance.PYGAMEBOY_RESULT_RUNNING,))
+    memory.storage[0xA000:0xA005] = conformance.OTR_RESULT_MAGIC + bytes(
+        (conformance.OTR_RESULT_RUNNING,)
     )
 
     assert (
@@ -213,7 +215,7 @@ def test_first_party_memory_mailbox_waits_for_final_state() -> None:
             cpu,
             memory,
             bytearray(),
-            conformance.PYGAMEBOY,
+            conformance.OTR,
         )
         is None
     )
@@ -293,7 +295,7 @@ def test_protocol_filtering_timeout_and_stopped_rom(tmp_path: Path) -> None:
 )
 def test_run_rom_rejects_invalid_options(
     tmp_path: Path,
-    kwargs: dict,
+    kwargs: dict[str, Any],
     message: str,
 ) -> None:
     rom = tmp_path / "test.gb"

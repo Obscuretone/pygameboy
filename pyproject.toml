@@ -78,7 +78,6 @@ omit = [
   "audit_cpu.py",
   "benchmark_cpu.py",
   "refactor.py",
-  "test_rom/generate.py",
 ]
 
 [tool.coverage.report]

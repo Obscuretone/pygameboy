@@ -48,11 +48,6 @@ jobs:
       - name: Validate CPU opcode coverage tool
         run: uv run --frozen python audit_cpu.py
 
-      - name: Validate first-party test ROM artifacts
-        run: >
-          uv run --frozen python test_rom/generate.py
-          --output tests/roms/pygameboy --check
-
       - name: Validate benchmark harness
         if: matrix.python-version == '3.13'
         run: >

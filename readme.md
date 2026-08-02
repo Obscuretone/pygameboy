@@ -27,7 +27,7 @@ dispatch, vectorized scanline rendering, and audio-clock pacing.
 - Fast frame execution plus an instrumentable single-step/profile path.
 - Toggleable live register, PPU, audio-buffer, and timing overlay with separate
   emulated-frame, presented-frame, skipped-frame, and clock-speed telemetry.
-- A first-party, self-checking ROM with live display/serial progress, every
+- Bundled Obscuretone Test ROM checks with live display/serial progress, every
   legal CPU opcode, every CB opcode, hardware subsystems, and MBC variants.
 - Unit, integration, headless CLI, and external test-ROM checks on Python
   3.10–3.13.
@@ -120,14 +120,13 @@ uv sync --frozen --extra dev
 uv run --frozen ruff check .
 uv run --frozen pytest --cov=. --cov-report=term-missing
 uv run --frozen python audit_cpu.py
-uv run --frozen python test_rom/generate.py \
-  --output tests/roms/pygameboy --check
 uv run --frozen pygameboy-conformance tests/roms/mooneye
 ```
 
 CI enforces 100% statement and branch coverage across every production module.
 The suite combines the reproducible
-[PyGameBoy Test ROM](test_rom/README.md), exhaustive opcode matrices,
+[Obscuretone Test ROM](https://github.com/Obscuretone/obscuretone-test-rom),
+exhaustive opcode matrices,
 synthetic-ROM system tests, hardware state-machine tests, renderer checks, host
 failure-path coverage, and pinned Mooneye acceptance ROMs.
 
@@ -151,7 +150,7 @@ dispatch throughput, not whole-emulator compatibility or frame rate.
 Passing project tests is necessary but not sufficient for emulator accuracy.
 New hardware behavior should be tested through the integrated `Memory`/`CPU`
 path, not only through a component in isolation. The headless conformance
-runner understands PyGameBoy's `PYGB/1` events and mailbox, Mooneye register
+runner understands OTR's `OTR/1` events and mailbox, Mooneye register
 signatures, and Blargg serial/memory reports. The published floor covers CPU
 instructions, instruction timing, memory-access timing, DMA, timer,
 serial-clock, and register behavior.
