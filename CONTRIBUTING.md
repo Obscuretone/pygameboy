@@ -11,11 +11,15 @@ Run the local quality gate before opening a pull request:
 
 ```bash
 uv run --frozen ruff check .
+uv run --frozen ruff format --check .
+uv run --frozen mypy .
 uv run --frozen pytest --cov=. --cov-report=term-missing
 uv run --frozen python audit_cpu.py
 ```
 
-The checked-in `uv.lock` is the shared dependency contract used by CI. To test
+Run `uv run ruff check --fix .` and `uv run ruff format .` to apply safe lint
+fixes and formatting locally. The checked-in `uv.lock` is the shared dependency
+contract used by CI. To test
 optional live audio as well, sync with `--extra audio` in addition to
 `--extra dev`. Both statement and branch coverage must remain at 100%; new
 branches should include behavior-focused tests at the narrowest useful layer.

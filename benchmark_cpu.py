@@ -7,11 +7,12 @@ import json
 import platform
 import sys
 import time
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from statistics import median
-from typing import Iterable, Mapping, Optional, Sequence
+from typing import cast
 
 from clock import SystemClock
 from constants import GB_CLOCK_HZ
@@ -25,7 +26,7 @@ class BenchmarkCase:
     program: bytes
     instructions: int
     emulated_cycles: int
-    setup: Optional[Mapping[int, int]] = None
+    setup: Mapping[int, int] | None = None
 
 
 @dataclass(frozen=True)
@@ -70,8 +71,7 @@ def measure_case(case: BenchmarkCase) -> tuple[float, float, int]:
         )
     if cycles != case.emulated_cycles:
         raise RuntimeError(
-            f"{case.name} executed {cycles:,} cycles; "
-            f"expected {case.emulated_cycles:,}"
+            f"{case.name} executed {cycles:,} cycles; expected {case.emulated_cycles:,}"
         )
     return executed / elapsed, cycles / elapsed, cycles
 
@@ -222,7 +222,7 @@ def environment_metadata(repeats: int) -> dict[str, object]:
 def render_markdown(
     metadata: Mapping[str, object], results: Iterable[BenchmarkResult]
 ) -> str:
-    measured_runs = int(metadata["repeats"])
+    measured_runs = cast(int, metadata["repeats"])
     run_label = "run" if measured_runs == 1 else "runs"
     lines = [
         "# CPU benchmark results",
@@ -289,7 +289,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.repeats <= 0:
         print("Error: --repeats must be greater than zero", file=sys.stderr)

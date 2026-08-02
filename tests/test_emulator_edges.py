@@ -4,6 +4,7 @@ import sys
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import Mock, patch
 
 import numpy as np
@@ -14,6 +15,7 @@ import emulator
 from apu import APU
 from mbc import MBC1, MBC2, MBC3, MBC5
 from memory import Memory as ActualMemory
+from protocols import ClockDevice, MemoryBankController
 
 
 def write_rom(
@@ -30,7 +32,7 @@ def write_rom(
 
 
 class Stream:
-    def __init__(self, active=True, fail_stop=False):
+    def __init__(self, active: bool = True, fail_stop: bool = False) -> None:
         self._active = active
         self.fail_stop = fail_stop
         self.started = False
@@ -38,42 +40,44 @@ class Stream:
         self.closed = False
 
     @property
-    def active(self):
+    def active(self) -> bool:
         return self._active
 
-    def start(self):
+    def start(self) -> None:
         self.started = True
 
-    def stop(self):
+    def stop(self) -> None:
         if self.fail_stop:
             raise RuntimeError("stop failed")
         self.stopped = True
 
-    def close(self):
+    def close(self) -> None:
         self.closed = True
 
 
 class SequencedStream(Stream):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.active_values = iter((True, False, False))
 
     @property
-    def active(self):
+    def active(self) -> bool:
         return next(self.active_values, False)
 
 
 class SoundDevice:
-    def __init__(self, stream):
+    def __init__(self, stream: Stream) -> None:
         self.stream = stream
-        self.kwargs = None
+        self.kwargs: dict[str, Any] | None = None
 
-    def OutputStream(self, **kwargs):
+    def OutputStream(self, **kwargs: Any) -> Stream:
         self.kwargs = kwargs
         return self.stream
 
 
-def test_module_entrypoint_and_optional_audio_import_path(capsys) -> None:
+def test_module_entrypoint_and_optional_audio_import_path(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     with (
         patch.object(sys, "platform", "linux"),
         patch.object(sys, "argv", ["emulator.py", "--help"]),
@@ -86,7 +90,9 @@ def test_module_entrypoint_and_optional_audio_import_path(capsys) -> None:
     assert "Run a Nintendo Game Boy" in capsys.readouterr().out
 
 
-def test_rom_metadata_positive_integer_and_every_mbc_factory(capsys) -> None:
+def test_rom_metadata_positive_integer_and_every_mbc_factory(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     rom = bytearray(0x8000)
     rom[0x0134:0x0136] = b"\xff\xfe"
     assert emulator.get_rom_title(rom) == "Unknown"
@@ -110,13 +116,16 @@ def test_rom_metadata_positive_integer_and_every_mbc_factory(capsys) -> None:
         controller = emulator.create_mbc(rom)
         assert isinstance(controller, controller_type)
         if cart_type == 0x1C:
+            assert isinstance(controller, MBC5)
             assert controller.has_rumble
 
     emulator.print_rom_info(rom)
     assert "Loading ROM: Unknown" in capsys.readouterr().out
 
 
-def test_opcode_profile_without_zero_counts_runs_to_the_limit(capsys) -> None:
+def test_opcode_profile_without_zero_counts_runs_to_the_limit(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     cpu = Mock()
     cpu.hottest_opcodes.return_value = [(opcode, 1) for opcode in range(20)]
 
@@ -149,7 +158,7 @@ def test_input_handles_quit_mapped_unmapped_press_release_and_f1() -> None:
 
 
 def test_audio_callback_consumes_contiguous_wrapped_partial_and_empty_buffers(
-    capsys,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     apu = APU()
     callback = emulator.make_audio_callback(apu, verbose=True)
@@ -191,7 +200,7 @@ def test_audio_callback_consumes_contiguous_wrapped_partial_and_empty_buffers(
     assert out.tolist() == [[11, 12], [13, 14], [0, 0], [0, 0]]
 
 
-def test_main_boot_rom_read_error_valid_boot_and_loaded_save(tmp_path) -> None:
+def test_main_boot_rom_read_error_valid_boot_and_loaded_save(tmp_path: Path) -> None:
     rom_path = tmp_path / "game.gb"
     write_rom(rom_path)
     stderr = io.StringIO()
@@ -260,7 +269,7 @@ def test_main_boot_rom_read_error_valid_boot_and_loaded_save(tmp_path) -> None:
     assert "could not load cartridge save" in stderr.getvalue()
 
 
-def test_main_sounddevice_none_success_and_close_failure(tmp_path) -> None:
+def test_main_sounddevice_none_success_and_close_failure(tmp_path: Path) -> None:
     rom_path = tmp_path / "game.gb"
     write_rom(rom_path)
 
@@ -293,6 +302,7 @@ def test_main_sounddevice_none_success_and_close_failure(tmp_path) -> None:
             == 0
         )
     assert stream.started and stream.stopped and stream.closed
+    assert sound_device.kwargs is not None
     assert sound_device.kwargs["callback"]
 
     stream = Stream(fail_stop=True)
@@ -314,12 +324,12 @@ def test_main_sounddevice_none_success_and_close_failure(tmp_path) -> None:
     assert "could not close audio stream" in stderr.getvalue()
 
 
-def test_main_audio_backpressure_and_stopped_stream_fallback(tmp_path) -> None:
+def test_main_audio_backpressure_and_stopped_stream_fallback(tmp_path: Path) -> None:
     rom_path = tmp_path / "game.gb"
     write_rom(rom_path)
     stream = SequencedStream()
 
-    def memory_with_full_audio(clock):
+    def memory_with_full_audio(clock: ClockDevice) -> ActualMemory:
         memory = ActualMemory(clock)
         memory.apu.buffer_size = 5000
         return memory
@@ -348,18 +358,20 @@ def test_main_audio_backpressure_and_stopped_stream_fallback(tmp_path) -> None:
     assert "audio stream stopped" in stderr.getvalue()
 
 
-def test_main_active_realtime_stream_skips_then_resumes_rendering(tmp_path) -> None:
+def test_main_active_realtime_stream_skips_then_resumes_rendering(
+    tmp_path: Path,
+) -> None:
     rom_path = tmp_path / "game.gb"
     write_rom(rom_path)
     stream = Stream(active=True)
-    audio = {}
+    audio: dict[str, APU] = {}
 
-    def capture_audio(clock):
+    def capture_audio(clock: ClockDevice) -> ActualMemory:
         memory = ActualMemory(clock)
         audio["apu"] = memory.apu
         return memory
 
-    def recover_audio_buffer(*_args, **_kwargs):
+    def recover_audio_buffer(*_args: Any, **_kwargs: Any) -> tuple[int, int]:
         audio["apu"].buffer_size = emulator.AUDIO_BUFFER_LOW_WATER
         return 1, 4
 
@@ -384,7 +396,7 @@ def test_main_active_realtime_stream_skips_then_resumes_rendering(tmp_path) -> N
     flip.assert_called_once()
 
 
-def test_main_loop_limits_verbose_debug_quit_zero_work_and_fps(tmp_path) -> None:
+def test_main_loop_limits_verbose_debug_quit_zero_work_and_fps(tmp_path: Path) -> None:
     rom_path = tmp_path / "game.gb"
     write_rom(rom_path)
     common = ["--no-audio", "--no-realtime"]
@@ -436,19 +448,17 @@ def test_main_loop_limits_verbose_debug_quit_zero_work_and_fps(tmp_path) -> None
         ),
         patch("emulator.pygame.display.flip") as flip,
     ):
-        assert (
-            emulator.main(["--no-audio", "--max-frames", "2", str(rom_path)]) == 0
-        )
+        assert emulator.main(["--no-audio", "--max-frames", "2", str(rom_path)]) == 0
     flip.assert_called_once()
 
 
 def test_main_periodic_final_save_keyboard_interrupt_and_existing_error(
-    tmp_path,
+    tmp_path: Path,
 ) -> None:
     rom_path = tmp_path / "battery.gb"
     write_rom(rom_path, cart_type=0x09, ram_size_code=0x02)
 
-    def dirty_load(controller, _path):
+    def dirty_load(controller: MemoryBankController, _path: str) -> int:
         controller.ram_dirty = True
         return 0
 

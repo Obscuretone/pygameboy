@@ -1,8 +1,8 @@
 import os
-from typing import Optional
+from contextlib import suppress
 
 from constants import BATTERY_BACKED_CART_TYPES
-from mbc import MBC
+from protocols import MemoryBankController
 
 
 def has_battery(cart_type: int) -> bool:
@@ -15,7 +15,7 @@ def get_save_path(rom_path: str) -> str:
     return f"{os.path.splitext(rom_path)[0]}.sav"
 
 
-def load_cartridge_ram(mbc: MBC, save_path: str) -> int:
+def load_cartridge_ram(mbc: MemoryBankController, save_path: str) -> int:
     """Load battery-backed cartridge RAM from disk into the MBC."""
     if not mbc.ram or not os.path.exists(save_path):
         return 0
@@ -31,7 +31,9 @@ def load_cartridge_ram(mbc: MBC, save_path: str) -> int:
     return size
 
 
-def save_cartridge_ram(mbc: MBC, save_path: str, force: bool = False) -> Optional[int]:
+def save_cartridge_ram(
+    mbc: MemoryBankController, save_path: str, force: bool = False
+) -> int | None:
     """Persist battery-backed cartridge RAM to disk if it changed."""
     if not mbc.ram or (not force and not mbc.ram_dirty):
         return None
@@ -46,10 +48,8 @@ def save_cartridge_ram(mbc: MBC, save_path: str, force: bool = False) -> Optiona
             save_file.write(mbc.ram)
         os.replace(temp_path, save_path)
     except OSError:
-        try:
+        with suppress(OSError):
             os.remove(temp_path)
-        except OSError:
-            pass
         raise
     mbc.ram_dirty = False
     return len(mbc.ram)

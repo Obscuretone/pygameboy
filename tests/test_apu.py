@@ -5,12 +5,12 @@ from memory import Memory
 
 
 class TestAPU(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.clock = SystemClock(4194304)
         self.mem_data = bytearray(0x10000)
         self.memory = Memory(self.clock, self.mem_data)
 
-    def test_apu_power_off_reads(self):
+    def test_apu_power_off_reads(self) -> None:
         # By default, APU is off
         self.assertEqual(self.memory.read_byte(0xFF26) & 0x80, 0)
 

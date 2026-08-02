@@ -1,6 +1,7 @@
-from typing import Any, Final
+from typing import Any, Final, cast
 
 import numpy as np
+import numpy.typing as npt
 
 from constants import (
     BGP_DEFAULT,
@@ -49,7 +50,7 @@ from gb_types import Address, Byte, Cycles
 from protocols import ClockDevice
 
 
-def _build_tile_row_colors() -> np.ndarray:
+def _build_tile_row_colors() -> npt.NDArray[np.uint8]:
     """Decode every possible two-byte DMG tile row into eight color indices."""
     shifts = np.arange(7, -1, -1, dtype=np.uint16)
     byte_values = np.arange(256, dtype=np.uint16)[:, None]
@@ -57,10 +58,10 @@ def _build_tile_row_colors() -> np.ndarray:
     row_codes = np.arange(1 << 16, dtype=np.uint16)
     rows = bit_rows[row_codes & 0xFF] | (bit_rows[row_codes >> 8] << 1)
     rows.setflags(write=False)
-    return rows
+    return cast(npt.NDArray[np.uint8], rows)
 
 
-def _build_palette_shades() -> np.ndarray:
+def _build_palette_shades() -> npt.NDArray[np.uint8]:
     """Precompute all four DMG shade mappings for every palette register."""
     palettes = np.arange(256, dtype=np.uint16)[:, None]
     shifts = np.arange(4, dtype=np.uint16) * 2
@@ -69,8 +70,8 @@ def _build_palette_shades() -> np.ndarray:
     return shades
 
 
-_TILE_ROW_COLORS: Final[np.ndarray] = _build_tile_row_colors()
-_PALETTE_SHADES: Final[np.ndarray] = _build_palette_shades()
+_TILE_ROW_COLORS: Final[npt.NDArray[np.uint8]] = _build_tile_row_colors()
+_PALETTE_SHADES: Final[npt.NDArray[np.uint8]] = _build_palette_shades()
 
 
 class VideoChip:
@@ -84,10 +85,10 @@ class VideoChip:
     OAM_SIZE: Final[int] = OAM_SIZE
 
     # Pre-calculated NumPy arrays
-    _BIT_INDICES: Final[np.ndarray] = np.arange(8)
-    _BITS_NORMAL: Final[np.ndarray] = 7 - _BIT_INDICES
+    _BIT_INDICES: Final[npt.NDArray[Any]] = np.arange(8)
+    _BITS_NORMAL: Final[npt.NDArray[Any]] = 7 - _BIT_INDICES
 
-    def __init__(self, clock: ClockDevice, memory: Any):
+    def __init__(self, clock: ClockDevice, memory: Any) -> None:
         self.skip_render = False
         self.force_skip = False
         self.frame_done = False
@@ -102,15 +103,15 @@ class VideoChip:
             memory.storage, offset=OAM_START, count=OAM_SIZE, dtype=np.uint8
         )
         self.oam_view = self.oam_np.reshape((40, 4))
-        self.tile_columns: np.ndarray = np.arange(21, dtype=np.uint16)
+        self.tile_columns: npt.NDArray[np.uint16] = np.arange(21, dtype=np.uint16)
         self.mode_clock: int = 0
         self.window_line: int = 0
         self.stat_irq_signal: bool = False
 
-        self.frame_buffer: np.ndarray = np.zeros(
+        self.frame_buffer: npt.NDArray[np.uint8] = np.zeros(
             self.SCREEN_WIDTH * self.SCREEN_HEIGHT, dtype=np.uint8
         )
-        self.bg_color_indices: np.ndarray = np.zeros(
+        self.bg_color_indices: npt.NDArray[np.uint8] = np.zeros(
             self.SCREEN_WIDTH * self.SCREEN_HEIGHT, dtype=np.uint8
         )
 
@@ -124,7 +125,7 @@ class VideoChip:
     # Map storage indices to local names with setters for test compatibility
     @property
     def LCDC(self) -> int:
-        return self.memory.storage[REG_LCDC]
+        return cast(int, self.memory.storage[REG_LCDC])
 
     @LCDC.setter
     def LCDC(self, val: int) -> None:
@@ -132,7 +133,7 @@ class VideoChip:
 
     @property
     def STAT(self) -> int:
-        return self.memory.storage[REG_STAT]
+        return cast(int, self.memory.storage[REG_STAT])
 
     @STAT.setter
     def STAT(self, val: int) -> None:
@@ -140,7 +141,7 @@ class VideoChip:
 
     @property
     def SCY(self) -> int:
-        return self.memory.storage[REG_SCY]
+        return cast(int, self.memory.storage[REG_SCY])
 
     @SCY.setter
     def SCY(self, val: int) -> None:
@@ -148,7 +149,7 @@ class VideoChip:
 
     @property
     def SCX(self) -> int:
-        return self.memory.storage[REG_SCX]
+        return cast(int, self.memory.storage[REG_SCX])
 
     @SCX.setter
     def SCX(self, val: int) -> None:
@@ -156,7 +157,7 @@ class VideoChip:
 
     @property
     def LY(self) -> int:
-        return self.memory.storage[REG_LY]
+        return cast(int, self.memory.storage[REG_LY])
 
     @LY.setter
     def LY(self, val: int) -> None:
@@ -164,7 +165,7 @@ class VideoChip:
 
     @property
     def LYC(self) -> int:
-        return self.memory.storage[REG_LYC]
+        return cast(int, self.memory.storage[REG_LYC])
 
     @LYC.setter
     def LYC(self, val: int) -> None:
@@ -172,7 +173,7 @@ class VideoChip:
 
     @property
     def BGP(self) -> int:
-        return self.memory.storage[REG_BGP]
+        return cast(int, self.memory.storage[REG_BGP])
 
     @BGP.setter
     def BGP(self, val: int) -> None:
@@ -180,7 +181,7 @@ class VideoChip:
 
     @property
     def OBP0(self) -> int:
-        return self.memory.storage[REG_OBP0]
+        return cast(int, self.memory.storage[REG_OBP0])
 
     @OBP0.setter
     def OBP0(self, val: int) -> None:
@@ -188,7 +189,7 @@ class VideoChip:
 
     @property
     def OBP1(self) -> int:
-        return self.memory.storage[REG_OBP1]
+        return cast(int, self.memory.storage[REG_OBP1])
 
     @OBP1.setter
     def OBP1(self, val: int) -> None:
@@ -196,7 +197,7 @@ class VideoChip:
 
     @property
     def WY(self) -> int:
-        return self.memory.storage[REG_WY]
+        return cast(int, self.memory.storage[REG_WY])
 
     @WY.setter
     def WY(self, val: int) -> None:
@@ -204,22 +205,22 @@ class VideoChip:
 
     @property
     def WX(self) -> int:
-        return self.memory.storage[REG_WX]
+        return cast(int, self.memory.storage[REG_WX])
 
     @WX.setter
     def WX(self, val: int) -> None:
         self.memory.storage[REG_WX] = val & 0xFF
 
     @property
-    def oam(self) -> np.ndarray:
+    def oam(self) -> npt.NDArray[np.uint8]:
         return self.oam_np
 
     @property
-    def vram(self) -> np.ndarray:
+    def vram(self) -> npt.NDArray[np.uint8]:
         return self.vram_np
 
     def read_byte(self, address: Address) -> Byte:
-        return self.memory.storage[address]
+        return cast(Byte, self.memory.storage[address])
 
     def write_byte(self, address: Address, value: Byte) -> None:
         self.memory.write_byte(address, value)
@@ -270,6 +271,7 @@ class VideoChip:
                     self.check_lyc()
                 else:
                     break
+
     def set_mode(self, mode: int) -> None:
         self.memory.storage[REG_STAT] = (self.storage[REG_STAT] & ~STAT_MODE_MASK) | (
             mode & STAT_MODE_MASK
@@ -416,9 +418,10 @@ class VideoChip:
 
                         for px in range(s_x, e_x):
                             color_bit = row[px - x]
-                            if color_bit != 0:
-                                if not obj_behind_bg or raw_bg[px] == 0:
-                                    line_buf[px] = _PALETTE_SHADES[pal, color_bit]
+                            if color_bit != 0 and (
+                                not obj_behind_bg or raw_bg[px] == 0
+                            ):
+                                line_buf[px] = _PALETTE_SHADES[pal, color_bit]
 
     def _render_background_span(
         self,

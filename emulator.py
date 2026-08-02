@@ -1,20 +1,24 @@
 # ruff: noqa: I001
 
 import argparse
+import importlib
 import sys
 import time
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Dict, Final, Optional, Sequence, Union
+from typing import Any, Final
 
 import numpy as np
+import numpy.typing as npt
 import pygame_environment as _pygame_environment  # noqa: F401
 import pygame
 
 try:
-    import sounddevice as sd
+    sd: Any = importlib.import_module("sounddevice")
 except ImportError:
     sd = None
 
+from apu import APU
 from cartridge_save import (
     get_save_path,
     has_battery,
@@ -42,20 +46,20 @@ from constants import (
     ROM_SIZE_MAP,
 )
 from cpu import CPU
-from mbc import MBC0, MBC1, MBC2, MBC3, MBC5
+from mbc import MBC, MBC0, MBC1, MBC2, MBC3, MBC5
 from memory import Memory
 from protocols import InputDevice
 from video import VideoChip
 
 # Standard GB color palette (original green shades)
-GB_PALETTE: Final[np.ndarray] = np.array(DMG_PALETTE_COLORS, dtype=np.uint8)
+GB_PALETTE: Final[npt.NDArray[np.uint8]] = np.array(DMG_PALETTE_COLORS, dtype=np.uint8)
 SAVE_FLUSH_FRAMES: Final[int] = 60
 MINIMUM_ROM_SIZE: Final[int] = 32 * 1024
 AUDIO_BUFFER_LOW_WATER: Final[int] = 1024
 AUDIO_BUFFER_HIGH_WATER: Final[int] = 4096
 
 # Pygame to Joypad mapping
-PYGAME_MAP: Final[Dict[int, str]] = {
+PYGAME_MAP: Final[dict[int, str]] = {
     pygame.K_UP: "up",
     pygame.K_DOWN: "down",
     pygame.K_LEFT: "left",
@@ -68,7 +72,7 @@ PYGAME_MAP: Final[Dict[int, str]] = {
 }
 
 
-def get_rom_title(rom: Union[bytes, bytearray]) -> str:
+def get_rom_title(rom: bytes | bytearray) -> str:
     """Extract the ROM title from the cartridge header."""
     try:
         title = (
@@ -81,7 +85,7 @@ def get_rom_title(rom: Union[bytes, bytearray]) -> str:
     return title or "Unknown"
 
 
-def print_rom_info(rom: Union[bytes, bytearray]) -> None:
+def print_rom_info(rom: bytes | bytearray) -> None:
     """Print metadata about the loaded ROM."""
     title = get_rom_title(rom)
     mbc_type = rom[CART_TYPE_ADDR]
@@ -156,7 +160,7 @@ def load_rom(path: str) -> bytearray:
     return rom
 
 
-def create_mbc(rom: bytearray):
+def create_mbc(rom: bytearray) -> MBC:
     mbc_type = rom[CART_TYPE_ADDR]
     ram_size = RAM_SIZE_MAP.get(rom[CART_RAM_SIZE_ADDR], 0)
     if mbc_type in MBC_TYPE_ROM_ONLY:
@@ -256,9 +260,12 @@ def draw_debug_overlay(
     screen.blit(panel, (8, 8))
 
 
-def make_audio_callback(apu, verbose: bool = False):
+def make_audio_callback(
+    apu: APU, verbose: bool = False
+) -> Callable[[Any, int, Any, Any], None]:
     """Build a sounddevice callback backed by the APU's stereo ring buffer."""
-    def audio_callback(outdata, frames, time, status):
+
+    def audio_callback(outdata: Any, frames: int, time: Any, status: Any) -> None:
         if status and verbose:
             print(status)
 
@@ -294,7 +301,7 @@ def make_audio_callback(apu, verbose: bool = False):
     return audio_callback
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     """Main execution loop of the emulator."""
 
     args = build_parser().parse_args(argv)
@@ -317,7 +324,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ram = Memory(clock)
 
     # Load boot ROM data
-    boot_rom_data: Optional[bytearray] = None
+    boot_rom_data: bytearray | None = None
     if args.boot_rom:
         boot_rom_path = Path(args.boot_rom).expanduser()
         try:

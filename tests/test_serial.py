@@ -7,7 +7,7 @@ from memory import Memory
 
 
 class TestSerial(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.clock = SystemClock(4194304)
         self.mem_data = bytearray(0x10000)
         self.memory = Memory(self.clock, self.mem_data)
@@ -17,11 +17,11 @@ class TestSerial(unittest.TestCase):
         self.original_stdout = sys.stdout
         sys.stdout = self.captured_output
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         # Restore stdout
         sys.stdout = self.original_stdout
 
-    def test_serial_transfer(self):
+    def test_serial_transfer(self) -> None:
         # Write 'A' to SB
         self.memory.write_byte(0xFF01, 0x41)
         self.assertEqual(self.memory.read_byte(0xFF01), 0x41)
@@ -48,8 +48,8 @@ class TestSerial(unittest.TestCase):
         if_reg = self.memory.read_byte(0xFF0F)
         self.assertEqual(if_reg & 0x08, 0x08)
 
-    def test_serial_transfer_callback_replaces_console_output(self):
-        transferred = []
+    def test_serial_transfer_callback_replaces_console_output(self) -> None:
+        transferred: list[int] = []
         self.memory.serial.transfer_callback = transferred.append
 
         self.memory.write_byte(0xFF01, 0x42)
@@ -60,7 +60,7 @@ class TestSerial(unittest.TestCase):
         self.assertEqual(transferred, [0x42])
         self.assertEqual(self.captured_output.getvalue(), "")
 
-    def test_external_clock_waits_and_clearing_start_cancels(self):
+    def test_external_clock_waits_and_clearing_start_cancels(self) -> None:
         self.memory.write_byte(0xFF02, 0x80)
         self.memory.serial.step(12)
         self.memory.serial.step(8192)
@@ -73,7 +73,7 @@ class TestSerial(unittest.TestCase):
         self.assertFalse(self.memory.serial.transfer_active)
         self.assertEqual(self.memory.serial.bits_remaining, 0)
 
-    def test_clock_keeps_reset_alignment_while_inactive(self):
+    def test_clock_keeps_reset_alignment_while_inactive(self) -> None:
         self.memory.serial.step(100)
         self.memory.write_byte(0xFF01, 0x43)
         self.memory.write_byte(0xFF02, 0x81)

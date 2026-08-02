@@ -118,6 +118,8 @@ Install the development tools and run the same checks used in CI:
 python -m pip install "uv==0.12.0"
 uv sync --frozen --extra dev
 uv run --frozen ruff check .
+uv run --frozen ruff format --check .
+uv run --frozen mypy .
 uv run --frozen pytest --cov=. --cov-report=term-missing
 uv run --frozen python audit_cpu.py
 uv run --frozen pygameboy-conformance tests/roms/mooneye
