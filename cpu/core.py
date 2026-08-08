@@ -238,6 +238,9 @@ class CPU(CPUOpcodes):
                     t_step(cyc - instruction_elapsed)
                     if instruction_elapsed:
                         self._instruction_elapsed_cycles = 0
+
+                    cyc_scaled = cyc >> 1 if getattr(self.ram, "double_speed", False) else cyc
+
                     if (
                         serial_fast_phase
                         and serial is not None
@@ -245,22 +248,22 @@ class CPU(CPUOpcodes):
                     ):
                         # A CPU dispatch is at most 24 cycles, so one subtraction
                         # is an exact modulo without calling Serial.step().
-                        phase = serial.clock_phase + cyc
+                        phase = serial.clock_phase + cyc_scaled
                         serial.clock_phase = (
                             phase - SERIAL_BIT_CYCLES
                             if phase >= SERIAL_BIT_CYCLES
                             else phase
                         )
                     elif s_step:
-                        s_step(cyc)
+                        s_step(cyc_scaled)
 
                     if a_step:
-                        apu_accumulated += cyc
+                        apu_accumulated += cyc_scaled
                         if apu_accumulated >= APU_STEP_THRESHOLD:
                             a_step(apu_accumulated)
                             apu_accumulated = 0
 
-                    v_accumulated += cyc
+                    v_accumulated += cyc_scaled
                     if v_accumulated >= V_STEP_THRESHOLD:
                         if v_step:
                             v_step(v_accumulated)
@@ -304,28 +307,31 @@ class CPU(CPUOpcodes):
                     t_step(cyc - instruction_elapsed)
                     if instruction_elapsed:
                         self._instruction_elapsed_cycles = 0
+
+                    cyc_scaled = cyc >> 1 if getattr(self.ram, "double_speed", False) else cyc
+
                     if (
                         serial_fast_phase
                         and serial is not None
                         and not serial.transfer_active
                     ):
                         # Keep the diagnostic path reset-aligned as well.
-                        phase = serial.clock_phase + cyc
+                        phase = serial.clock_phase + cyc_scaled
                         serial.clock_phase = (
                             phase - SERIAL_BIT_CYCLES
                             if phase >= SERIAL_BIT_CYCLES
                             else phase
                         )
                     elif s_step:
-                        s_step(cyc)
+                        s_step(cyc_scaled)
 
-                    v_accumulated += cyc
+                    v_accumulated += cyc_scaled
                     if v_accumulated >= V_STEP_THRESHOLD:
                         if v_step:
                             v_step(v_accumulated)
                         v_accumulated = 0
                     if a_step:
-                        apu_accumulated += cyc
+                        apu_accumulated += cyc_scaled
                         if apu_accumulated >= APU_STEP_THRESHOLD:
                             a_step(apu_accumulated)
                             apu_accumulated = 0

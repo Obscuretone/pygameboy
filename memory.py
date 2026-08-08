@@ -122,6 +122,22 @@ class Memory:
         self._mbc: MemoryBankController | None = None
         self._video: VideoDevice | None = None
 
+        # GBC registers and banking
+        self.gbc_mode = False
+        self.double_speed = False
+        self.vram_banks = [bytearray(8192), bytearray(8192)]
+        self.current_vram_bank = 0
+        self.wram_banks = [bytearray(4096) for _ in range(8)]
+        self.current_wram_bank = 1
+        self.bg_palettes = bytearray(64)
+        self.ob_palettes = bytearray(64)
+        self.bgpi = 0
+        self.obpi = 0
+        self.hdma_active = False
+        self.hdma_src = 0
+        self.hdma_dst = 0
+        self.hdma_blocks_remaining = 0
+
         self._update_page_table()
 
     @property
@@ -141,6 +157,15 @@ class Memory:
     def mbc(self, value: MemoryBankController | None) -> None:
         self._mbc = value
         if value:
+            # Check CGB flag
+            rom = value.rom
+            if len(rom) > 0x0143 and (rom[0x0143] & 0x80):
+                self.gbc_mode = True
+                # Set initial register values for GBC in self.storage:
+                self.storage[0xFF4D] = 0x7E  # KEY1 initial
+                self.storage[0xFF4F] = 0xFE  # VBK initial
+                self.storage[0xFF70] = 0xF9  # SVBK initial
+
             # Register bank change callbacks for performance mirroring
             value.on_bank_change = self._on_mbc_bank_change
             value.on_ram_bank_change = self._on_mbc_ram_bank_change
@@ -278,6 +303,84 @@ class Memory:
             self.storage[address] = value
             return
 
+        if getattr(self, "gbc_mode", False):
+            if address == 0xFF4D:  # KEY1
+                self.storage[0xFF4D] = (self.storage[0xFF4D] & 0x80) | (value & 0x01)
+                return
+            if address == 0xFF4F:  # VBK
+                new_bank = value & 0x01
+                if new_bank != self.current_vram_bank:
+                    self.vram_banks[self.current_vram_bank][:] = self.storage[0x8000:0xA000]
+                    self.current_vram_bank = new_bank
+                    self.storage[0x8000:0xA000] = self.vram_banks[self.current_vram_bank]
+                self.storage[0xFF4F] = 0xFE | new_bank
+                return
+            if address == 0xFF70:  # SVBK
+                new_bank = value & 0x07
+                if new_bank == 0:
+                    new_bank = 1
+                if new_bank != self.current_wram_bank:
+                    self.wram_banks[self.current_wram_bank][:] = self.storage[0xD000:0xE000]
+                    self.current_wram_bank = new_bank
+                    self.storage[0xD000:0xE000] = self.wram_banks[self.current_wram_bank]
+                    self.storage[0xF000:0xFDFF] = self.storage[0xD000:0xDDFF]
+                self.storage[0xFF70] = 0xF8 | (value & 0x07)
+                return
+            if address == 0xFF68:  # BGPI
+                self.bgpi = value
+                self.storage[0xFF68] = value
+                return
+            if address == 0xFF69:  # BGPD
+                idx = self.bgpi & 0x3F
+                self.bg_palettes[idx] = value
+                if self.bgpi & 0x80:  # Auto-Increment
+                    self.bgpi = (self.bgpi & 0x80) | ((idx + 1) & 0x3F)
+                    self.storage[0xFF68] = self.bgpi
+                return
+            if address == 0xFF6A:  # OBPI
+                self.obpi = value
+                self.storage[0xFF6A] = value
+                return
+            if address == 0xFF6B:  # OBPD
+                idx = self.obpi & 0x3F
+                self.ob_palettes[idx] = value
+                if self.obpi & 0x80:  # Auto-Increment
+                    self.obpi = (self.obpi & 0x80) | ((idx + 1) & 0x3F)
+                    self.storage[0xFF6A] = self.obpi
+                return
+            if address in [0xFF51, 0xFF52, 0xFF53, 0xFF54]:
+                self.storage[address] = value
+                return
+            if address == 0xFF55:  # HDMA5
+                src = ((self.storage[0xFF51] << 8) | self.storage[0xFF52]) & 0xFFF0
+                dst = (0x8000 | (((self.storage[0xFF53] & 0x1F) << 8) | self.storage[0xFF54])) & 0xFFF0
+                blocks = (value & 0x7F) + 1
+                is_hdma = bool(value & 0x80)
+                
+                if self.hdma_active and not is_hdma:
+                    self.hdma_active = False
+                    self.storage[0xFF55] |= 0x80
+                    return
+                
+                self.hdma_src = src
+                self.hdma_dst = dst
+                if not is_hdma:
+                    # GDMA: execute immediately
+                    for _ in range(blocks):
+                        self.storage[self.hdma_dst : self.hdma_dst + 16] = self.storage[self.hdma_src : self.hdma_src + 16]
+                        self.hdma_src = (self.hdma_src + 16) & 0xFFFF
+                        self.hdma_dst = (self.hdma_dst + 16) & 0xFFFF
+                    self.storage[0xFF51] = (self.hdma_src >> 8) & 0xFF
+                    self.storage[0xFF52] = self.hdma_src & 0xFF
+                    self.storage[0xFF53] = (self.hdma_dst >> 8) & 0xFF
+                    self.storage[0xFF54] = self.hdma_dst & 0xFF
+                    self.storage[0xFF55] = 0xFF
+                else:
+                    self.hdma_active = True
+                    self.hdma_blocks_remaining = blocks
+                    self.storage[0xFF55] = blocks - 1
+                return
+
         if address == REG_JOYP:
             self.joypad.write(value)
             return
@@ -336,6 +439,25 @@ class Memory:
         # Fast scanline fallback if video disabled
         if addr == REG_LY and self.clock is not None and not self._video:
             return (self.clock.get_cycles_elapsed() // 456) % MAX_SCANLINE
+
+        # GBC custom read registers
+        if getattr(self, "gbc_mode", False):
+            if addr == 0xFF4D:  # KEY1
+                return self.storage[0xFF4D]
+            if addr == 0xFF4F:  # VBK
+                return self.storage[0xFF4F]
+            if addr == 0xFF70:  # SVBK
+                return self.storage[0xFF70]
+            if addr == 0xFF68:  # BGPI
+                return self.bgpi
+            if addr == 0xFF69:  # BGPD
+                return self.bg_palettes[self.bgpi & 0x3F]
+            if addr == 0xFF6A:  # OBPI
+                return self.obpi
+            if addr == 0xFF6B:  # OBPD
+                return self.ob_palettes[self.obpi & 0x3F]
+            if addr == 0xFF55:  # HDMA5
+                return self.storage[0xFF55]
 
         return self.storage[addr]
 
