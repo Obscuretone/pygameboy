@@ -17,9 +17,16 @@ These redistributable ROMs come from the MIT-licensed
 | `reg_read.gb` | `acceptance/oam_dma/reg_read.gb` | `006516fcb302867a2848b47529208ef530669c6445e41d4f3d2dbd33995154a3` |
 | `boot_sclk_align-dmgABCmgb.gb` | `acceptance/serial/boot_sclk_align-dmgABCmgb.gb` | `14c48977ddf9c734d53c23ad435a21d2db7fbd90411f99d2c7713b2335e55778` |
 | `tim01.gb` | `acceptance/timer/tim01.gb` | `b6f5043eae7fd2b2c3dc098ff16f664c8eb5699523616d84274669cf90c17fe7` |
+| `boot_regs-cgb.gb` | `misc/boot_regs-cgb.gb` | `9b466c875eec05e7d31e643ae3c5d7bb411f3e1f0bf14d15352c355db2ef348a` |
+| `boot_hwio-C.gb` | `misc/boot_hwio-C.gb` | `dcc7b577b5dee89111c17654e6fb31241692ff380fb11ae6038326be7a9408cc` |
+| `unused_hwio-C.gb` | `misc/bits/unused_hwio-C.gb` | `0d66303d0035fcf9dd3cbb9698952a668f50fb2f3d3e290598712a3a2ae35a5b` |
+| `vblank_stat_intr-C.gb` | `misc/ppu/vblank_stat_intr-C.gb` | `20c6925c49226416d7f06941ff734664120e1d20e1e674bba230aa202ed350be` |
 
 The local license file is copied verbatim from that bundle. These seven tests are
 the initial compatibility floor: they exercise flag-register invariants,
 decimal-adjust behavior, OAM access, basic DMA, DMA register reads,
 reset-aligned serial transfer timing, and one timer frequency through actual
-cartridge execution.
+cartridge execution. The four `misc` fixtures extend discovery into CGB model
+state, unused I/O behavior, and PPU interrupt timing. They are pinned as strict
+expected failures until the emulator separates the CGB hardware model from a
+cartridge's CGB compatibility flag.

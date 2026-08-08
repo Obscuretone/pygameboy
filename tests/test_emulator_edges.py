@@ -87,7 +87,7 @@ def test_module_entrypoint_and_optional_audio_import_path(
         runpy.run_path(emulator.__file__, run_name="__main__")
 
     assert exit_info.value.code == 0
-    assert "Run a Nintendo Game Boy" in capsys.readouterr().out
+    assert "Run a Game Boy or Game Boy Color ROM" in capsys.readouterr().out
 
 
 def test_rom_metadata_positive_integer_and_every_mbc_factory(
@@ -236,7 +236,7 @@ def test_main_boot_rom_read_error_valid_boot_and_loaded_save(tmp_path: Path) -> 
             )
             == 0
         )
-    assert "Starting boot sequence" in stdout.getvalue()
+    assert "Starting user-supplied boot sequence" in stdout.getvalue()
 
     battery_path = tmp_path / "battery.gb"
     write_rom(battery_path, cart_type=0x09, ram_size_code=0x02)

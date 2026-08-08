@@ -59,6 +59,7 @@ py-modules = [
   "joypad",
   "mbc",
   "memory",
+  "pygameboy_boot",
   "protocols",
   "pygame_environment",
   "serial_cable",

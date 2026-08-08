@@ -12,7 +12,8 @@ from memory import Memory
 from video import VideoChip
 
 ROM_ROOT = Path(__file__).parent / "roms" / "otr"
-CORE_ROM = ROM_ROOT / "otr.gb"
+DMG_CORE_ROM = ROM_ROOT / "otr.gb"
+CGB_CORE_ROM = ROM_ROOT / "otr-cgb.gb"
 ILLEGAL_BASE_OPCODES = {
     0xD3,
     0xDB,
@@ -56,8 +57,10 @@ def sha256(path: Path) -> str:
 def test_vendored_rom_artifacts_match_the_upstream_manifest() -> None:
     manifest = json.loads((ROM_ROOT / "manifest.json").read_text(encoding="utf-8"))
 
-    assert CORE_ROM.stat().st_size == manifest["size"]
-    assert sha256(CORE_ROM) == manifest["sha256"]
+    assert DMG_CORE_ROM.stat().st_size == manifest["size"]
+    assert sha256(DMG_CORE_ROM) == manifest["sha256"]
+    assert CGB_CORE_ROM.stat().st_size == manifest["cgb_rom"]["size"]
+    assert sha256(CGB_CORE_ROM) == manifest["cgb_rom"]["sha256"]
     for name, metadata in manifest["controller_roms"].items():
         path = ROM_ROOT / "controllers" / name
         assert path.stat().st_size == metadata["size"]
@@ -70,6 +73,7 @@ def test_manifest_accounts_for_every_opcode_and_subsystem() -> None:
     manifest = json.loads((ROM_ROOT / "manifest.json").read_text(encoding="utf-8"))
 
     assert manifest["protocol"] == "OTR/1"
+    assert set(manifest["targets"]) == {"dmg", "cgb"}
     assert set(manifest["base_opcodes"]) == {
         f"{opcode:02X}" for opcode in LEGAL_BASE_OPCODES
     }
@@ -84,10 +88,28 @@ def test_manifest_accounts_for_every_opcode_and_subsystem() -> None:
     }
     assert "ppu registers" in manifest["subsystems"]
     assert "apu registers" in manifest["subsystems"]
+    assert set(manifest["cgb_rom"]["base_opcodes"]) == {
+        f"{opcode:02X}" for opcode in LEGAL_BASE_OPCODES
+    }
+    assert set(manifest["cgb_rom"]["cb_opcodes"]) == {
+        f"CB {opcode:02X}" for opcode in range(0x100)
+    }
+    assert {
+        "cgb wram banking",
+        "cgb vram banking",
+        "cgb palette ram",
+        "cgb general-purpose vram dma",
+        "cgb hblank vram dma",
+        "cgb double-speed mode",
+        "cgb fast serial",
+        "cgb infrared port",
+        "cgb object priority",
+        "cgb pcm outputs",
+    } <= set(manifest["cgb_rom"]["subsystems"])
 
 
 def test_core_rom_executes_every_runnable_opcode_and_reports_progress() -> None:
-    cpu, memory, serial, instructions = run_with_observers(CORE_ROM)
+    cpu, memory, serial, instructions = run_with_observers(DMG_CORE_ROM)
     output = serial.decode("ascii")
     seen = {opcode for opcode, count in enumerate(cpu.opcode_profile) if count > 0}
 
@@ -109,6 +131,39 @@ def test_core_rom_executes_every_runnable_opcode_and_reports_progress() -> None:
     assert set(np.unique(memory.video.frame_buffer)) == {0, 1}
     assert memory.apu.buffer_size > 0
     assert np.isfinite(memory.apu.buffer).all()
+
+
+def test_cgb_core_rom_executes_every_opcode_and_cgb_subsystem() -> None:
+    cpu, memory, serial, instructions = run_with_observers(CGB_CORE_ROM)
+    output = serial.decode("ascii")
+    seen = {opcode for opcode, count in enumerate(cpu.opcode_profile) if count > 0}
+
+    assert instructions < 2_000_000
+    assert seen >= LEGAL_BASE_OPCODES
+    assert cpu.opcode_profile[0xCB] == 256
+    for progress in (
+        "50 CGB WRAM VRAM",
+        "51 CGB PALETTES",
+        "52 CGB GDMA",
+        "53 CGB HDMA",
+        "54 CGB SPEED",
+        "55 CGB FAST SERIAL",
+        "56 CGB IR PRIORITY",
+        "57 CGB PCM OUTPUT",
+    ):
+        assert f"OTR/1 {progress}\n" in output
+    assert output.endswith("OTR/1 PASS\n")
+    assert bytes(memory.storage[0xA000:0xA005]) == b"OTR1\0"
+    assert bytes(memory.storage[0x9800:0x9804]) == bytes(
+        ord(character) - 32 for character in "PASS"
+    )
+    assert memory.gbc_mode
+    assert not memory.double_speed
+
+    cpu.run(max_instructions=10, realtime=False, announce=False)
+    assert cpu.halted
+    assert isinstance(memory.video, VideoChip)
+    assert memory.video.frame_buffer.shape == (160 * 144, 3)
 
 
 @pytest.mark.parametrize(

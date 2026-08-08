@@ -6,8 +6,8 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-A performance-focused Nintendo Game Boy (DMG) emulator written in Python,
-Pygame, and NumPy.
+A performance-focused Nintendo Game Boy and Game Boy Color emulator written in
+Python, Pygame, and NumPy.
 
 ![PyGameBoy diagnostic demo](docs/demo.gif)
 
@@ -20,7 +20,8 @@ dispatch, vectorized scanline rendering, and audio-clock pacing.
 
 - Complete legal LR35902 base-opcode dispatch with interrupt and timer support.
 - MBC0, MBC1, MBC2, MBC3, and MBC5 cartridge banking.
-- Background, window, and DMG sprite rendering.
+- DMG and CGB background, window, sprite, palette, VRAM-bank, and WRAM-bank
+  support.
 - Four-channel APU with bipolar DMG DAC mixing, AC coupling, stereo routing,
   and a lock-protected audio ring buffer.
 - Battery-backed cartridge saves written with atomic file replacement.
@@ -32,9 +33,8 @@ dispatch, vectorized scanline rendering, and audio-clock pacing.
 - Unit, integration, headless CLI, and external test-ROM checks on Python
   3.10–3.13.
 
-The emulator is intentionally DMG-focused. Pixel-FIFO timing, a running MBC3
-real-time clock, channel-1 frequency sweep, save states, and Game Boy Color
-features remain future work.
+Pixel-FIFO timing, a running MBC3 real-time clock, channel-1 frequency sweep,
+save states, and complete CGB hardware conformance remain future work.
 
 ## Quick start
 
@@ -51,15 +51,20 @@ Audio is optional. Install without the `audio` extra and pass `--no-audio` if
 PortAudio or an output device is unavailable.
 
 PyGameBoy does not include commercial game ROMs or Nintendo firmware. Supply
-ROMs that you are legally entitled to use. The original boot animation is
-optional and requires a user-supplied 256-byte image:
+ROMs that you are legally entitled to use. By default, PyGameBoy runs its own
+original 256-byte boot firmware: `PYGAMEBOY` scrolls into view and, on Color
+cartridges, a larger berry/grape/kiwi/dandelion/teal `COLOR` line appears
+underneath.
+The emulated pulse channel plays a two-note chime before the cartridge starts.
+Use `--skip-boot-logo` for an instant, documented post-boot state, or supply a
+256-byte DMG image you are legally entitled to use:
 
 ```bash
 pygameboy --boot-rom /path/to/DMG_ROM.bin path/to/game.gb
 ```
 
-Without a boot ROM, PyGameBoy starts from the documented post-boot DMG register
-state. Maintainers should also follow the
+The built-in image contains no Nintendo code, logo data, or recorded audio.
+Maintainers should also follow the
 [firmware/history policy](docs/firmware.md) before publishing a repository that
 previously contained firmware.
 
@@ -79,6 +84,7 @@ Useful runtime options:
 ```text
 --scale N              Integer display scale
 --no-audio             Disable audio output
+--skip-boot-logo       Skip the built-in PyGameBoy boot animation
 --no-realtime          Run without host-clock throttling
 --profile              Print the hottest executed opcodes on exit
 --slow-step            Use the instrumentable dispatch path

@@ -41,6 +41,8 @@ from constants import (
     REG_NR50,
     REG_NR51,
     REG_NR52,
+    REG_PCM12,
+    REG_PCM34,
     REG_WAVE_RAM_END,
     REG_WAVE_RAM_START,
     WAVE_RAM_SIZE,
@@ -464,6 +466,19 @@ class APU:
 
     def read_byte(self, address: Address) -> Byte:
         """Read an APU register or Wave RAM byte."""
+        if address == REG_PCM12:
+            if not self.sound_enabled:
+                return 0
+            ch1 = self.ch1.output if self.ch1.enabled else 0
+            ch2 = self.ch2.output if self.ch2.enabled else 0
+            return ch1 | (ch2 << 4)
+        if address == REG_PCM34:
+            if not self.sound_enabled:
+                return 0
+            ch3 = self.ch3.output if self.ch3.enabled else 0
+            ch4 = self.ch4.output if self.ch4.enabled else 0
+            return ch3 | (ch4 << 4)
+
         offset = address - REG_NR10
         if REG_WAVE_RAM_START <= address <= REG_WAVE_RAM_END:
             return self.ch3.wave_ram[address - REG_WAVE_RAM_START]

@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any, Final, cast
 
 from constants import REG_LY
 from gb_types import (
@@ -395,7 +395,8 @@ class CPUOpcodes:
         self.stopped = True
         if getattr(self.ram, "gbc_mode", False) and (self.ram.storage[0xFF4D] & 0x01):
             self.stopped = False
-            self.ram.double_speed = not self.ram.double_speed
+            ram_state = cast(Any, self.ram)
+            ram_state.double_speed = not ram_state.double_speed
             curr_val = self.ram.storage[0xFF4D]
             new_val = (curr_val & 0xFE) ^ 0x80
             self.ram.storage[0xFF4D] = new_val

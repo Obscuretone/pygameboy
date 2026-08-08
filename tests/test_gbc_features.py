@@ -1,18 +1,10 @@
 import unittest
-from memory import Memory
+
 from clock import SystemClock
-from video import VideoChip
 from cpu import CPU
-
-
-class DummyMBC:
-    def __init__(self, rom: bytearray):
-        self.rom = rom
-        self.ram_enabled = False
-        self.ram_dirty = False
-        self.on_bank_change = None
-        self.on_ram_bank_change = None
-        self.on_ram_write = None
+from mbc import MBC0
+from memory import Memory
+from video import VideoChip
 
 
 class TestGBCFeatures(unittest.TestCase):
@@ -24,7 +16,7 @@ class TestGBCFeatures(unittest.TestCase):
     def _enable_gbc_mode(self) -> None:
         rom_data = bytearray(0x8000)
         rom_data[0x0143] = 0x80  # Enable GBC flag
-        self.mbc = DummyMBC(rom_data)
+        self.mbc = MBC0(rom_data)
         self.memory.mbc = self.mbc
 
     def test_gbc_mode_detection(self) -> None:
@@ -88,10 +80,14 @@ class TestGBCFeatures(unittest.TestCase):
         # Write to Background Palette Data with auto-increment
         self.memory.write_byte(0xFF68, 0x80)  # BGPI: auto-increment, index 0
         self.memory.write_byte(0xFF69, 0x3F)  # Write byte 0 of palette 0
-        self.memory.write_byte(0xFF69, 0x01)  # Write byte 1 of palette 0 (auto-incremented index)
+        self.memory.write_byte(
+            0xFF69, 0x01
+        )  # Write byte 1 of palette 0 (auto-incremented index)
 
         # Verify palette values
-        self.assertEqual(self.memory.read_byte(0xFF68), 0x82)  # BGPI should have incremented index to 2
+        self.assertEqual(
+            self.memory.read_byte(0xFF68), 0x82
+        )  # BGPI should have incremented index to 2
         self.memory.write_byte(0xFF68, 0x00)  # BGPI: no auto-increment, index 0
         self.assertEqual(self.memory.read_byte(0xFF69), 0x3F)
         self.memory.write_byte(0xFF68, 0x01)  # BGPI: no auto-increment, index 1
@@ -145,50 +141,79 @@ class TestGBCFeatures(unittest.TestCase):
         # Speed switch takes 2050 cycles
         self.assertEqual(cycles, 2050)
 
+    def test_pcm_output_registers(self) -> None:
+        self.assertEqual(self.memory.read_byte(0xFF76), 0xFF)
+        self.assertEqual(self.memory.read_byte(0xFF77), 0xFF)
+
+        self._enable_gbc_mode()
+        self.assertEqual(self.memory.read_byte(0xFF76), 0x00)
+        self.assertEqual(self.memory.read_byte(0xFF77), 0x00)
+
+        self.memory.apu.ch1.output = 0x01
+        self.memory.apu.ch2.output = 0x02
+        self.memory.apu.ch3.output = 0x03
+        self.memory.apu.ch4.output = 0x04
+        self.memory.apu.sound_enabled = True
+        self.assertEqual(self.memory.read_byte(0xFF76), 0x00)
+        self.assertEqual(self.memory.read_byte(0xFF77), 0x00)
+
+        self.memory.apu.ch1.enabled = True
+        self.memory.apu.ch2.enabled = True
+        self.memory.apu.ch3.enabled = True
+        self.memory.apu.ch4.enabled = True
+        self.assertEqual(self.memory.read_byte(0xFF76), 0x21)
+        self.assertEqual(self.memory.read_byte(0xFF77), 0x43)
+
     def test_gbc_background_rendering_vectorization(self) -> None:
         """Verify that GBC background rendering vectorization yields mathematically exact colors, attributes, flips, and bank mapping."""
         self._enable_gbc_mode()
         video = VideoChip(self.clock, self.memory)
         self.memory.video = video
-        
+
         # Enable BG rendering via LCDC (bit 0 = 1, bit 4 = 1 for unsigned tile data, bit 3 = 0 for 0x9800 tile map)
         self.memory.storage[0xFF40] = 0b10010001
         self.memory.storage[0xFF42] = 0  # REG_SCY
         self.memory.storage[0xFF43] = 0  # REG_SCX
         self.memory.storage[0xFF44] = 0  # REG_LY
-        
+
         # Populate background palette: palette 0, color index 1 (low byte offset 2, high byte offset 3)
         # RGB components: r=31, g=15, b=7 (color word: 7<<10 | 15<<5 | 31 = 7168 + 480 + 31 = 7679 = 0x1DFF)
         self.memory.bg_palettes[2] = 0xFF
         self.memory.bg_palettes[3] = 0x1D
-        
+
         # Populate VRAM Bank 0 and Bank 1 tile map and pattern data
         self.memory.current_vram_bank = 0
         tile0_pattern_offset = 0x0000
         # Row 0 of tile 0
         self.memory.storage[0x8000 + tile0_pattern_offset] = 0xFF  # low byte: all ones
-        self.memory.storage[0x8000 + tile0_pattern_offset + 1] = 0x00  # high byte: all zeros
+        self.memory.storage[0x8000 + tile0_pattern_offset + 1] = (
+            0x00  # high byte: all zeros
+        )
         # Row 7 of tile 0 (since flip_y is True)
-        self.memory.storage[0x8000 + tile0_pattern_offset + 14] = 0xFF  # low byte: all ones
-        self.memory.storage[0x8000 + tile0_pattern_offset + 15] = 0x00  # high byte: all zeros
-        
+        self.memory.storage[0x8000 + tile0_pattern_offset + 14] = (
+            0xFF  # low byte: all ones
+        )
+        self.memory.storage[0x8000 + tile0_pattern_offset + 15] = (
+            0x00  # high byte: all zeros
+        )
+
         # Set tile map value at 0x9800 to tile index 0
         self.memory.storage[0x9800] = 0
-        
+
         # Set attributes in VRAM Bank 1 at 0x9800 (address offset: 0x1800)
         # Choose bg_pal_idx=0, char_bank=0, flip_x=True, flip_y=True, bg_priority=True
         # Attribute byte: bit 7 (priority)=1, bit 6 (flip_y)=1, bit 5 (flip_x)=1, bit 3 (char_bank)=0, bit 0-2 (palette)=0
         self.memory.vram_banks[1][0x1800] = 0xE0
-        
+
         # Execute background rendering pipeline
         video.render_scanline()
-        
+
         # Verify color scaling:
         # r = 31 -> (31 << 3) | (31 >> 2) = 255
         # g = 15 -> (15 << 3) | (15 >> 2) = 123
         # b = 7  -> (7 << 3) | (7 >> 2) = 57
         expected_color = (255, 123, 57)
-        
+
         for i in range(8):
             self.assertEqual(tuple(video.frame_buffer[i]), expected_color)
             self.assertEqual(video.bg_color_indices[i], 0x81)

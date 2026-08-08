@@ -1,13 +1,27 @@
 # Boot firmware policy
 
-PyGameBoy does not distribute Nintendo boot firmware. Users may supply a
-256-byte DMG boot ROM they are legally entitled to use:
+PyGameBoy does not distribute Nintendo boot firmware. It includes original,
+MIT-licensed 256-byte firmware that displays `PYGAMEBOY`, with a five-color
+`COLOR` line on CGB cartridges, and plays an original two-note pulse chime. Its
+source is in
+`firmware/pygameboy_boot.asm`; the byte-for-byte runtime image is embedded in
+`pygameboy_boot.py` so normal installation does not require an assembler.
+
+The built-in animation can be skipped while retaining the documented post-boot
+CPU state:
+
+```bash
+pygameboy --skip-boot-logo /path/to/game.gb
+```
+
+Users may instead supply a 256-byte DMG boot ROM they are legally entitled to
+use:
 
 ```bash
 pygameboy --boot-rom /path/to/DMG_ROM.bin /path/to/game.gb
 ```
 
-`DMG_ROM.bin` is ignored by Git. Tests and CI must continue to work without it.
+`DMG_ROM.bin` is ignored by Git. Tests and CI continue to work without it.
 
 ## Maintainer history cleanup
 

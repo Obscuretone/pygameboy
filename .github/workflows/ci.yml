@@ -60,13 +60,20 @@ jobs:
       - name: Sync locked environment
         run: uv sync --frozen --extra dev
 
+      - name: Test Game Boy Color ROMs
+        if: matrix.python-version == '3.13'
+        run: |
+          uv run --frozen pytest tests/test_gbc_roms.py
+          uv run --frozen pytest \
+            tests/test_first_party_rom.py::test_cgb_core_rom_executes_every_opcode_and_cgb_subsystem
+
       - name: Test (including conformance ROMs)
         run: uv run --frozen pytest --cov=. --cov-report=term-missing
 
       - name: Publishable conformance report
         if: matrix.python-version == '3.13'
         run: >
-          uv run --frozen pygameboy-conformance tests/roms/mooneye
+          uv run --frozen pygameboy-conformance tests/roms/mooneye/acceptance
           --json /tmp/mooneye-conformance.json
 
       - name: Validate CPU opcode coverage tool

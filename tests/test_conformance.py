@@ -95,6 +95,21 @@ def test_create_headless_system_uses_post_boot_state() -> None:
     assert memory.boot_rom_disabled
 
 
+def test_create_headless_system_uses_cgb_post_boot_state() -> None:
+    rom = make_rom()
+    rom[0x0143] = 0xC0
+    cpu, memory = conformance.create_headless_system(rom)
+
+    assert cpu.registers.PC == 0x0100
+    assert cpu.registers.SP == 0xFFFE
+    assert cpu.registers["AF"] == 0x1180
+    assert cpu.registers["BC"] == 0x0000
+    assert cpu.registers["DE"] == 0xFF56
+    assert cpu.registers["HL"] == 0x000D
+    assert memory.gbc_mode
+    assert memory.boot_rom_disabled
+
+
 @pytest.mark.parametrize(
     ("signature", "expected_status"),
     [

@@ -96,6 +96,7 @@ class TestEmulatorCLI(unittest.TestCase):
                     [
                         "--no-audio",
                         "--no-realtime",
+                        "--skip-boot-logo",
                         "--slow-step",
                         "--profile",
                         "--max-instructions",
@@ -143,6 +144,10 @@ class TestEmulatorCLI(unittest.TestCase):
 
         self.assertEqual(exit_code, 2)
         self.assertIn("exactly 256 bytes", stderr.getvalue())
+
+    def test_boot_rom_and_skip_logo_are_mutually_exclusive(self) -> None:
+        with self.assertRaises(SystemExit):
+            main(["--boot-rom", "boot.bin", "--skip-boot-logo", "game.gb"])
 
     def test_audio_initialization_failure_falls_back_to_silent_execution(self) -> None:
         class BrokenSoundDevice:

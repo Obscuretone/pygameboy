@@ -49,6 +49,14 @@ from cpu import CPU
 from mbc import MBC, MBC0, MBC1, MBC2, MBC3, MBC5
 from memory import Memory
 from protocols import InputDevice
+from pygameboy_boot import (
+    PYGAMEBOY_BOOT_CGB,
+    PYGAMEBOY_BOOT_CGB_COLOR_TILES,
+    PYGAMEBOY_BOOT_CGB_COLOR_WORDS,
+    PYGAMEBOY_BOOT_CGB_OAM,
+    PYGAMEBOY_BOOT_CGB_PALETTE,
+    PYGAMEBOY_BOOT_DMG,
+)
 from video import VideoChip
 
 # Standard GB color palette (original green shades)
@@ -108,13 +116,19 @@ def positive_int(value: str) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run a Nintendo Game Boy (DMG) ROM with PyGameBoy."
+        description="Run a Game Boy or Game Boy Color ROM with PyGameBoy."
     )
     parser.add_argument("rom", help="path to a .gb or .gbc ROM")
-    parser.add_argument(
+    boot_group = parser.add_mutually_exclusive_group()
+    boot_group.add_argument(
         "--boot-rom",
         metavar="PATH",
         help="optional path to a user-supplied 256-byte DMG boot ROM",
+    )
+    boot_group.add_argument(
+        "--skip-boot-logo",
+        action="store_true",
+        help="skip the built-in PyGameBoy boot animation",
     )
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument(
@@ -193,7 +207,7 @@ def initialize_post_boot(cpu: CPU, ram: Memory) -> None:
     if getattr(ram, "gbc_mode", False):
         cpu.registers.PC = 0x0100
         cpu.registers.SP = 0xFFFE
-        cpu.registers["AF"] = 0x11B0
+        cpu.registers["AF"] = 0x1180
         cpu.registers["BC"] = 0x0000
         cpu.registers["DE"] = 0xFF56
         cpu.registers["HL"] = 0x000D
@@ -337,8 +351,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     # Initial memory setup
     ram = Memory(clock)
 
-    # Load boot ROM data
+    # Load a user-supplied image, or use PyGameBoy's original built-in firmware.
     boot_rom_data: bytearray | None = None
+    using_builtin_boot = False
     if args.boot_rom:
         boot_rom_path = Path(args.boot_rom).expanduser()
         try:
@@ -355,10 +370,31 @@ def main(argv: Sequence[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 2
-        ram.set_boot_rom(boot_rom_data)
-
     mbc_type = rom[CART_TYPE_ADDR]
     ram.mbc = mbc
+    if not args.boot_rom and not args.skip_boot_logo:
+        builtin_image = PYGAMEBOY_BOOT_CGB if ram.gbc_mode else PYGAMEBOY_BOOT_DMG
+        boot_rom_data = bytearray(builtin_image)
+        using_builtin_boot = True
+    if boot_rom_data is not None:
+        ram.set_boot_rom(boot_rom_data)
+        if using_builtin_boot and ram.gbc_mode:
+            ram.storage[0xC000 : 0xC000 + len(PYGAMEBOY_BOOT_CGB_COLOR_TILES)] = (
+                PYGAMEBOY_BOOT_CGB_COLOR_TILES
+            )
+            ram.bg_palettes[: len(PYGAMEBOY_BOOT_CGB_PALETTE)] = (
+                PYGAMEBOY_BOOT_CGB_PALETTE
+            )
+            for palette_index, color_word in enumerate(
+                PYGAMEBOY_BOOT_CGB_COLOR_WORDS, start=1
+            ):
+                color_offset = (palette_index << 3) + 6
+                ram.ob_palettes[color_offset : color_offset + 2] = color_word.to_bytes(
+                    2, "little"
+                )
+            ram.storage[0xFE00 : 0xFE00 + len(PYGAMEBOY_BOOT_CGB_OAM)] = (
+                PYGAMEBOY_BOOT_CGB_OAM
+            )
 
     save_path = get_save_path(args.rom)
     battery_backed = has_battery(mbc_type)
@@ -383,9 +419,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not boot_rom_data:
         initialize_post_boot(cpu, ram)
     else:
-        # Start at 0x0000 to run the Nintendo boot sequence
+        # Start at 0x0000 so the selected boot firmware performs the handoff.
         cpu.registers.PC = 0x0000
-        print("Starting boot sequence...")
+        if using_builtin_boot:
+            print("Starting PyGameBoy boot sequence...")
+        else:
+            print("Starting user-supplied boot sequence...")
 
     audio_callback = make_audio_callback(apu, args.verbose)
 
@@ -525,6 +564,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
             presented = not video.skip_render
             if presented:
+                rgb_data: npt.NDArray[np.uint8]
                 if getattr(video, "gbc_mode", False):
                     rgb_data = video.frame_buffer.reshape((144, 160, 3))
                 else:
@@ -534,7 +574,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 # Performance: skip costly blitting, scaling, and flipping if the frame is identical to the previous frame
                 frame_changed = True
                 if not debug_overlay:
-                    if not hasattr(video, "_prev_frame_buffer") or video._prev_frame_buffer.shape != video.frame_buffer.shape:
+                    if (
+                        video._prev_frame_buffer is None
+                        or video._prev_frame_buffer.shape != video.frame_buffer.shape
+                    ):
                         video._prev_frame_buffer = video.frame_buffer.copy()
                     else:
                         if np.array_equal(video.frame_buffer, video._prev_frame_buffer):
