@@ -189,15 +189,29 @@ def print_opcode_profile(cpu: CPU) -> None:
 
 
 def initialize_post_boot(cpu: CPU, ram: Memory) -> None:
-    """Apply the documented DMG state observed after the boot ROM exits."""
-    cpu.registers.PC = 0x0100
-    cpu.registers.SP = 0xFFFE
-    cpu.registers["AF"] = 0x01B0
-    cpu.registers["BC"] = 0x0013
-    cpu.registers["DE"] = 0x00D8
-    cpu.registers["HL"] = 0x014D
-    ram.serial.clock_phase = DMG_POST_BOOT_SERIAL_PHASE
-    ram.write_byte(0xFF50, 1)
+    """Apply the documented DMG/CGB state observed after the boot ROM exits."""
+    if getattr(ram, "gbc_mode", False):
+        cpu.registers.PC = 0x0100
+        cpu.registers.SP = 0xFFFE
+        cpu.registers["AF"] = 0x11B0
+        cpu.registers["BC"] = 0x0000
+        cpu.registers["DE"] = 0xFF56
+        cpu.registers["HL"] = 0x000D
+        ram.serial.clock_phase = DMG_POST_BOOT_SERIAL_PHASE
+        ram.write_byte(0xFF50, 1)
+        # Initialize key CGB registers in storage
+        ram.storage[0xFF4D] = 0x7E  # KEY1 (Double speed prep)
+        ram.storage[0xFF4F] = 0xFE  # VBK (VRAM Bank)
+        ram.storage[0xFF70] = 0xF9  # SVBK (WRAM Bank, bank 1 active)
+    else:
+        cpu.registers.PC = 0x0100
+        cpu.registers.SP = 0xFFFE
+        cpu.registers["AF"] = 0x01B0
+        cpu.registers["BC"] = 0x0013
+        cpu.registers["DE"] = 0x00D8
+        cpu.registers["HL"] = 0x014D
+        ram.serial.clock_phase = DMG_POST_BOOT_SERIAL_PHASE
+        ram.write_byte(0xFF50, 1)
 
 
 def handle_input(joypad: InputDevice) -> tuple[bool, bool]:
@@ -478,7 +492,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             instruction_budget = None
             if args.max_instructions is not None:
                 instruction_budget = args.max_instructions - total_instructions
-            cycle_budget = FRAME_CYCLES * 2
+            multiplier = 2 if getattr(ram, "double_speed", False) else 1
+            cycle_budget = FRAME_CYCLES * 2 * multiplier
             if args.max_cycles is not None:
                 cycle_budget = min(cycle_budget, args.max_cycles - total_cycles)
 
@@ -510,8 +525,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
             presented = not video.skip_render
             if presented:
-                raw_indices = video.frame_buffer.reshape((144, 160))
-                rgb_data = GB_PALETTE[raw_indices]
+                if getattr(video, "gbc_mode", False):
+                    rgb_data = video.frame_buffer.reshape((144, 160, 3))
+                else:
+                    raw_indices = video.frame_buffer.reshape((144, 160))
+                    rgb_data = GB_PALETTE[raw_indices]
                 pygame.surfarray.blit_array(
                     internal_surface, rgb_data.transpose(1, 0, 2)
                 )

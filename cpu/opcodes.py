@@ -393,6 +393,14 @@ class CPUOpcodes:
         bytes = 2
         """
         self.stopped = True
+        if getattr(self.ram, "gbc_mode", False) and (self.ram.storage[0xFF4D] & 0x01):
+            self.stopped = False
+            self.ram.double_speed = not self.ram.double_speed
+            curr_val = self.ram.storage[0xFF4D]
+            new_val = (curr_val & 0xFE) ^ 0x80
+            self.ram.storage[0xFF4D] = new_val
+            self.registers.PC += 2
+            return 2050
         self.registers.PC += 2
         return 4
 

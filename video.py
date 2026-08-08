@@ -108,9 +108,15 @@ class VideoChip:
         self.window_line: int = 0
         self.stat_irq_signal: bool = False
 
-        self.frame_buffer: npt.NDArray[np.uint8] = np.zeros(
-            self.SCREEN_WIDTH * self.SCREEN_HEIGHT, dtype=np.uint8
-        )
+        self.gbc_mode = getattr(memory, "gbc_mode", False)
+        if self.gbc_mode:
+            self.frame_buffer = np.zeros(
+                (self.SCREEN_WIDTH * self.SCREEN_HEIGHT, 3), dtype=np.uint8
+            )
+        else:
+            self.frame_buffer = np.zeros(
+                self.SCREEN_WIDTH * self.SCREEN_HEIGHT, dtype=np.uint8
+            )
         self.bg_color_indices: npt.NDArray[np.uint8] = np.zeros(
             self.SCREEN_WIDTH * self.SCREEN_HEIGHT, dtype=np.uint8
         )
@@ -245,6 +251,23 @@ class VideoChip:
                     self.mode_clock -= CYCLES_PIXEL_TRANSFER
                     self.set_mode(MODE_HBLANK)
                     self.render_scanline()
+                    if self.gbc_mode and getattr(self.memory, "hdma_active", False):
+                        ram = self.memory
+                        ram.storage[ram.hdma_dst : ram.hdma_dst + 16] = ram.storage[ram.hdma_src : ram.hdma_src + 16]
+                        ram.hdma_src = (ram.hdma_src + 16) & 0xFFFF
+                        ram.hdma_dst = (ram.hdma_dst + 16) & 0xFFFF
+                        ram.hdma_blocks_remaining -= 1
+                        
+                        ram.storage[0xFF51] = (ram.hdma_src >> 8) & 0xFF
+                        ram.storage[0xFF52] = ram.hdma_src & 0xFF
+                        ram.storage[0xFF53] = (ram.hdma_dst >> 8) & 0xFF
+                        ram.storage[0xFF54] = ram.hdma_dst & 0xFF
+                        
+                        if ram.hdma_blocks_remaining == 0:
+                            ram.hdma_active = False
+                            ram.storage[0xFF55] = 0xFF
+                        else:
+                            ram.storage[0xFF55] = ram.hdma_blocks_remaining - 1
                 else:
                     break
             elif mode == MODE_HBLANK:
@@ -302,6 +325,90 @@ class VideoChip:
             self.memory.request_interrupt(INT_STAT_BIT)
         self.stat_irq_signal = signal
 
+    def read_vram(self, bank: int, address: int) -> int:
+        offset = address & 0x1FFF
+        if self.memory.current_vram_bank == bank:
+            return self.storage[VRAM_START + offset]
+        else:
+            return self.memory.vram_banks[bank][offset]
+
+    def get_gbc_color(self, palette_idx: int, color_idx: int, is_bg: bool) -> tuple[int, int, int]:
+        pal_array = self.memory.bg_palettes if is_bg else self.memory.ob_palettes
+        offset = (palette_idx << 3) + (color_idx << 1)
+        low = pal_array[offset]
+        high = pal_array[offset + 1]
+        color_word = low | (high << 8)
+        
+        r = color_word & 0x1F
+        g = (color_word >> 5) & 0x1F
+        b = (color_word >> 10) & 0x1F
+        
+        # Scale to 8-bit
+        r8 = (r << 3) | (r >> 2)
+        g8 = (g << 3) | (g >> 2)
+        b8 = (b << 3) | (b >> 2)
+        
+        return (r8, g8, b8)
+
+    def _render_background_span_gbc(
+        self,
+        *,
+        line_start: int,
+        screen_start: int,
+        length: int,
+        coordinate_start: int,
+        y: int,
+        tile_map_offset: int,
+        unsigned_tiles: bool,
+    ) -> None:
+        pixel_x = coordinate_start
+        for i in range(length):
+            scr_x = screen_start + i
+            map_x = (pixel_x + i) & 0xFF
+            
+            tile_col = map_x >> 3
+            tile_row = y >> 3
+            
+            # Fetch tile index from map (VRAM Bank 0)
+            map_addr = tile_map_offset + (tile_row << 5) + tile_col
+            tile_index = self.read_vram(0, 0x8000 + map_addr)
+            
+            # Fetch attributes from map (VRAM Bank 1)
+            attr = self.read_vram(1, 0x8000 + map_addr)
+            
+            bg_pal_idx = attr & 0x07
+            char_bank = (attr >> 3) & 0x01
+            flip_x = bool(attr & 0x20)
+            flip_y = bool(attr & 0x40)
+            bg_priority = bool(attr & 0x80)
+            
+            tile_pixel_x = map_x & 7
+            tile_pixel_y = y & 7
+            
+            if flip_x:
+                tile_pixel_x = 7 - tile_pixel_x
+            if flip_y:
+                tile_pixel_y = 7 - tile_pixel_y
+                
+            if unsigned_tiles:
+                tile_data_addr = 0x8000 + (tile_index << 4)
+            else:
+                if tile_index >= 128:
+                    tile_data_addr = 0x8800 + ((tile_index - 128) << 4)
+                else:
+                    tile_data_addr = 0x9000 + (tile_index << 4)
+                    
+            tile_data_addr += tile_pixel_y << 1
+            
+            byte1 = self.read_vram(char_bank, tile_data_addr)
+            byte2 = self.read_vram(char_bank, tile_data_addr + 1)
+            
+            bit_shift = 7 - tile_pixel_x
+            color_idx = (((byte2 >> bit_shift) & 0x01) << 1) | ((byte1 >> bit_shift) & 0x01)
+            
+            self.bg_color_indices[line_start + scr_x] = color_idx | (0x80 if bg_priority else 0)
+            self.frame_buffer[line_start + scr_x] = self.get_gbc_color(bg_pal_idx, color_idx, is_bg=True)
+
     def render_scanline(self) -> None:
         if self.skip_render:
             return
@@ -311,10 +418,11 @@ class VideoChip:
         line_start = self.storage[REG_LY] * self.SCREEN_WIDTH
         line_end = line_start + self.SCREEN_WIDTH
 
-        if not (self.storage[REG_LCDC] & LCDC_BG_ENABLE):
+        if not (self.storage[REG_LCDC] & LCDC_BG_ENABLE) and not self.gbc_mode:
             self.frame_buffer[line_start:line_end] = 0
             self.bg_color_indices[line_start:line_end] = 0
         else:
+            render_func = self._render_background_span_gbc if self.gbc_mode else self._render_background_span
             unsigned_tiles = bool(self.storage[REG_LCDC] & LCDC_TILE_DATA_SEL)
             window_enabled = (self.storage[REG_LCDC] & LCDC_WINDOW_ENABLE) and (
                 self.storage[REG_WY] <= self.storage[REG_LY]
@@ -336,7 +444,7 @@ class VideoChip:
                     else VRAM_TILE_MAP_0_OFFSET
                 )
                 if wx_start:
-                    self._render_background_span(
+                    render_func(
                         line_start=line_start,
                         screen_start=0,
                         length=wx_start,
@@ -345,7 +453,7 @@ class VideoChip:
                         tile_map_offset=bg_map,
                         unsigned_tiles=unsigned_tiles,
                     )
-                self._render_background_span(
+                render_func(
                     line_start=line_start,
                     screen_start=wx_start,
                     length=self.SCREEN_WIDTH - wx_start,
@@ -355,7 +463,7 @@ class VideoChip:
                     unsigned_tiles=unsigned_tiles,
                 )
             else:
-                self._render_background_span(
+                render_func(
                     line_start=line_start,
                     screen_start=0,
                     length=self.SCREEN_WIDTH,
@@ -389,39 +497,75 @@ class VideoChip:
                         break
 
             if active:
-                active.sort(reverse=True)
-                line_buf = self.frame_buffer[line_start:line_end]
-                raw_bg = self.bg_color_indices[line_start:line_end]
+                if self.gbc_mode:
+                    active.sort(key=lambda item: (-item[0], -item[1]))
+                    line_buf = self.frame_buffer[line_start:line_end]
+                    bg_color_info = self.bg_color_indices[line_start:line_end]
 
-                for x, _index, y, tile, attr in active:
-                    pal = (
-                        self.storage[REG_OBP1]
-                        if (attr & 0x10)
-                        else self.storage[REG_OBP0]
-                    )
-                    if h == 16:
-                        tile &= 0xFE
-                    line = self.storage[REG_LY] - y
-                    if attr & 0x40:
-                        line = h - 1 - line
-                    addr = VRAM_START + (int(tile) << 4) + (int(line) << 1)
-                    voff = (addr - VRAM_START) & 0x1FFE
-                    b1, b2 = self.vram_np[voff], self.vram_np[voff + 1]
+                    for x, _index, y, tile, attr in active:
+                        sprite_pal_idx = attr & 0x07
+                        char_bank = (attr >> 3) & 0x01
+                        if h == 16:
+                            tile &= 0xFE
+                        line = self.storage[REG_LY] - y
+                        if attr & 0x40:
+                            line = h - 1 - line
+                        
+                        tile_data_addr = 0x8000 + (tile << 4) + (line << 1)
+                        b1 = self.read_vram(char_bank, tile_data_addr)
+                        b2 = self.read_vram(char_bank, tile_data_addr + 1)
 
-                    s_x, e_x = max(0, x), min(160, x + 8)
-                    if s_x < e_x:
-                        flip_x = bool(attr & 0x20)
-                        obj_behind_bg = bool(attr & 0x80)
-                        row = _TILE_ROW_COLORS[int(b1) | (int(b2) << 8)]
-                        if flip_x:
-                            row = row[::-1]
+                        s_x, e_x = max(0, x), min(160, x + 8)
+                        if s_x < e_x:
+                            flip_x = bool(attr & 0x20)
+                            obj_behind_bg = bool(attr & 0x80)
+                            row = _TILE_ROW_COLORS[b1 | (b2 << 8)]
+                            if flip_x:
+                                row = row[::-1]
 
-                        for px in range(s_x, e_x):
-                            color_bit = row[px - x]
-                            if color_bit != 0 and (
-                                not obj_behind_bg or raw_bg[px] == 0
-                            ):
-                                line_buf[px] = _PALETTE_SHADES[pal, color_bit]
+                            for px in range(s_x, e_x):
+                                color_bit = row[px - x]
+                                if color_bit != 0:
+                                    bg_color_idx = bg_color_info[px] & 0x0F
+                                    bg_priority = bool(bg_color_info[px] & 0x80)
+                                    lcdc_bit0 = bool(self.storage[REG_LCDC] & 0x01)
+                                    
+                                    if not lcdc_bit0 or bg_color_idx == 0 or (not bg_priority and not obj_behind_bg):
+                                        line_buf[px] = self.get_gbc_color(sprite_pal_idx, color_bit, is_bg=False)
+                else:
+                    active.sort(reverse=True)
+                    line_buf = self.frame_buffer[line_start:line_end]
+                    raw_bg = self.bg_color_indices[line_start:line_end]
+
+                    for x, _index, y, tile, attr in active:
+                        pal = (
+                            self.storage[REG_OBP1]
+                            if (attr & 0x10)
+                            else self.storage[REG_OBP0]
+                        )
+                        if h == 16:
+                            tile &= 0xFE
+                        line = self.storage[REG_LY] - y
+                        if attr & 0x40:
+                            line = h - 1 - line
+                        addr = VRAM_START + (int(tile) << 4) + (int(line) << 1)
+                        voff = (addr - VRAM_START) & 0x1FFE
+                        b1, b2 = self.vram_np[voff], self.vram_np[voff + 1]
+
+                        s_x, e_x = max(0, x), min(160, x + 8)
+                        if s_x < e_x:
+                            flip_x = bool(attr & 0x20)
+                            obj_behind_bg = bool(attr & 0x80)
+                            row = _TILE_ROW_COLORS[int(b1) | (int(b2) << 8)]
+                            if flip_x:
+                                row = row[::-1]
+
+                            for px in range(s_x, e_x):
+                                color_bit = row[px - x]
+                                if color_bit != 0 and (
+                                    not obj_behind_bg or raw_bg[px] == 0
+                                ):
+                                    line_buf[px] = _PALETTE_SHADES[pal, color_bit]
 
     def _render_background_span(
         self,
