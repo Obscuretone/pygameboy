@@ -145,6 +145,54 @@ class TestGBCFeatures(unittest.TestCase):
         # Speed switch takes 2050 cycles
         self.assertEqual(cycles, 2050)
 
+    def test_gbc_background_rendering_vectorization(self) -> None:
+        """Verify that GBC background rendering vectorization yields mathematically exact colors, attributes, flips, and bank mapping."""
+        self._enable_gbc_mode()
+        video = VideoChip(self.clock, self.memory)
+        self.memory.video = video
+        
+        # Enable BG rendering via LCDC (bit 0 = 1, bit 4 = 1 for unsigned tile data, bit 3 = 0 for 0x9800 tile map)
+        self.memory.storage[0xFF40] = 0b10010001
+        self.memory.storage[0xFF42] = 0  # REG_SCY
+        self.memory.storage[0xFF43] = 0  # REG_SCX
+        self.memory.storage[0xFF44] = 0  # REG_LY
+        
+        # Populate background palette: palette 0, color index 1 (low byte offset 2, high byte offset 3)
+        # RGB components: r=31, g=15, b=7 (color word: 7<<10 | 15<<5 | 31 = 7168 + 480 + 31 = 7679 = 0x1DFF)
+        self.memory.bg_palettes[2] = 0xFF
+        self.memory.bg_palettes[3] = 0x1D
+        
+        # Populate VRAM Bank 0 and Bank 1 tile map and pattern data
+        self.memory.current_vram_bank = 0
+        tile0_pattern_offset = 0x0000
+        # Row 0 of tile 0
+        self.memory.storage[0x8000 + tile0_pattern_offset] = 0xFF  # low byte: all ones
+        self.memory.storage[0x8000 + tile0_pattern_offset + 1] = 0x00  # high byte: all zeros
+        # Row 7 of tile 0 (since flip_y is True)
+        self.memory.storage[0x8000 + tile0_pattern_offset + 14] = 0xFF  # low byte: all ones
+        self.memory.storage[0x8000 + tile0_pattern_offset + 15] = 0x00  # high byte: all zeros
+        
+        # Set tile map value at 0x9800 to tile index 0
+        self.memory.storage[0x9800] = 0
+        
+        # Set attributes in VRAM Bank 1 at 0x9800 (address offset: 0x1800)
+        # Choose bg_pal_idx=0, char_bank=0, flip_x=True, flip_y=True, bg_priority=True
+        # Attribute byte: bit 7 (priority)=1, bit 6 (flip_y)=1, bit 5 (flip_x)=1, bit 3 (char_bank)=0, bit 0-2 (palette)=0
+        self.memory.vram_banks[1][0x1800] = 0xE0
+        
+        # Execute background rendering pipeline
+        video.render_scanline()
+        
+        # Verify color scaling:
+        # r = 31 -> (31 << 3) | (31 >> 2) = 255
+        # g = 15 -> (15 << 3) | (15 >> 2) = 123
+        # b = 7  -> (7 << 3) | (7 >> 2) = 57
+        expected_color = (255, 123, 57)
+        
+        for i in range(8):
+            self.assertEqual(tuple(video.frame_buffer[i]), expected_color)
+            self.assertEqual(video.bg_color_indices[i], 0x81)
+
 
 if __name__ == "__main__":
     unittest.main()

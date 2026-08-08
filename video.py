@@ -113,6 +113,11 @@ class VideoChip:
             self.frame_buffer = np.zeros(
                 (self.SCREEN_WIDTH * self.SCREEN_HEIGHT, 3), dtype=np.uint8
             )
+            self.bg_pals_np = np.frombuffer(memory.bg_palettes, dtype=np.uint8)
+            self.vram_banks_np = [
+                np.frombuffer(memory.vram_banks[0], dtype=np.uint8),
+                np.frombuffer(memory.vram_banks[1], dtype=np.uint8),
+            ]
         else:
             self.frame_buffer = np.zeros(
                 self.SCREEN_WIDTH * self.SCREEN_HEIGHT, dtype=np.uint8
@@ -361,53 +366,94 @@ class VideoChip:
         tile_map_offset: int,
         unsigned_tiles: bool,
     ) -> None:
-        pixel_x = coordinate_start
-        for i in range(length):
-            scr_x = screen_start + i
-            map_x = (pixel_x + i) & 0xFF
-            
-            tile_col = map_x >> 3
-            tile_row = y >> 3
-            
-            # Fetch tile index from map (VRAM Bank 0)
-            map_addr = tile_map_offset + (tile_row << 5) + tile_col
-            tile_index = self.read_vram(0, 0x8000 + map_addr)
-            
-            # Fetch attributes from map (VRAM Bank 1)
-            attr = self.read_vram(1, 0x8000 + map_addr)
-            
-            bg_pal_idx = attr & 0x07
-            char_bank = (attr >> 3) & 0x01
-            flip_x = bool(attr & 0x20)
-            flip_y = bool(attr & 0x40)
-            bg_priority = bool(attr & 0x80)
-            
-            tile_pixel_x = map_x & 7
-            tile_pixel_y = y & 7
-            
-            if flip_x:
-                tile_pixel_x = 7 - tile_pixel_x
-            if flip_y:
-                tile_pixel_y = 7 - tile_pixel_y
-                
-            if unsigned_tiles:
-                tile_data_addr = 0x8000 + (tile_index << 4)
-            else:
-                if tile_index >= 128:
-                    tile_data_addr = 0x8800 + ((tile_index - 128) << 4)
-                else:
-                    tile_data_addr = 0x9000 + (tile_index << 4)
-                    
-            tile_data_addr += tile_pixel_y << 1
-            
-            byte1 = self.read_vram(char_bank, tile_data_addr)
-            byte2 = self.read_vram(char_bank, tile_data_addr + 1)
-            
-            bit_shift = 7 - tile_pixel_x
-            color_idx = (((byte2 >> bit_shift) & 0x01) << 1) | ((byte1 >> bit_shift) & 0x01)
-            
-            self.bg_color_indices[line_start + scr_x] = color_idx | (0x80 if bg_priority else 0)
-            self.frame_buffer[line_start + scr_x] = self.get_gbc_color(bg_pal_idx, color_idx, is_bg=True)
+        """Render a contiguous GBC background or window span using vectorized NumPy operations."""
+        # Align coordinate to 8-pixel tiles
+        pixel_offset = coordinate_start & 7
+        tile_count = (pixel_offset + length + 7) >> 3
+        first_tile = (coordinate_start >> 3) & 31
+        
+        # In Game Boy, the tile map wraps horizontally around 32 tiles
+        tile_columns = (self.tile_columns[:tile_count] + first_tile) & 31
+        map_row_offset = tile_map_offset + (((y >> 3) & 31) << 5)
+
+        # Get direct views/buffers of Bank 0 and Bank 1 to prevent expensive Python loops
+        if self.memory.current_vram_bank == 0:
+            vram0 = self.vram_np
+            vram1 = self.vram_banks_np[1]
+        else:
+            vram0 = self.vram_banks_np[0]
+            vram1 = self.vram_np
+
+        # Fetch tile indices and attributes for each tile column
+        tile_indices = vram0[map_row_offset + tile_columns]
+        attrs = vram1[map_row_offset + tile_columns]
+
+        # Decode attributes
+        bg_pal_idx = attrs & 0x07
+        char_bank = (attrs >> 3) & 0x01
+        flip_x = (attrs & 0x20) != 0
+        flip_y = (attrs & 0x40) != 0
+        bg_priority = (attrs & 0x80) != 0
+
+        # Calculate y offset within the tile, accounting for vertical flipping
+        tile_pixel_y = np.where(flip_y, 7 - (y & 7), y & 7)
+
+        # Calculate data offsets relative to the start of the tile pattern tables
+        if unsigned_tiles:
+            tile_offsets = tile_indices.astype(np.uint32) << 4
+        else:
+            signed_indices = tile_indices.view(np.int8).astype(np.int32)
+            tile_offsets = VRAM_TILE_DATA_INDEX_OFFSET + (signed_indices << 4)
+
+        tile_offsets = tile_offsets + (tile_pixel_y << 1)
+
+        # Fetch pattern byte 1 and byte 2 for each tile from the designated char bank
+        byte1 = np.where(char_bank == 0, vram0[tile_offsets], vram1[tile_offsets])
+        byte2 = np.where(char_bank == 0, vram0[tile_offsets + 1], vram1[tile_offsets + 1])
+
+        # Combine bytes into 16-bit row codes and decode into 8 color indices (0-3) using precomputed table
+        row_codes = byte1.astype(np.uint16) | (byte2.astype(np.uint16) << 8)
+        decoded = _TILE_ROW_COLORS[row_codes].copy()  # Use copy to allow modifying flipped rows
+
+        # Apply horizontal flipping where needed
+        for idx in range(tile_count):
+            if flip_x[idx]:
+                decoded[idx] = decoded[idx, ::-1]
+
+        # Reshape to a 1D pixel stream and align to the screen slice
+        decoded_flat = decoded.reshape(-1)
+        color_indices = decoded_flat[pixel_offset : pixel_offset + length]
+
+        # Replicate tile palette and priority attributes down to the pixel level
+        pixel_pals = np.repeat(bg_pal_idx, 8)[pixel_offset : pixel_offset + length]
+        pixel_priorities = np.repeat(bg_priority, 8)[pixel_offset : pixel_offset + length]
+
+        # Record color indices and priorities for OAM priority checks in sprite rendering
+        start = line_start + screen_start
+        end = start + length
+        self.bg_color_indices[start:end] = color_indices | np.where(pixel_priorities, 0x80, 0)
+
+        # Fetch RGB color mappings from active background palettes buffer
+        bg_pals_np = self.bg_pals_np
+        offsets = (pixel_pals << 3) + (color_indices << 1)
+
+        low = bg_pals_np[offsets]
+        high = bg_pals_np[offsets + 1]
+        color_words = low.astype(np.uint16) | (high.astype(np.uint16) << 8)
+
+        # Extract 5-bit RGB components and scale to 8-bit values
+        r = color_words & 0x1F
+        g = (color_words >> 5) & 0x1F
+        b = (color_words >> 10) & 0x1F
+
+        r8 = (r << 3) | (r >> 2)
+        g8 = (g << 3) | (g >> 2)
+        b8 = (b << 3) | (b >> 2)
+
+        # Update the GBC frame buffer slice
+        self.frame_buffer[start:end, 0] = r8
+        self.frame_buffer[start:end, 1] = g8
+        self.frame_buffer[start:end, 2] = b8
 
     def render_scanline(self) -> None:
         if self.skip_render:
