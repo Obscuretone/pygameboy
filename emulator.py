@@ -530,29 +530,42 @@ def main(argv: Sequence[str] | None = None) -> int:
                 else:
                     raw_indices = video.frame_buffer.reshape((144, 160))
                     rgb_data = GB_PALETTE[raw_indices]
-                pygame.surfarray.blit_array(
-                    internal_surface, rgb_data.transpose(1, 0, 2)
-                )
-                pygame.transform.scale(
-                    internal_surface, (window_width, window_height), screen
-                )
-                if debug_overlay:
-                    with apu.buffer_lock:
-                        overlay_audio_size = apu.buffer_size
-                    draw_debug_overlay(
-                        screen,
-                        debug_font,
-                        cpu,
-                        video,
-                        overlay_audio_size,
-                        total_instructions,
-                        total_cycles,
-                        emulated_fps,
-                        presented_fps,
-                        skipped_percent,
-                        speed_percent,
+
+                # Performance: skip costly blitting, scaling, and flipping if the frame is identical to the previous frame
+                frame_changed = True
+                if not debug_overlay:
+                    if not hasattr(video, "_prev_frame_buffer") or video._prev_frame_buffer.shape != video.frame_buffer.shape:
+                        video._prev_frame_buffer = video.frame_buffer.copy()
+                    else:
+                        if np.array_equal(video.frame_buffer, video._prev_frame_buffer):
+                            frame_changed = False
+                        else:
+                            video._prev_frame_buffer[:] = video.frame_buffer
+
+                if frame_changed:
+                    pygame.surfarray.blit_array(
+                        internal_surface, rgb_data.transpose(1, 0, 2)
                     )
-                pygame.display.flip()
+                    pygame.transform.scale(
+                        internal_surface, (window_width, window_height), screen
+                    )
+                    if debug_overlay:
+                        with apu.buffer_lock:
+                            overlay_audio_size = apu.buffer_size
+                        draw_debug_overlay(
+                            screen,
+                            debug_font,
+                            cpu,
+                            video,
+                            overlay_audio_size,
+                            total_instructions,
+                            total_cycles,
+                            emulated_fps,
+                            presented_fps,
+                            skipped_percent,
+                            speed_percent,
+                        )
+                    pygame.display.flip()
 
             fps_window_emulated += 1
             fps_window_cycles += cycles
