@@ -239,7 +239,9 @@ class CPU(CPUOpcodes):
                     if instruction_elapsed:
                         self._instruction_elapsed_cycles = 0
 
-                    cyc_scaled = cyc >> 1 if getattr(self.ram, "double_speed", False) else cyc
+                    cyc_scaled = (
+                        cyc >> 1 if getattr(self.ram, "double_speed", False) else cyc
+                    )
 
                     if (
                         serial_fast_phase
@@ -308,7 +310,9 @@ class CPU(CPUOpcodes):
                     if instruction_elapsed:
                         self._instruction_elapsed_cycles = 0
 
-                    cyc_scaled = cyc >> 1 if getattr(self.ram, "double_speed", False) else cyc
+                    cyc_scaled = (
+                        cyc >> 1 if getattr(self.ram, "double_speed", False) else cyc
+                    )
 
                     if (
                         serial_fast_phase

@@ -12,6 +12,12 @@ class MemoryBus(Protocol):
     def request_interrupt(self, mask: Byte) -> None: ...
 
 
+class ColorMemoryBus(MemoryBus, Protocol):
+    """Optional state supplied by a Game Boy Color memory bus."""
+
+    double_speed: bool
+
+
 @runtime_checkable
 class MemoryBankController(Protocol):
     rom: Any

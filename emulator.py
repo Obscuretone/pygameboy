@@ -526,7 +526,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             presented = not video.skip_render
             if presented:
                 if getattr(video, "gbc_mode", False):
-                    rgb_data = video.frame_buffer.reshape((144, 160, 3))
+                    rgb_data: npt.NDArray[np.uint8] = video.frame_buffer.reshape(
+                        (144, 160, 3)
+                    )
                 else:
                     raw_indices = video.frame_buffer.reshape((144, 160))
                     rgb_data = GB_PALETTE[raw_indices]
@@ -534,13 +536,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 # Performance: skip costly blitting, scaling, and flipping if the frame is identical to the previous frame
                 frame_changed = True
                 if not debug_overlay:
-                    if not hasattr(video, "_prev_frame_buffer") or video._prev_frame_buffer.shape != video.frame_buffer.shape:
+                    previous = video._prev_frame_buffer
+                    if previous is None or previous.shape != video.frame_buffer.shape:
                         video._prev_frame_buffer = video.frame_buffer.copy()
                     else:
-                        if np.array_equal(video.frame_buffer, video._prev_frame_buffer):
+                        if np.array_equal(video.frame_buffer, previous):
                             frame_changed = False
                         else:
-                            video._prev_frame_buffer[:] = video.frame_buffer
+                            previous[:] = video.frame_buffer
 
                 if frame_changed:
                     pygame.surfarray.blit_array(

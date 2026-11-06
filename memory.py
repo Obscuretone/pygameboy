@@ -310,9 +310,13 @@ class Memory:
             if address == 0xFF4F:  # VBK
                 new_bank = value & 0x01
                 if new_bank != self.current_vram_bank:
-                    self.vram_banks[self.current_vram_bank][:] = self.storage[0x8000:0xA000]
+                    self.vram_banks[self.current_vram_bank][:] = self.storage[
+                        0x8000:0xA000
+                    ]
                     self.current_vram_bank = new_bank
-                    self.storage[0x8000:0xA000] = self.vram_banks[self.current_vram_bank]
+                    self.storage[0x8000:0xA000] = self.vram_banks[
+                        self.current_vram_bank
+                    ]
                 self.storage[0xFF4F] = 0xFE | new_bank
                 return
             if address == 0xFF70:  # SVBK
@@ -320,9 +324,13 @@ class Memory:
                 if new_bank == 0:
                     new_bank = 1
                 if new_bank != self.current_wram_bank:
-                    self.wram_banks[self.current_wram_bank][:] = self.storage[0xD000:0xE000]
+                    self.wram_banks[self.current_wram_bank][:] = self.storage[
+                        0xD000:0xE000
+                    ]
                     self.current_wram_bank = new_bank
-                    self.storage[0xD000:0xE000] = self.wram_banks[self.current_wram_bank]
+                    self.storage[0xD000:0xE000] = self.wram_banks[
+                        self.current_wram_bank
+                    ]
                     self.storage[0xF000:0xFDFF] = self.storage[0xD000:0xDDFF]
                 self.storage[0xFF70] = 0xF8 | (value & 0x07)
                 return
@@ -353,21 +361,26 @@ class Memory:
                 return
             if address == 0xFF55:  # HDMA5
                 src = ((self.storage[0xFF51] << 8) | self.storage[0xFF52]) & 0xFFF0
-                dst = (0x8000 | (((self.storage[0xFF53] & 0x1F) << 8) | self.storage[0xFF54])) & 0xFFF0
+                dst = (
+                    0x8000
+                    | (((self.storage[0xFF53] & 0x1F) << 8) | self.storage[0xFF54])
+                ) & 0xFFF0
                 blocks = (value & 0x7F) + 1
                 is_hdma = bool(value & 0x80)
-                
+
                 if self.hdma_active and not is_hdma:
                     self.hdma_active = False
                     self.storage[0xFF55] |= 0x80
                     return
-                
+
                 self.hdma_src = src
                 self.hdma_dst = dst
                 if not is_hdma:
                     # GDMA: execute immediately
                     for _ in range(blocks):
-                        self.storage[self.hdma_dst : self.hdma_dst + 16] = self.storage[self.hdma_src : self.hdma_src + 16]
+                        self.storage[self.hdma_dst : self.hdma_dst + 16] = self.storage[
+                            self.hdma_src : self.hdma_src + 16
+                        ]
                         self.hdma_src = (self.hdma_src + 16) & 0xFFFF
                         self.hdma_dst = (self.hdma_dst + 16) & 0xFFFF
                     self.storage[0xFF51] = (self.hdma_src >> 8) & 0xFF
