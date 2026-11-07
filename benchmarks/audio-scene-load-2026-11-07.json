@@ -1,0 +1,82 @@
+{
+  "python": "3.10.20",
+  "workload": "Super Mario Land, Start frames 120\u2013125, Right from frame 150, A on frames 200\u2013205 of each 250-frame interval; 900 forward frames, no rewind gesture. Actual 44100 Hz stereo output callback capture. Each run begins with the same isolated ROM state.",
+  "scope": "Local callback and CPU timing observations. No ROM data or commercial recordings are included. Three identical final runs; the preceding 2048-sample-reserve run exposed a brief level-loading gap. CPU benchmark results are in gb-sound-cpu-2026-11-07.json; the CPU implementation did not change for this reserve adjustment.",
+  "before_low_water_samples": 2048,
+  "after_low_water_samples": 3072,
+  "high_water_samples": 4096,
+  "before": {
+    "name": "gb-final-walk",
+    "no_rewind": false,
+    "recorded_seconds": 15.307755102040817,
+    "callback_count": 2637,
+    "missing_samples": 682,
+    "missing_percent": 0.10102626090254077,
+    "callbacks_with_missing_samples": 8,
+    "native_underflow_callbacks": 0,
+    "cpu_frame_median_ms": 9.122333001869265,
+    "cpu_frame_p95_ms": 19.303483657859033,
+    "rendered_cpu_frames": 849,
+    "skipped_cpu_frames": 51,
+    "frames": 900,
+    "peak": 0.546707808971405
+  },
+  "after": [
+    {
+      "name": "gb-walk-confirm-1",
+      "no_rewind": false,
+      "recorded_seconds": 15.307755102040817,
+      "callback_count": 2637,
+      "missing_samples": 0,
+      "missing_percent": 0.0,
+      "callbacks_with_missing_samples": 0,
+      "native_underflow_callbacks": 0,
+      "cpu_frame_median_ms": 8.069478994002566,
+      "cpu_frame_p95_ms": 17.5404419474944,
+      "rendered_cpu_frames": 867,
+      "skipped_cpu_frames": 33,
+      "frames": 900,
+      "peak": 0.546707808971405,
+      "missing_samples_after_first_second": 0
+    },
+    {
+      "name": "gb-walk-confirm-2",
+      "no_rewind": false,
+      "recorded_seconds": 15.354195011337868,
+      "callback_count": 2645,
+      "missing_samples": 0,
+      "missing_percent": 0.0,
+      "callbacks_with_missing_samples": 0,
+      "native_underflow_callbacks": 0,
+      "cpu_frame_median_ms": 7.478583509509917,
+      "cpu_frame_p95_ms": 15.05753540768637,
+      "rendered_cpu_frames": 894,
+      "skipped_cpu_frames": 6,
+      "frames": 900,
+      "peak": 0.546707808971405,
+      "missing_samples_after_first_second": 0
+    },
+    {
+      "name": "gb-walk-confirm-3",
+      "no_rewind": false,
+      "recorded_seconds": 15.307755102040817,
+      "callback_count": 2637,
+      "missing_samples": 0,
+      "missing_percent": 0.0,
+      "callbacks_with_missing_samples": 0,
+      "native_underflow_callbacks": 0,
+      "cpu_frame_median_ms": 8.099375001620501,
+      "cpu_frame_p95_ms": 13.702217302488862,
+      "rendered_cpu_frames": 892,
+      "skipped_cpu_frames": 8,
+      "frames": 900,
+      "peak": 0.546707808971405,
+      "missing_samples_after_first_second": 0
+    }
+  ],
+  "summary": {
+    "run_count": 3,
+    "median_missing_samples_including_startup": 0,
+    "median_cpu_frame_ms": 8.069478994002566
+  }
+}

@@ -4,6 +4,7 @@ import runpy
 import sys
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from threading import Event
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import Mock, patch
@@ -202,10 +203,6 @@ def test_audio_callback_consumes_contiguous_wrapped_partial_and_empty_buffers(
     assert apu.buffer_size == 0
     assert "underrun" in capsys.readouterr().out
 
-    out = np.zeros((2, 2), dtype=np.float32)
-    callback(out, 2, None, None)
-    assert out.tolist() == [[0, 0], [0, 0]]
-
     apu.buffer[apu.BUFFER_MAX - 1] = [5, 6]
     apu.buffer[0] = [7, 8]
     apu.buffer_read_pos = apu.BUFFER_MAX - 1
@@ -219,7 +216,7 @@ def test_audio_callback_consumes_contiguous_wrapped_partial_and_empty_buffers(
     apu.buffer_size = 1
     out = np.zeros((3, 2), dtype=np.float32)
     callback(out, 3, None, None)
-    assert out.tolist() == [[9, 10], [0, 0], [0, 0]]
+    assert out.tolist() == [[9, 10], [4.5, 5], [0, 0]]
 
     apu.buffer[apu.BUFFER_MAX - 1] = [11, 12]
     apu.buffer[0] = [13, 14]
@@ -227,7 +224,29 @@ def test_audio_callback_consumes_contiguous_wrapped_partial_and_empty_buffers(
     apu.buffer_size = 2
     out = np.zeros((4, 2), dtype=np.float32)
     callback(out, 4, None, None)
-    assert out.tolist() == [[11, 12], [13, 14], [0, 0], [0, 0]]
+    assert out.tolist() == [[5.5, 6], [13, 14], [6.5, 7], [0, 0]]
+
+
+def test_audio_callback_fades_out_on_empty_queue_and_in_when_samples_return() -> None:
+    apu = APU()
+    callback = emulator.make_audio_callback(apu)
+    out = np.empty((256, 2), dtype=np.float32)
+    apu.buffer[:512] = [0.5, -0.25]
+    apu.buffer_size = 256
+
+    callback(out, 256, None, None)
+    previous = out[-1].copy()
+    callback(out, 256, None, None)
+    np.testing.assert_array_equal(out[0], previous * (63 / 64))
+    assert not np.any(out[63:])
+    assert apu.buffer_read_pos == 256
+
+    apu.buffer_size = 256
+    callback(out, 256, None, None)
+    np.testing.assert_array_equal(out[0], previous / 64)
+    np.testing.assert_array_equal(out[63], previous)
+    np.testing.assert_array_equal(out[-1], previous)
+    assert apu.buffer_size == 0
 
 
 def test_main_boot_rom_read_error_valid_boot_and_loaded_save(tmp_path: Path) -> None:
@@ -561,11 +580,14 @@ def test_main_periodic_final_save_keyboard_interrupt_and_existing_error(
     assert "save failed" in stderr.getvalue()
 
 
-def test_audio_starts_after_ui_setup_with_silent_host_queue(tmp_path: Path) -> None:
+@pytest.mark.parametrize("stream_active", [True, False])
+def test_audio_starts_after_ui_setup_with_silent_host_queue(
+    tmp_path: Path, stream_active: bool
+) -> None:
     rom_path = tmp_path / "primed.gb"
     write_rom(rom_path)
     audio: dict[str, APU] = {}
-    stream = Stream()
+    stream = Stream(active=stream_active)
 
     def capture_memory(clock: ClockDevice) -> ActualMemory:
         memory = ActualMemory(clock)
@@ -587,5 +609,26 @@ def test_audio_starts_after_ui_setup_with_silent_host_queue(tmp_path: Path) -> N
         patch.object(stream, "start", side_effect=start),
         patch("emulator.CPU.run", return_value=(1, 4)),
     ):
-        assert emulator.main(["--max-frames", "1", str(rom_path)]) == 0
+        assert emulator.main(["--no-realtime", "--max-frames", "1", str(rom_path)]) == 0
     assert stream.started and stream.closed
+
+
+def test_audio_callback_stops_without_draining_queue() -> None:
+    class Finished(Exception):
+        pass
+
+    apu = APU()
+    apu.buffer[:3] = 0.5
+    apu.buffer_size = 3
+    stopping = Event()
+    callback = emulator.make_audio_callback(apu, stop_requested=stopping)
+    out = np.empty((2, 2), dtype=np.float32)
+    with patch("emulator.sd", SimpleNamespace(CallbackStop=Finished)):
+        callback(out, 2, None, None)
+        np.testing.assert_array_equal(out, np.full((2, 2), 0.5))
+        assert apu.buffer_size == 1
+        stopping.set()
+        with pytest.raises(Finished):
+            callback(out, 2, None, None)
+    assert not np.any(out)
+    assert apu.buffer_size == 1

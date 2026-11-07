@@ -4,6 +4,7 @@ import argparse
 import importlib
 import sys
 import time
+from threading import Event
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, Final
@@ -65,7 +66,7 @@ from rewind import MachineHistory, RewindInput, RewindSound
 GB_PALETTE: Final[npt.NDArray[np.uint8]] = np.array(DMG_PALETTE_COLORS, dtype=np.uint8)
 SAVE_FLUSH_FRAMES: Final[int] = 60
 MINIMUM_ROM_SIZE: Final[int] = 32 * 1024
-AUDIO_BUFFER_LOW_WATER: Final[int] = 2048
+AUDIO_BUFFER_LOW_WATER: Final[int] = 3072
 AUDIO_BUFFER_HIGH_WATER: Final[int] = 4096
 
 # Pygame to Joypad mapping
@@ -365,46 +366,54 @@ def draw_debug_overlay(
 
 
 def make_audio_callback(
-    apu: APU, verbose: bool = False, rewind_sound: RewindSound | None = None
+    apu: APU,
+    verbose: bool = False,
+    rewind_sound: RewindSound | None = None,
+    stop_requested: Event | None = None,
 ) -> Callable[[Any, int, Any, Any], None]:
     """Build a sounddevice callback backed by the APU's stereo ring buffer."""
 
+    # A short ramp hides discontinuities when the host runs out of samples.
+    ramp = np.arange(1, 65, dtype=np.float32)[:, None]
+    last_sample = np.zeros(2, dtype=np.float32)
+    recovering = False
+
     def audio_callback(outdata: Any, frames: int, time: Any, status: Any) -> None:
+        nonlocal recovering
+        if stop_requested is not None and stop_requested.is_set():
+            outdata[:] = 0.0
+            raise sd.CallbackStop
         if status and verbose:
             print(status)
 
         if rewind_sound is not None and rewind_sound.active:
             rewind_sound.render(outdata, frames)
+            last_sample[:] = outdata[-1]
+            recovering = False
             return
 
         with apu.buffer_lock:
             read_pos = apu.buffer_read_pos
-            size = apu.buffer_size
+            count = min(apu.buffer_size, frames)
+            first = min(count, apu.BUFFER_MAX - read_pos)
+            outdata[:first] = apu.buffer[read_pos : read_pos + first]
+            if first < count:
+                outdata[first:count] = apu.buffer[: count - first]
+            apu.buffer_read_pos = (read_pos + count) % apu.BUFFER_MAX
+            apu.buffer_size -= count
 
-            if size >= frames:
-                if read_pos + frames <= apu.BUFFER_MAX:
-                    outdata[:] = apu.buffer[read_pos : read_pos + frames]
-                else:
-                    chunk1 = apu.BUFFER_MAX - read_pos
-                    chunk2 = frames - chunk1
-                    outdata[:chunk1] = apu.buffer[read_pos:]
-                    outdata[chunk1:] = apu.buffer[:chunk2]
-
-                apu.buffer_read_pos = (read_pos + frames) % apu.BUFFER_MAX
-                apu.buffer_size -= frames
-            elif size > 0:
-                if read_pos + size <= apu.BUFFER_MAX:
-                    outdata[:size] = apu.buffer[read_pos : read_pos + size]
-                else:
-                    chunk1 = apu.BUFFER_MAX - read_pos
-                    chunk2 = size - chunk1
-                    outdata[:chunk1] = apu.buffer[read_pos:]
-                    outdata[chunk1:size] = apu.buffer[:chunk2]
-                outdata[size:] = 0.0
-                apu.buffer_read_pos = (read_pos + size) % apu.BUFFER_MAX
-                apu.buffer_size = 0
-            else:
-                outdata[:] = 0.0
+        if recovering and count:
+            fade_in = min(count, len(ramp))
+            outdata[:fade_in] *= ramp[:fade_in] / fade_in
+        recovering = count < frames
+        if recovering:
+            fade_out = min(frames - count, len(ramp))
+            tail = outdata[count - 1] if count else last_sample
+            outdata[count : count + fade_out] = tail * (
+                1.0 - ramp[:fade_out] / fade_out
+            )
+            outdata[count + fade_out :] = 0.0
+        last_sample[:] = outdata[-1]
 
     return audio_callback
 
@@ -513,7 +522,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.no_rewind
         else MachineHistory(cpu, ram, video, seconds=args.rewind_seconds)
     )
-    audio_callback = make_audio_callback(apu, args.verbose, rewind_sound)
+    audio_stopping = Event()
+    audio_finished = Event()
+    audio_callback = make_audio_callback(
+        apu, args.verbose, rewind_sound, audio_stopping
+    )
 
     stream = None
     exit_code = 0
@@ -547,6 +560,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 stream = sd.OutputStream(
                     channels=2,
                     callback=audio_callback,
+                    finished_callback=audio_finished.set,
                     samplerate=apu.SAMPLE_RATE,
                     blocksize=256,
                     latency="low",
@@ -759,6 +773,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         traceback.print_exc()
         exit_code = 1
     finally:
+        audio_stopping.set()
         if args.profile:
             print_opcode_profile(cpu)
         if battery_backed:
@@ -772,6 +787,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     exit_code = 1
         if stream is not None:
             try:
+                # Complete the callback before stopping the native device. This
+                # avoids a CoreAudio lock inversion during concurrent shutdown.
+                if stream.active:
+                    audio_finished.wait(timeout=0.25)
                 stream.stop()
                 stream.close()
             except Exception as error:

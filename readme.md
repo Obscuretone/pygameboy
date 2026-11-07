@@ -131,6 +131,13 @@ The [CGB sound report](benchmarks/gbc-sound-2026-11-07.json) records all 12 CGB
 sound tests passing and three live Crystal recordings with zero missing samples
 after the first second. Audio starts after window setup with a short silent
 lead-in to protect startup playback.
+A later [scene-loading check](benchmarks/audio-scene-load-2026-11-07.json) caught
+a brief gap while starting Mario's level. Raising the recovery/priming reserve to
+3,072 samples (about 70 ms) produced three moving-and-jumping runs with zero
+missing samples, including startup. The high-water limit remains 4,096 samples.
+If the host stalls long enough to exhaust that reserve, playback fades briefly
+to silence and back to avoid a click at the gap. In three final Crystal runs,
+two had no missing samples and one was short by 755 samples (about 17 ms).
 
 In three alternating local live-audio runs, allowing pixel skipping reduced
 median missing audio samples after the first second from 54,193 to zero per

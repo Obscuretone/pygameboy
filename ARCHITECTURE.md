@@ -145,8 +145,10 @@ played without the DMG access window, and retriggering does not corrupt wave RAM
 The CGB high-pass capacitor uses its own charge factor (`0.998943` per base-clock
 cycle, versus DMG's `0.999958`). CPU double speed still advances audio in base-clock
 units. Tests compare pitch, sample count, and waveforms at both CPU speeds.
-NR52 power-off periods still produce clocked silence for stable host pacing, and
-a true host underrun is zero-filled rather than extending a stale DC sample.
+NR52 power-off periods still produce clocked silence for stable host pacing.
+When the host queue runs dry, the callback ramps the last stereo sample to
+silence and fades the returned samples in. Each ramp lasts at most 64 samples
+(about 1.5 ms) and affects only host output.
 
 With audio enabled, buffer depth acts as the pacing signal:
 
@@ -154,10 +156,13 @@ With audio enabled, buffer depth acts as the pacing signal:
 - A shallow buffer can skip host rendering while emulation and audio continue.
 - If audio is disabled or unavailable, Pygame's clock supplies frame pacing.
 
-The shallow-queue threshold is 2,048 samples; production pauses above 4,096.
-The output stream starts after window and font initialization, with 2,048 silent
+The shallow-queue threshold is 3,072 samples (about 70 ms); production pauses above 4,096.
+The output stream starts after window and font initialization, with 3,072 silent
 host samples priming the queue. This avoids consuming an empty queue during UI
 setup and does not advance the emulated clocks.
+Shutdown asks the callback to finish, then waits briefly for PortAudio's finished
+notification before stopping and closing the native stream. This avoids the
+CoreAudio lock inversion observed when stopping while its I/O thread was active.
 During HALT, the fast CPU path coalesces idle four-cycle polls up to the next
 existing peripheral-dispatch boundary or TIMA overflow. It retains the same
 virtual idle count and interrupt timing. Serial transfers and pending IME changes
