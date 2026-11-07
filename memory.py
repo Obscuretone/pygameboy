@@ -476,6 +476,11 @@ class Memory:
             if addr == 0xFF55:  # HDMA5
                 return self.storage[0xFF55]
 
+        if ERAM_START <= addr <= ERAM_END and self._mbc:
+            refresh_ram_window = getattr(self._mbc, "refresh_ram_window_for_read", None)
+            if refresh_ram_window:
+                refresh_ram_window()
+
         return self.storage[addr]
 
     def write_byte(self, address: Address, value: Byte) -> None:

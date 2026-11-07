@@ -36,6 +36,7 @@ from constants import (
     DMG_POST_BOOT_SERIAL_PHASE,
     FRAME_CYCLES,
     GB_CLOCK_HZ,
+    MBC3_TIMER_TYPES,
     MBC5_RUMBLE_TYPES,
     MBC_TYPE_MBC1,
     MBC_TYPE_MBC2,
@@ -184,7 +185,13 @@ def create_mbc(rom: bytearray) -> MBC:
     if mbc_type in MBC_TYPE_MBC2:
         return MBC2(rom)
     if mbc_type in MBC_TYPE_MBC3:
-        return MBC3(rom, ram_size=ram_size)
+        has_timer = mbc_type in MBC3_TIMER_TYPES
+        return MBC3(
+            rom,
+            ram_size=ram_size,
+            has_timer=has_timer,
+            sync_with_host_clock=has_timer,
+        )
     if mbc_type in MBC_TYPE_MBC5:
         return MBC5(
             rom,
@@ -200,6 +207,10 @@ def print_opcode_profile(cpu: CPU) -> None:
         if count == 0:
             break
         print(f"  {opcode:02X}: {count:>12,}")
+
+
+def cartridge_state_dirty(mbc: MBC) -> bool:
+    return mbc.ram_dirty or bool(getattr(mbc, "rtc_dirty", False))
 
 
 def initialize_post_boot(cpu: CPU, ram: Memory) -> None:
@@ -553,7 +564,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
             if (
                 battery_backed
-                and ram.mbc.ram_dirty
+                and cartridge_state_dirty(ram.mbc)
                 and frame_count % SAVE_FLUSH_FRAMES == 0
             ):
                 save_cartridge_ram(ram.mbc, save_path)

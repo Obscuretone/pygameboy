@@ -1,5 +1,6 @@
-from collections.abc import Callable
-from typing import Final
+import time
+from collections.abc import Callable, Mapping
+from typing import Any, Final, cast
 
 from constants import (
     ERAM_START,
@@ -205,17 +206,185 @@ class MBC3(MBC):
     RTC_REGISTER_START: Final[int] = 0x08
     RTC_REGISTER_END: Final[int] = 0x0C
     RTC_REGISTER_COUNT: Final[int] = 5
+    RTC_DAY_HIGH_BIT: Final[int] = 0x01
+    RTC_HALT_BIT: Final[int] = 0x40
+    RTC_DAY_CARRY_BIT: Final[int] = 0x80
+    SECONDS_PER_MINUTE: Final[int] = 60
+    MINUTES_PER_HOUR: Final[int] = 60
+    HOURS_PER_DAY: Final[int] = 24
+    RTC_DAY_COUNT: Final[int] = 512
+    SECONDS_PER_HOUR: Final[int] = SECONDS_PER_MINUTE * MINUTES_PER_HOUR
+    SECONDS_PER_DAY: Final[int] = SECONDS_PER_HOUR * HOURS_PER_DAY
 
     DEFAULT_RAM_SIZE: Final[int] = 0x8000
 
-    def __init__(self, rom_data: ROMData, ram_size: int = DEFAULT_RAM_SIZE) -> None:
+    def __init__(
+        self,
+        rom_data: ROMData,
+        ram_size: int = DEFAULT_RAM_SIZE,
+        *,
+        has_timer: bool = True,
+        sync_with_host_clock: bool = False,
+        clock: Callable[[], float] | None = None,
+    ) -> None:
         super().__init__(rom_data, ram_size)
         self.rom_bank: int = 1
         self.ram_bank: int = 0
+        self.has_timer = has_timer
+        self._clock = clock or time.time
         self.rtc_registers: list[int] = [0] * self.RTC_REGISTER_COUNT
         self.latched_rtc_registers: list[int] = [0] * self.RTC_REGISTER_COUNT
         self.rtc_latched: bool = False
         self.latch_state: int = 0
+        self.last_rtc_timestamp: int = int(self._clock())
+        self.rtc_dirty: bool = False
+        if self.has_timer and sync_with_host_clock:
+            self._set_rtc_from_host_time(self.last_rtc_timestamp)
+            self.rtc_dirty = True
+
+    def _is_rtc_register_selected(self) -> bool:
+        return self.has_timer and self.RTC_REGISTER_START <= self.ram_bank <= (
+            self.RTC_REGISTER_END
+        )
+
+    def _selected_rtc_index(self) -> int:
+        return self.ram_bank - self.RTC_REGISTER_START
+
+    def _rtc_day_counter(self) -> int:
+        return self.rtc_registers[3] | (
+            (self.rtc_registers[4] & self.RTC_DAY_HIGH_BIT) << 8
+        )
+
+    def _rtc_total_seconds(self) -> int:
+        return (
+            self._rtc_day_counter() * self.SECONDS_PER_DAY
+            + self.rtc_registers[2] * self.SECONDS_PER_HOUR
+            + self.rtc_registers[1] * self.SECONDS_PER_MINUTE
+            + self.rtc_registers[0]
+        )
+
+    def _set_rtc_from_total_seconds(self, total_seconds: int) -> None:
+        total_days, day_seconds = divmod(total_seconds, self.SECONDS_PER_DAY)
+        hours, hour_seconds = divmod(day_seconds, self.SECONDS_PER_HOUR)
+        minutes, seconds = divmod(hour_seconds, self.SECONDS_PER_MINUTE)
+        days = total_days % self.RTC_DAY_COUNT
+
+        high_register = self.rtc_registers[4] & (
+            self.RTC_HALT_BIT | self.RTC_DAY_CARRY_BIT
+        )
+        if total_days >= self.RTC_DAY_COUNT:
+            high_register |= self.RTC_DAY_CARRY_BIT
+        if days & 0x100:
+            high_register |= self.RTC_DAY_HIGH_BIT
+
+        self.rtc_registers[0] = seconds
+        self.rtc_registers[1] = minutes
+        self.rtc_registers[2] = hours
+        self.rtc_registers[3] = days & BYTE_MASK
+        self.rtc_registers[4] = high_register
+
+    def _set_rtc_from_host_time(self, timestamp: int) -> None:
+        local_time = time.localtime(timestamp)
+        day_counter = (local_time.tm_yday - 1) % self.RTC_DAY_COUNT
+        total_seconds = (
+            day_counter * self.SECONDS_PER_DAY
+            + local_time.tm_hour * self.SECONDS_PER_HOUR
+            + local_time.tm_min * self.SECONDS_PER_MINUTE
+            + local_time.tm_sec
+        )
+        self._set_rtc_from_total_seconds(total_seconds)
+
+    def _sync_rtc(self) -> None:
+        if not self.has_timer:
+            return
+
+        now = int(self._clock())
+        elapsed_seconds = now - self.last_rtc_timestamp
+        if elapsed_seconds <= 0:
+            return
+
+        if self.rtc_registers[4] & self.RTC_HALT_BIT:
+            self.last_rtc_timestamp = now
+            return
+
+        self._set_rtc_from_total_seconds(self._rtc_total_seconds() + elapsed_seconds)
+        self.last_rtc_timestamp = now
+        self.rtc_dirty = True
+
+    def _sanitize_rtc_value(self, index: int, value: int) -> int:
+        value &= BYTE_MASK
+        if index in (0, 1):
+            return value % self.SECONDS_PER_MINUTE
+        if index == 2:
+            return value % self.HOURS_PER_DAY
+        if index == 4:
+            return value & (
+                self.RTC_DAY_HIGH_BIT | self.RTC_HALT_BIT | self.RTC_DAY_CARRY_BIT
+            )
+        return value
+
+    def _visible_rtc_value(self) -> int:
+        registers = (
+            self.latched_rtc_registers if self.rtc_latched else self.rtc_registers
+        )
+        return registers[self._selected_rtc_index()]
+
+    def _publish_selected_rtc_window(self) -> None:
+        if self.ram_enabled and self._is_rtc_register_selected():
+            self._trigger_ram_bank_change(
+                self.ram_bank,
+                bytes([self._visible_rtc_value()]) * RAM_BANK_SIZE,
+            )
+
+    def refresh_ram_window_for_read(self) -> None:
+        """Refresh the mirrored RTC register before flat-bus reads."""
+        if self._is_rtc_register_selected():
+            self._sync_rtc()
+            self._publish_selected_rtc_window()
+
+    def serialize_rtc_state(self) -> dict[str, object] | None:
+        if not self.has_timer:
+            return None
+        self._sync_rtc()
+        return {
+            "version": 1,
+            "registers": self.rtc_registers.copy(),
+            "latched_registers": self.latched_rtc_registers.copy(),
+            "rtc_latched": self.rtc_latched,
+            "latch_state": self.latch_state,
+            "last_timestamp": self.last_rtc_timestamp,
+        }
+
+    def load_rtc_state(self, state: Mapping[str, object]) -> None:
+        if not self.has_timer:
+            return
+
+        registers = state.get("registers", self.rtc_registers)
+        latched_registers = state.get("latched_registers", self.latched_rtc_registers)
+        if not isinstance(registers, list) or len(registers) != self.RTC_REGISTER_COUNT:
+            raise ValueError("RTC state has invalid registers")
+        if (
+            not isinstance(latched_registers, list)
+            or len(latched_registers) != self.RTC_REGISTER_COUNT
+        ):
+            raise ValueError("RTC state has invalid latched registers")
+
+        self.rtc_registers = [
+            self._sanitize_rtc_value(index, int(value))
+            for index, value in enumerate(registers)
+        ]
+        self.latched_rtc_registers = [
+            self._sanitize_rtc_value(index, int(value))
+            for index, value in enumerate(latched_registers)
+        ]
+        self.rtc_latched = bool(state.get("rtc_latched", False))
+        self.latch_state = int(cast(Any, state.get("latch_state", 0))) & BYTE_MASK
+        self.last_rtc_timestamp = int(
+            cast(Any, state.get("last_timestamp", self.last_rtc_timestamp))
+        )
+        self._sync_rtc()
+        self.rtc_dirty = False
+        self._publish_selected_rtc_window()
 
     def read_rom(self, address: int) -> int:
         if address < ROM_BANK_SIZE:
@@ -242,10 +411,11 @@ class MBC3(MBC):
             self.ram_bank = value
         elif address <= MBC_BANK_MODE_SEL_END:
             if self.latch_state == 0 and value == 1:
+                self._sync_rtc()
                 self.latched_rtc_registers[:] = self.rtc_registers
                 self.rtc_latched = True
                 latched_now = True
-            self.latch_state = value
+            self.latch_state = value & BYTE_MASK
 
         if self.rom_bank != old_rom_bank:
             start = (self.rom_bank * ROM_BANK_SIZE) % len(self.rom)
@@ -263,8 +433,9 @@ class MBC3(MBC):
                 self._trigger_ram_bank_change(
                     self.ram_bank, self._ram_bank_data(self.ram_bank)
                 )
-            elif self.RTC_REGISTER_START <= self.ram_bank <= self.RTC_REGISTER_END:
-                rtc_value = self.read_ram(ERAM_START)
+            elif self._is_rtc_register_selected():
+                self._sync_rtc()
+                rtc_value = self._visible_rtc_value()
                 self._trigger_ram_bank_change(
                     self.ram_bank, bytes([rtc_value]) * RAM_BANK_SIZE
                 )
@@ -279,11 +450,9 @@ class MBC3(MBC):
                 return UNMAPPED_BYTE
             real_address = (self.ram_bank * RAM_BANK_SIZE) + (address - ERAM_START)
             return self.ram[real_address % len(self.ram)]
-        elif self.RTC_REGISTER_START <= self.ram_bank <= self.RTC_REGISTER_END:
-            registers = (
-                self.latched_rtc_registers if self.rtc_latched else self.rtc_registers
-            )
-            return registers[self.ram_bank - self.RTC_REGISTER_START]
+        elif self._is_rtc_register_selected():
+            self._sync_rtc()
+            return self._visible_rtc_value()
         return UNMAPPED_BYTE
 
     def write_ram(self, address: int, value: int) -> None:
@@ -296,12 +465,21 @@ class MBC3(MBC):
             self.ram[real_address % len(self.ram)] = value
             self.ram_dirty = True
             self._trigger_ram_write(address, self.read_ram(address))
-        elif self.RTC_REGISTER_START <= self.ram_bank <= self.RTC_REGISTER_END:
-            self.rtc_registers[self.ram_bank - self.RTC_REGISTER_START] = value
-            visible_value = self.read_ram(address)
-            self._trigger_ram_bank_change(
-                self.ram_bank, bytes([visible_value]) * RAM_BANK_SIZE
+        elif self._is_rtc_register_selected():
+            self._sync_rtc()
+            register_index = self._selected_rtc_index()
+            self.rtc_registers[register_index] = self._sanitize_rtc_value(
+                register_index, value
             )
+            self.last_rtc_timestamp = int(self._clock())
+            self.rtc_dirty = True
+            self._publish_selected_rtc_window()
+
+    def visible_ram_window(self) -> bytes:
+        if self._is_rtc_register_selected():
+            self._sync_rtc()
+            return bytes([self._visible_rtc_value()]) * RAM_BANK_SIZE
+        return super().visible_ram_window()
 
 
 class MBC5(MBC):
