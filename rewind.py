@@ -94,6 +94,7 @@ class MachineHistory:
                     "timer",
                     "registers",
                     "_dispatch_table",
+                    "_apu_sync_callback",
                     "opcode_profile",
                 },
             ),

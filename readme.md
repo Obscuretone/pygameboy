@@ -116,6 +116,16 @@ Forward playback can skip pixel generation to refill audio without losing
 hardware history. Rewind renders the restored frame, including frames that were
 not presented during forward play.
 
+Game Boy audio includes pitch sweep, live duty and wave-volume control, retained
+pulse phase, and the DMG wave RAM access rules. Integrated waveforms pass through
+an antialias filter before 44.1 kHz stereo playback. The mixer leaves room for
+transients, and idle CPU waits are batched to give audio production more time.
+Filter history and fractional timing survive frame boundaries and rewind.
+The [GB sound report](benchmarks/gb-sound-2026-11-07.json) records all 12 independent
+DMG sound tests passing, a synthetic alias probe, and three live Mario recordings
+with zero missing samples after the first second. Startup gaps remain included
+in the report; these checks do not establish complete analog hardware accuracy.
+
 In three alternating local live-audio runs, allowing pixel skipping reduced
 median missing audio samples after the first second from 54,193 to zero per
 600-frame run. One fixed run still had a brief shortfall; this measures queue

@@ -108,23 +108,37 @@ not yet modeled.
 
 ## 4. APU and pacing
 
-The APU advances oscillator state in CPU-cycle units and emits 44.1 kHz stereo
+The APU advances oscillator state in base-clock units and emits 44.1 kHz stereo
 samples into a fixed-size NumPy ring buffer. A lock protects read/write
-positions shared with the `sounddevice` callback.
+positions shared with the `sounddevice` callback. CPU execution batches audio
+work up to 8,192 base-clock cycles, flushing earlier cycles before sound-register
+accesses or DIV writes and flushing residual cycles on every run boundary.
 
-Pulse and wave oscillators batch elapsed timer edges arithmetically while still
-landing on the exact final phase. Noise uses precomputed, compact LFSR jump
-tables for both seven- and fifteen-bit modes. NR50/NR51 routing, gain, and DAC
-enable masks are recomputed only when their controlling registers change,
-rather than once per output sample.
+Pulse and wave oscillators integrate the area under each digital waveform while
+landing on its exact final phase. Noise uses LFSR lookup tables for both seven-
+and fifteen-bit modes. Long intervals with unchanged registers generate waveform
+areas in NumPy blocks; a scalar implementation remains as a tested reference
+and handles short intervals. Small, bounded caches hold waveform prefix sums.
+NR50/NR51 routing, gain, and DAC enable masks are recomputed only when their
+controlling registers change.
 
 Pan Docs documents the DMG DAC, mixer, and analog high-pass capacitor in the
 hardware references below. The sample producer maps each active 4-bit channel
-DAC to its bipolar analog range, applies NR50's `(volume + 1)` gain, and advances
-the DMG high-pass capacitor at the 44.1 kHz sample cadence. Keeping that state in
-the APU makes the waveform independent of host callback block size; the callback
-only drains already-formed stereo samples. Channel-1 sweep and the remaining
-cycle-level length, envelope, and wave-RAM behavior are still being completed.
+DAC to its bipolar analog range (digital zero is positive), applies NR50's
+`(volume + 1)` gain, and advances the DMG high-pass capacitor. Waveform integration
+feeds an 88.2 kHz intermediate stream, then a 64-tap windowed-sinc low-pass filter
+with an 18 kHz cutoff precedes decimation to 44.1 kHz. Half-scale nominal mixing
+leaves headroom for AC-coupled transients. The capacitor, fractional sample phase,
+and convolution tail survive run boundaries and rewind; the callback only drains
+already-formed samples. Its block size cannot change their waveform.
+
+Channel 1 includes the 128 Hz sweep timer, shadow frequency, trigger overflow,
+second overflow check and negate-mode disable. Pulse retriggering preserves duty
+phase. Live duty and wave-volume changes take effect without retriggering, and
+envelope changes update the channel output immediately. Wave RAM remains writable
+while powered off; DMG playback enforces its access window and retrigger corruption.
+NR52 transitions reset channel control while preserving DMG length counters and
+wave RAM. DIV writes can clock the sequencer through a falling edge.
 NR52 power-off periods still produce clocked silence for stable host pacing, and
 a true host underrun is zero-filled rather than extending a stale DC sample.
 
@@ -133,6 +147,12 @@ With audio enabled, buffer depth acts as the pacing signal:
 - A deep buffer pauses CPU production while the audio device drains it.
 - A shallow buffer can skip host rendering while emulation and audio continue.
 - If audio is disabled or unavailable, Pygame's clock supplies frame pacing.
+
+The shallow-queue threshold is 2,048 samples; production pauses above 4,096.
+During HALT, the fast CPU path coalesces idle four-cycle polls up to the next
+existing peripheral-dispatch boundary or TIMA overflow. It retains the same
+virtual idle count and interrupt timing. Serial transfers and pending IME changes
+keep the ordinary polling path. Tests compare both paths with timers and speed modes.
 
 This design reduces long-term clock drift, but it is not claimed to provide
 perfect host-independent synchronization. Device latency, callback scheduling,

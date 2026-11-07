@@ -1,0 +1,166 @@
+{
+  "python": "3.10.20",
+  "platform": "macOS-15.0-arm64-arm-64bit",
+  "upstream": "https://github.com/retrio/gb-test-roms",
+  "test_roms": "dmg_sound/rom_singles",
+  "instruction_budget_per_rom": 20000000,
+  "scope": "Independent CPU-visible sound hardware tests. ROMs are external and not redistributed. Signal metrics are synthetic and do not establish complete analog hardware accuracy. Live recording is actual sounddevice callback output from a local user-supplied Mario ROM; no commercial media is committed.",
+  "rom_results": [
+    {
+      "path": "01-registers.gb",
+      "status": "pass",
+      "instructions": 400945,
+      "cycles": 3444140
+    },
+    {
+      "path": "02-len ctr.gb",
+      "status": "pass",
+      "instructions": 3928449,
+      "cycles": 39622704
+    },
+    {
+      "path": "03-trigger.gb",
+      "status": "pass",
+      "instructions": 7010388,
+      "cycles": 70866872
+    },
+    {
+      "path": "04-sweep.gb",
+      "status": "pass",
+      "instructions": 529768,
+      "cycles": 5201032
+    },
+    {
+      "path": "05-sweep details.gb",
+      "status": "pass",
+      "instructions": 517282,
+      "cycles": 5060544
+    },
+    {
+      "path": "06-overflow on trigger.gb",
+      "status": "pass",
+      "instructions": 395701,
+      "cycles": 3863608
+    },
+    {
+      "path": "07-len sweep period sync.gb",
+      "status": "pass",
+      "instructions": 260716,
+      "cycles": 2456912
+    },
+    {
+      "path": "08-len ctr during power.gb",
+      "status": "pass",
+      "instructions": 589026,
+      "cycles": 5764208
+    },
+    {
+      "path": "09-wave read while on.gb",
+      "status": "pass",
+      "instructions": 282368,
+      "cycles": 2527468
+    },
+    {
+      "path": "10-wave trigger while on.gb",
+      "status": "pass",
+      "instructions": 1968333,
+      "cycles": 16468988
+    },
+    {
+      "path": "11-regs after power.gb",
+      "status": "pass",
+      "instructions": 316414,
+      "cycles": 3019588
+    },
+    {
+      "path": "12-wave write while on.gb",
+      "status": "pass",
+      "instructions": 1960527,
+      "cycles": 16468420
+    }
+  ],
+  "antialias_probe": {
+    "oscillator_hz": 131072,
+    "host_sample_rate": 44100,
+    "original_alias_hz": 1228,
+    "original_point_sample_rms": 0.2504447009552517,
+    "integrated_filtered_rms": 3.7824339405959076e-05,
+    "attenuation_db_adjusted_for_half_scale_gain": -70.39820999039924
+  },
+  "live_gb_recording": {
+    "name": "gb-halt-fixed",
+    "no_rewind": false,
+    "recorded_seconds": 15.255510204081633,
+    "callback_count": 2628,
+    "missing_samples": 2132,
+    "missing_percent": 0.3168997336377473,
+    "callbacks_with_missing_samples": 9,
+    "native_underflow_callbacks": 0,
+    "cpu_frame_median_ms": 9.407229503267445,
+    "cpu_frame_p95_ms": 18.196268405881707,
+    "rendered_cpu_frames": 876,
+    "skipped_cpu_frames": 24,
+    "frames": 900,
+    "peak": 0.546707808971405,
+    "missing_samples_after_first_second": 0
+  },
+  "upstream_revision": "c240dd7d700e5c0b00a7bbba52b53e4ee67b5f15",
+  "repeated_live_runs": [
+    {
+      "name": "gb-confirm-1",
+      "no_rewind": false,
+      "recorded_seconds": 10.32126984126984,
+      "callback_count": 1778,
+      "missing_samples": 7311,
+      "missing_percent": 1.6062201209223848,
+      "callbacks_with_missing_samples": 30,
+      "native_underflow_callbacks": 0,
+      "cpu_frame_median_ms": 8.433145500021055,
+      "cpu_frame_p95_ms": 10.29244790552184,
+      "rendered_cpu_frames": 591,
+      "skipped_cpu_frames": 9,
+      "frames": 600,
+      "peak": 0.546707808971405,
+      "missing_samples_after_first_second": 0
+    },
+    {
+      "name": "gb-confirm-2",
+      "no_rewind": false,
+      "recorded_seconds": 10.286439909297052,
+      "callback_count": 1772,
+      "missing_samples": 4180,
+      "missing_percent": 0.9214517494356659,
+      "callbacks_with_missing_samples": 17,
+      "native_underflow_callbacks": 0,
+      "cpu_frame_median_ms": 9.693541498563718,
+      "cpu_frame_p95_ms": 20.418056261405578,
+      "rendered_cpu_frames": 564,
+      "skipped_cpu_frames": 36,
+      "frames": 600,
+      "peak": 0.546707808971405,
+      "missing_samples_after_first_second": 0
+    },
+    {
+      "name": "gb-confirm-3",
+      "no_rewind": false,
+      "recorded_seconds": 10.251609977324263,
+      "callback_count": 1766,
+      "missing_samples": 4010,
+      "missing_percent": 0.8869797565118913,
+      "callbacks_with_missing_samples": 16,
+      "native_underflow_callbacks": 0,
+      "cpu_frame_median_ms": 8.655187499243766,
+      "cpu_frame_p95_ms": 11.984970849152878,
+      "rendered_cpu_frames": 586,
+      "skipped_cpu_frames": 14,
+      "frames": 600,
+      "peak": 0.546707808971405,
+      "missing_samples_after_first_second": 0
+    }
+  ],
+  "repeated_live_summary": {
+    "median_missing_samples_after_first_second": 0,
+    "median_cpu_frame_ms": 8.655187499243766,
+    "run_count": 3
+  }
+}

@@ -26,10 +26,8 @@ class TestAPUOscillators(unittest.TestCase):
 
         # Frequency = 0x700 -> Period = (2048 - 0x700) * 4 = 256 * 4 = 1024 cycles
 
-        # Initial output should be volume 10 (A) if duty step 0 is 1
-        # Ch 2 Duty 50% is [1, 0, 0, 0, 0, 1, 1, 1]
-        # Step 0 is 1, so output = 10
-        self.assertEqual(self.apu.ch2.output, 10)
+        # The first pulse duty sample after power-on is forced to digital zero.
+        self.assertEqual(self.apu.ch2.output, 0)
 
         # Step 1024 cycles
         self.apu.step(1024)
@@ -65,11 +63,11 @@ class TestAPUOscillators(unittest.TestCase):
         self.memory.write_byte(0xFF1C, 0x20)
         self.memory.write_byte(0xFF1E, 0x80)
 
-        # Sample 0 should be 4
-        self.assertEqual(self.apu.ch3.output, 4)
+        # Trigger preserves the prior sample buffer (zero after power-on).
+        self.assertEqual(self.apu.ch3.output, 0)
 
         # Period = (2048 - freq) * 2. Initial freq is 0. 2048 * 2 = 4096.
-        self.apu.step(4096)
+        self.apu.step(4101)
         # Sample 1 should be 2
         self.assertEqual(self.apu.ch3.output, 2)
 
@@ -94,10 +92,11 @@ class TestAPUOscillators(unittest.TestCase):
         # Step until a sample is taken (95 cycles)
         self.apu.step(100)
 
-        # The bipolar DAC maps 10 to +1/3 and 15 to +1. With both routed
-        # through a full-volume mixer, the first AC-coupled sample is +1/3.
-        self.assertAlmostEqual(self.apu.left_output, 1 / 3)
-        self.assertAlmostEqual(self.apu.right_output, 1 / 3)
+        # Both generators initially output digital zero (+1 DAC). The
+        # half-scale mixer gives +1/4, decaying through the DMG capacitor.
+        expected = 0.25 * self.apu.HPF_CHARGE_FACTOR ** (1 / 2)
+        self.assertAlmostEqual(self.apu.left_output, expected)
+        self.assertAlmostEqual(self.apu.right_output, expected)
 
     def test_noise_oscillator_uses_nr43_period(self) -> None:
         self.memory.write_byte(0xFF26, 0x80)
@@ -177,19 +176,14 @@ class TestAPUOscillators(unittest.TestCase):
         self.memory.write_byte(0xFF21, 0xF0)
         self.memory.write_byte(0xFF22, 0x07)
         self.memory.write_byte(0xFF23, 0x80)
-
-        self.apu.step(120)
-
-        self.assertEqual(self.apu.buffer_size, 1)
-        self.assertEqual(self.apu.left_output, 0.25)
-        self.assertEqual(self.apu.right_output, 0.25)
-
-        self.apu.step(80)
-
-        self.assertEqual(self.apu.buffer_size, 2)
-        expected = -0.25 - (0.25 * (1 - self.apu.HPF_CHARGE_FACTOR))
-        self.assertAlmostEqual(self.apu.left_output, expected)
-        self.assertAlmostEqual(self.apu.right_output, expected)
+        self.apu.ch4.lfsr = 1
+        self.apu.step(100)
+        assert self.apu.buffer_size == 1
+        assert self.apu.left_output > 0
+        self.apu.step(100)
+        assert self.apu.buffer_size == 2
+        assert self.apu.left_output < 0
+        assert self.apu.ch4.lfsr == 0x4000
 
 
 if __name__ == "__main__":

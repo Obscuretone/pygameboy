@@ -128,7 +128,7 @@ def test_wave_channel_disabled_period_samples_volume_length_and_trigger_edges() 
     fresh.length_counter = 12
     fresh.trigger(0, 0, 0x20, 0)
     assert fresh.length_counter == 12
-    assert fresh.output == 15
+    assert fresh.output == 0  # Trigger preserves the zero sample buffer.
 
 
 def test_noise_channel_disabled_length_envelope_and_trigger_edges() -> None:
@@ -366,6 +366,8 @@ def test_apu_mixes_every_route_and_overwrites_oldest_full_buffer_sample() -> Non
         (REG_NR51, 0xFF),
     ):
         apu.write_byte(address, value)
+    for channel in (apu.ch1, apu.ch2, apu.ch3, apu.ch4):
+        channel.enabled = True
     apu.ch1.output = 15
     apu.ch2.output = 15
     apu.ch3.output = 15
@@ -376,8 +378,8 @@ def test_apu_mixes_every_route_and_overwrites_oldest_full_buffer_sample() -> Non
 
     apu.sample()
 
-    assert apu.left_output == pytest.approx(1)
-    assert apu.right_output == pytest.approx(1)
+    assert apu.left_output == pytest.approx(-0.5)
+    assert apu.right_output == pytest.approx(-0.5)
     assert apu.buffer_read_pos == 0
     assert apu.buffer_size == apu.BUFFER_MAX
 
@@ -391,8 +393,8 @@ def test_apu_power_off_resets_mixer_outputs() -> None:
     apu.ch1.output = 15
 
     apu.sample()
-    assert apu.left_output == pytest.approx(0.25)
-    assert apu.right_output == pytest.approx(0.25)
+    assert apu.left_output == pytest.approx(0.125)
+    assert apu.right_output == pytest.approx(0.125)
 
     apu.write_byte(REG_NR52, 0)
     assert apu.left_output == 0

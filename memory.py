@@ -419,6 +419,7 @@ class Memory:
             return
 
         if address == REG_DIV:
+            self.apu.reset_div()
             self.storage[REG_DIV] = 0
             return
 

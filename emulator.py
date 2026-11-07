@@ -65,7 +65,7 @@ from rewind import MachineHistory, RewindInput, RewindSound
 GB_PALETTE: Final[npt.NDArray[np.uint8]] = np.array(DMG_PALETTE_COLORS, dtype=np.uint8)
 SAVE_FLUSH_FRAMES: Final[int] = 60
 MINIMUM_ROM_SIZE: Final[int] = 32 * 1024
-AUDIO_BUFFER_LOW_WATER: Final[int] = 1024
+AUDIO_BUFFER_LOW_WATER: Final[int] = 2048
 AUDIO_BUFFER_HIGH_WATER: Final[int] = 4096
 
 # Pygame to Joypad mapping

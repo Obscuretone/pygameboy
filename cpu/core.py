@@ -114,6 +114,7 @@ class CPU(CPUOpcodes):
         self._dispatch_table = self._build_dispatch_table()
         self.opcode_profile: list[int] = [0] * self.OPCODE_COUNT
         self._bus_timing_active = False
+        self._apu_sync_callback: Callable[[], None] | None = None
         self._instruction_elapsed_cycles = 0
 
     def _build_dispatch_table(self) -> list[Callable[[], int]]:
@@ -172,7 +173,21 @@ class CPU(CPUOpcodes):
         halt_cycles = self.HALT_CYCLES
 
         apu_accumulated = 0
-        APU_STEP_THRESHOLD = 64
+        apu_instruction_cycles = 0
+
+        def sync_audio() -> None:
+            nonlocal apu_accumulated, apu_instruction_cycles
+            elapsed = self._instruction_elapsed_cycles
+            if getattr(self.ram, "double_speed", False):
+                elapsed >>= 1
+            pending = apu_accumulated + elapsed - apu_instruction_cycles
+            if pending:
+                cast(Callable[[int], None], a_step)(pending)
+                apu_accumulated = 0
+            apu_instruction_cycles = elapsed
+
+        self._apu_sync_callback = sync_audio if a_step else None
+        APU_STEP_THRESHOLD = 8192
         V_STEP_THRESHOLD = 114
         v_accumulated = 0
         self._bus_timing_active = True
@@ -190,6 +205,39 @@ class CPU(CPUOpcodes):
                     if cyc == 0:
                         if self.halted:
                             cyc = halt_cycles
+                            if (
+                                fast
+                                and not interrupts.ime_enable_delay
+                                and (
+                                    serial is None
+                                    or not getattr(serial, "transfer_active", True)
+                                )
+                            ):
+                                speed = (
+                                    2 if getattr(self.ram, "double_speed", False) else 1
+                                )
+                                # Stop at the same peripheral-dispatch boundary
+                                # as four-cycle HALT polling, or the next TIMA IRQ.
+                                until_video = (V_STEP_THRESHOLD - v_accumulated) * speed
+                                until_audio = (
+                                    APU_STEP_THRESHOLD - apu_accumulated
+                                ) * speed
+                                boundary = min(
+                                    until_video, until_audio, max_cycles - total_cyc
+                                )
+                                tac = mem[0xFF07]
+                                if tac & 4:
+                                    period = timer.PERIODS[tac & 3]
+                                    until_timer = (
+                                        256 - mem[0xFF05]
+                                    ) * period - timer.timer_cycles
+                                    boundary = min(boundary, until_timer)
+                                cyc = max(
+                                    halt_cycles,
+                                    ((boundary + halt_cycles - 1) // halt_cycles)
+                                    * halt_cycles,
+                                )
+                                executed += cyc // halt_cycles - 1
                         else:
                             reg.PC &= 0xFFFF
                             opcode = mem[reg.PC]
@@ -260,7 +308,8 @@ class CPU(CPUOpcodes):
                         s_step(cyc_scaled)
 
                     if a_step:
-                        apu_accumulated += cyc_scaled
+                        apu_accumulated += cyc_scaled - apu_instruction_cycles
+                        apu_instruction_cycles = 0
                         if apu_accumulated >= APU_STEP_THRESHOLD:
                             a_step(apu_accumulated)
                             apu_accumulated = 0
@@ -335,7 +384,8 @@ class CPU(CPUOpcodes):
                             v_step(v_accumulated)
                         v_accumulated = 0
                     if a_step:
-                        apu_accumulated += cyc_scaled
+                        apu_accumulated += cyc_scaled - apu_instruction_cycles
+                        apu_instruction_cycles = 0
                         if apu_accumulated >= APU_STEP_THRESHOLD:
                             a_step(apu_accumulated)
                             apu_accumulated = 0
@@ -365,20 +415,18 @@ class CPU(CPUOpcodes):
                 and max_instructions is None
             ):
                 v_step(v_accumulated)
-            if (
-                apu_accumulated > 0
-                and a_step
-                and max_cycles is not None
-                and max_instructions is None
-            ):
+            if apu_accumulated > 0 and a_step:
                 a_step(apu_accumulated)
+                apu_accumulated = 0
 
             clock.cycles_elapsed += total_cyc
 
         except BaseException:
+            self._apu_sync_callback = None
             self._bus_timing_active = False
             raise
 
+        self._apu_sync_callback = None
         self._bus_timing_active = False
         if realtime and total_cyc:
             clock.wait_for_next_cycle(total_cyc)
@@ -456,14 +504,27 @@ class CPU(CPUOpcodes):
             self.timer.step(delta)
             self._instruction_elapsed_cycles = target
 
+    def _sync_apu_bus_access(self, address: Address) -> None:
+        """Flush earlier audio cycles before touching its registers or DIV."""
+        if not self._bus_timing_active or self.apu is None:
+            return
+        if address != REG_DIV and not (
+            0xFF10 <= address <= 0xFF3F or address in (0xFF76, 0xFF77)
+        ):
+            return
+        cast(Callable[[], None], self._apu_sync_callback)()
+
     def _read_memory_byte(self, address: Address) -> Byte:
         addr = address & 0xFFFF
         if addr >= 0xFF00:
+            self._sync_apu_bus_access(addr)
             return self.ram.read_byte(addr)
         return self.memory[addr]
 
     def _write_memory_byte(self, address: Address, value: Byte) -> None:
         addr = address & 0xFFFF
+        if addr >= 0xFF00:
+            self._sync_apu_bus_access(addr)
         self.ram.write_byte(addr, value)
         if addr == REG_DIV:
             self.timer.reset_div()

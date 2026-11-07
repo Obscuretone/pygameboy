@@ -104,7 +104,7 @@ def test_fast_cycle_path_steps_devices_profiles_flushes_and_waits(
     assert (executed, cycles) == (32, 128)
     assert cpu.opcode_profile[0] == 32
     assert video.steps == [116, 12]
-    assert audio.steps == [64, 64]
+    assert sum(audio.steps) == 128
     wait.assert_called_once_with(128)
     assert "Executed 32 instructions / 128 cycles" in capsys.readouterr().out
 
@@ -151,7 +151,7 @@ def test_fast_cycle_path_covers_absent_video_residual_audio_and_pending_delay() 
     audio = AudioProbe()
     cpu, _, _ = make_cpu(apu=audio)
     cpu.run(max_cycles=68, realtime=False, announce=False)
-    assert audio.steps == [64, 4]
+    assert sum(audio.steps) == 68
 
     cpu, _, _ = make_cpu()
     cpu.interrupts.pending_ime_enable = True
@@ -244,7 +244,7 @@ def test_debug_path_steps_devices_and_all_exit_limits() -> None:
     )
     assert (executed, cycles) == (32, 128)
     assert video.steps == [116]
-    assert audio.steps == [64, 64]
+    assert sum(audio.steps) == 128
 
     cpu, _, _ = make_cpu()
     assert cpu.run(
