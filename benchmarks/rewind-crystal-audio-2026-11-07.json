@@ -1,0 +1,27 @@
+{
+  "python": "3.10.20",
+  "platform": "macOS-15.0-arm64-arm-64bit",
+  "workload": "crystal.gbc",
+  "frames_per_run": 660,
+  "scope": "Correctness check of Crystal with CGB APU filtering enabled: hardware and reconstructed pixels must match on every backward and resumed frame. Run alongside the full test suite; timing fields are omitted. Payload counts exclude Python container overhead.",
+  "runs": [
+    {
+      "backend": "snapshot",
+      "retained_payload_bytes": 18135055,
+      "retained_frames": 601,
+      "backward_frames_verified": 600,
+      "resumed_frames_verified": 600,
+      "final_digest": "5f428c17a76c6f2c354018d5c0d6231694121a76a1d8f7291389fb21afb9358a",
+      "repeat": 1
+    },
+    {
+      "backend": "delta",
+      "retained_payload_bytes": 2154399,
+      "retained_frames": 601,
+      "backward_frames_verified": 600,
+      "resumed_frames_verified": 600,
+      "final_digest": "5f428c17a76c6f2c354018d5c0d6231694121a76a1d8f7291389fb21afb9358a",
+      "repeat": 1
+    }
+  ]
+}

@@ -139,6 +139,12 @@ envelope changes update the channel output immediately. Wave RAM remains writabl
 while powered off; DMG playback enforces its access window and retrigger corruption.
 NR52 transitions reset channel control while preserving DMG length counters and
 wave RAM. DIV writes can clock the sequencer through a falling edge.
+Color cartridges select CGB APU behavior: powered-off length writes are ignored,
+power-off clears length counters, active wave RAM accesses select the byte being
+played without the DMG access window, and retriggering does not corrupt wave RAM.
+The CGB high-pass capacitor uses its own charge factor (`0.998943` per base-clock
+cycle, versus DMG's `0.999958`). CPU double speed still advances audio in base-clock
+units. Tests compare pitch, sample count, and waveforms at both CPU speeds.
 NR52 power-off periods still produce clocked silence for stable host pacing, and
 a true host underrun is zero-filled rather than extending a stale DC sample.
 
@@ -149,6 +155,9 @@ With audio enabled, buffer depth acts as the pacing signal:
 - If audio is disabled or unavailable, Pygame's clock supplies frame pacing.
 
 The shallow-queue threshold is 2,048 samples; production pauses above 4,096.
+The output stream starts after window and font initialization, with 2,048 silent
+host samples priming the queue. This avoids consuming an empty queue during UI
+setup and does not advance the emulated clocks.
 During HALT, the fast CPU path coalesces idle four-cycle polls up to the next
 existing peripheral-dispatch boundary or TIMA overflow. It retains the same
 virtual idle count and interrupt timing. Serial transfers and pending IME changes

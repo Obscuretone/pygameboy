@@ -1,0 +1,215 @@
+{
+  "python": "3.10.20",
+  "platform": "macOS-15.0-arm64-arm-64bit",
+  "upstream": "https://github.com/retrio/gb-test-roms",
+  "upstream_revision": "c240dd7d700e5c0b00a7bbba52b53e4ee67b5f15",
+  "instruction_budget_per_rom": 20000000,
+  "scope": "CGB CPU-visible sound hardware tests and local Crystal callback recordings. User-supplied ROM and save files are copied into isolated test directories. No commercial media or test ROMs are redistributed. These tests do not establish complete analog hardware accuracy.",
+  "before_model_fixes": [
+    {
+      "path": "01-registers.gb",
+      "status": "pass",
+      "instructions": 404329,
+      "cycles": 3471740
+    },
+    {
+      "path": "02-len ctr.gb",
+      "status": "pass",
+      "instructions": 3932199,
+      "cycles": 39650536
+    },
+    {
+      "path": "03-trigger.gb",
+      "status": "pass",
+      "instructions": 7005488,
+      "cycles": 70825416
+    },
+    {
+      "path": "04-sweep.gb",
+      "status": "pass",
+      "instructions": 534009,
+      "cycles": 5228608
+    },
+    {
+      "path": "05-sweep details.gb",
+      "status": "pass",
+      "instructions": 512702,
+      "cycles": 5017516
+    },
+    {
+      "path": "06-overflow on trigger.gb",
+      "status": "pass",
+      "instructions": 399086,
+      "cycles": 3891220
+    },
+    {
+      "path": "07-len sweep period sync.gb",
+      "status": "pass",
+      "instructions": 263959,
+      "cycles": 2484416
+    },
+    {
+      "path": "08-len ctr during power.gb",
+      "status": "fail",
+      "instructions": 592155,
+      "cycles": 5791968
+    },
+    {
+      "path": "09-wave read while on.gb",
+      "status": "fail",
+      "instructions": 294428,
+      "cycles": 2625524
+    },
+    {
+      "path": "10-wave trigger while on.gb",
+      "status": "fail",
+      "instructions": 1971613,
+      "cycles": 16497384
+    },
+    {
+      "path": "11-regs after power.gb",
+      "status": "fail",
+      "instructions": 414604,
+      "cycles": 3962052
+    },
+    {
+      "path": "12-wave.gb",
+      "status": "fail",
+      "instructions": 219865,
+      "cycles": 1991732
+    }
+  ],
+  "after_model_fixes": [
+    {
+      "path": "01-registers.gb",
+      "status": "pass",
+      "instructions": 404329,
+      "cycles": 3471740
+    },
+    {
+      "path": "02-len ctr.gb",
+      "status": "pass",
+      "instructions": 3932199,
+      "cycles": 39650536
+    },
+    {
+      "path": "03-trigger.gb",
+      "status": "pass",
+      "instructions": 7005488,
+      "cycles": 70825416
+    },
+    {
+      "path": "04-sweep.gb",
+      "status": "pass",
+      "instructions": 534009,
+      "cycles": 5228608
+    },
+    {
+      "path": "05-sweep details.gb",
+      "status": "pass",
+      "instructions": 512702,
+      "cycles": 5017516
+    },
+    {
+      "path": "06-overflow on trigger.gb",
+      "status": "pass",
+      "instructions": 399086,
+      "cycles": 3891220
+    },
+    {
+      "path": "07-len sweep period sync.gb",
+      "status": "pass",
+      "instructions": 263959,
+      "cycles": 2484416
+    },
+    {
+      "path": "08-len ctr during power.gb",
+      "status": "pass",
+      "instructions": 1043818,
+      "cycles": 10366892
+    },
+    {
+      "path": "09-wave read while on.gb",
+      "status": "pass",
+      "instructions": 285787,
+      "cycles": 2555128
+    },
+    {
+      "path": "10-wave trigger while on.gb",
+      "status": "pass",
+      "instructions": 1971493,
+      "cycles": 16496824
+    },
+    {
+      "path": "11-regs after power.gb",
+      "status": "pass",
+      "instructions": 396962,
+      "cycles": 3821228
+    },
+    {
+      "path": "12-wave.gb",
+      "status": "pass",
+      "instructions": 202710,
+      "cycles": 1850900
+    }
+  ],
+  "live_runs": [
+    {
+      "name": "gbc-confirm-1",
+      "no_rewind": false,
+      "recorded_seconds": 15.226485260770975,
+      "callback_count": 2623,
+      "missing_samples": 2867,
+      "missing_percent": 0.4269622093023256,
+      "callbacks_with_missing_samples": 13,
+      "native_underflow_callbacks": 0,
+      "cpu_frame_median_ms": 15.522895992035046,
+      "cpu_frame_p95_ms": 20.72993574256543,
+      "rendered_cpu_frames": 718,
+      "skipped_cpu_frames": 182,
+      "frames": 900,
+      "peak": 0.232306569814682,
+      "missing_samples_after_first_second": 0
+    },
+    {
+      "name": "gbc-confirm-2",
+      "no_rewind": false,
+      "recorded_seconds": 15.156825396825397,
+      "callback_count": 2611,
+      "missing_samples": 0,
+      "missing_percent": 0.0,
+      "callbacks_with_missing_samples": 0,
+      "native_underflow_callbacks": 0,
+      "cpu_frame_median_ms": 14.982812499511056,
+      "cpu_frame_p95_ms": 19.50406314499559,
+      "rendered_cpu_frames": 758,
+      "skipped_cpu_frames": 142,
+      "frames": 900,
+      "peak": 0.232306569814682,
+      "missing_samples_after_first_second": 0
+    },
+    {
+      "name": "gbc-confirm-3",
+      "no_rewind": false,
+      "recorded_seconds": 15.156825396825397,
+      "callback_count": 2611,
+      "missing_samples": 0,
+      "missing_percent": 0.0,
+      "callbacks_with_missing_samples": 0,
+      "native_underflow_callbacks": 0,
+      "cpu_frame_median_ms": 15.074104492668994,
+      "cpu_frame_p95_ms": 21.103525303624334,
+      "rendered_cpu_frames": 719,
+      "skipped_cpu_frames": 181,
+      "frames": 900,
+      "peak": 0.232306569814682,
+      "missing_samples_after_first_second": 0
+    }
+  ],
+  "live_summary": {
+    "run_count": 3,
+    "median_missing_samples_after_first_second": 0,
+    "median_cpu_frame_ms": 15.074104492668994,
+    "runs_with_no_missing_samples_including_startup": 2
+  }
+}

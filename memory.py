@@ -163,6 +163,7 @@ class Memory:
             rom = value.rom
             if len(rom) > 0x0143 and (rom[0x0143] & 0x80):
                 self.gbc_mode = True
+                self.apu.configure_model(True)
                 # Set initial register values for GBC in self.storage:
                 self.storage[0xFF4D] = 0x7E  # KEY1 initial
                 self.storage[0xFF4F] = 0xFE  # VBK initial

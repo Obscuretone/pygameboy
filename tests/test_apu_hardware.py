@@ -285,14 +285,15 @@ def test_first_cpu_audio_read_has_no_phantom_elapsed_cycles() -> None:
     assert memory.apu.frame_sequencer_clock == 8
 
 
+@pytest.mark.parametrize("color", [False, True])
 @pytest.mark.parametrize("noise_width", [0, 8])
 @pytest.mark.parametrize("muted_wave", [False, True])
 def test_vector_audio_matches_scalar_area_reference(
-    noise_width: int, muted_wave: bool
+    noise_width: int, muted_wave: bool, color: bool
 ) -> None:
     from unittest.mock import patch
 
-    systems = [bus(), bus()]
+    systems = [color_bus(), color_bus()] if color else [bus(), bus()]
     for memory in systems:
         for index in range(16):
             memory.write_byte(0xFF30 + index, (index * 23) & 255)
@@ -393,3 +394,114 @@ def test_halt_idle_batching_preserves_all_peripheral_boundaries(
     assert ma.apu.buffer_size == mb.apu.buffer_size
     np.testing.assert_array_equal(va.frame_buffer, vb.frame_buffer)
     np.testing.assert_allclose(ma.apu.buffer, mb.apu.buffer, atol=1e-7)
+
+
+def color_bus() -> Memory:
+    from mbc import MBC0
+
+    memory = Memory(SystemClock(4194304))
+    rom = bytearray(32768)
+    rom[0x143] = 0x80
+    memory.mbc = MBC0(rom)
+    memory.write_byte(0xFF26, 0x80)
+    assert memory.apu.gbc_mode and memory.apu.ch3.gbc_mode
+    return memory
+
+
+def test_color_power_clears_lengths_and_ignores_powered_off_length_writes() -> None:
+    memory = color_bus()
+    for address in (0xFF11, 0xFF16, 0xFF1B, 0xFF20):
+        memory.write_byte(address, 3)
+    memory.write_byte(0xFF30, 0xAC)
+    memory.write_byte(0xFF26, 0)
+    for address in (0xFF11, 0xFF16, 0xFF1B, 0xFF20):
+        memory.write_byte(address, 5)
+    channels = (memory.apu.ch1, memory.apu.ch2, memory.apu.ch3, memory.apu.ch4)
+    assert all(ch.length_counter == 0 for ch in channels)
+    assert memory.read_byte(0xFF30) == 0xAC
+    memory.write_byte(0xFF26, 0x80)
+    assert memory.apu.ch3.gbc_mode
+    memory.write_byte(0xFF21, 0xF0)
+    memory.write_byte(0xFF23, 0x80)
+    assert memory.apu.ch4.length_counter == 64
+
+
+def test_color_wave_access_redirects_to_current_byte_without_dmg_window() -> None:
+    memory = color_bus()
+    for index in range(16):
+        memory.write_byte(0xFF30 + index, index)
+    memory.write_byte(0xFF1A, 0x80)
+    memory.write_byte(0xFF1C, 0x20)
+    memory.write_byte(0xFF1D, 0xFE)
+    memory.write_byte(0xFF1E, 0x87)
+    memory.apu.step(15)
+    assert memory.apu.ch3.sample_index == 2
+    assert memory.read_byte(0xFF3F) == 1
+    memory.write_byte(0xFF3F, 0xAC)
+    memory.write_byte(0xFF1A, 0)
+    assert memory.read_byte(0xFF31) == 0xAC
+    assert memory.read_byte(0xFF3F) == 15
+
+
+def test_color_wave_retrigger_does_not_corrupt_ram_and_has_its_own_fetch_delay() -> (
+    None
+):
+    memory = color_bus()
+    wave = memory.apu.ch3
+    wave.wave_ram[:] = bytes(range(16))
+    wave.enabled = True
+    wave.sample_index = 17
+    wave.timer = 1
+    memory.write_byte(0xFF1A, 0x80)
+    memory.write_byte(0xFF1D, 0xFF)
+    memory.write_byte(0xFF1E, 0x87)
+    assert bytes(wave.wave_ram) == bytes(range(16))
+    assert wave.timer == 7
+    wave.step(7)
+    assert wave.sample_index == 1
+
+
+def test_color_hardware_highpass_has_stronger_dc_rejection() -> None:
+    mono, color = bus(), color_bus()
+    outputs = []
+    for memory in (mono, color):
+        memory.write_byte(0xFF12, 0x08)
+        memory.write_byte(0xFF24, 0x77)
+        memory.write_byte(0xFF25, 0x11)
+        memory.apu.sample()
+        memory.apu.sample()
+        outputs.append(memory.apu.left_output)
+    assert outputs[0] == pytest.approx(0.125 * 0.999958 ** (4194304 / 44100))
+    assert outputs[1] == pytest.approx(0.125 * 0.998943 ** (4194304 / 44100))
+    assert outputs[1] < outputs[0]
+    color.apu.configure_model(False)
+    assert not color.apu.gbc_mode and not color.apu.ch3.gbc_mode
+
+
+def test_color_double_speed_preserves_audio_pitch_and_sample_count() -> None:
+    memories = []
+    for speed in (False, True):
+        memory = color_bus()
+        memory.double_speed = speed
+        for address, value in [
+            (0xFF24, 0x77),
+            (0xFF25, 0x22),
+            (0xFF16, 0x80),
+            (0xFF17, 0xF0),
+            (0xFF18, 0xD6),
+            (0xFF19, 0x86),
+        ]:
+            memory.write_byte(address, value)
+        cpu = CPU(SystemClock(4194304), memory, apu=memory.apu)
+        cpu.halted = True
+        memory.storage[0xFFFF] = 0
+        cpu.run(max_cycles=81920 * (2 if speed else 1), realtime=False, announce=False)
+        memories.append(memory)
+    a, b = (m.apu for m in memories)
+    assert a.ch2.frequency == b.ch2.frequency
+    assert a.ch2.duty_step == b.ch2.duty_step
+    assert a.ch2.timer == pytest.approx(b.ch2.timer)
+    assert a.buffer_size == b.buffer_size
+    np.testing.assert_allclose(
+        a.buffer[: a.buffer_size], b.buffer[: b.buffer_size], atol=1e-7
+    )

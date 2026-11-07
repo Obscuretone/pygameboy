@@ -518,12 +518,32 @@ def main(argv: Sequence[str] | None = None) -> int:
     stream = None
     exit_code = 0
     try:
+        pygame.font.init()
+        pygame.display.init()
+
+        window_width = 160 * args.scale
+        window_height = 144 * args.scale
+        screen = pygame.display.set_mode((window_width, window_height))
+        pygame.display.set_caption(f"PyGameBoy - {rom_title}")
+
+        internal_surface = pygame.Surface((160, 144))
+        pygame_clock = pygame.time.Clock()
+        debug_font = pygame.font.Font(None, max(16, args.scale * 6))
+
         if args.no_audio:
             print("Audio disabled.")
         elif sd is None:
             print("Warning: sounddevice or PortAudio unavailable, audio disabled.")
         else:
             try:
+                # Start only after window/font setup, with a short silent lead-in.
+                # Host queue priming does not advance emulated hardware clocks.
+                with apu.buffer_lock:
+                    if apu.buffer_size == 0:
+                        apu.buffer[:AUDIO_BUFFER_LOW_WATER] = 0
+                        apu.buffer_read_pos = 0
+                        apu.buffer_write_pos = AUDIO_BUFFER_LOW_WATER
+                        apu.buffer_size = AUDIO_BUFFER_LOW_WATER
                 stream = sd.OutputStream(
                     channels=2,
                     callback=audio_callback,
@@ -539,18 +559,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "without audio.",
                     file=sys.stderr,
                 )
-
-        pygame.font.init()
-        pygame.display.init()
-
-        window_width = 160 * args.scale
-        window_height = 144 * args.scale
-        screen = pygame.display.set_mode((window_width, window_height))
-        pygame.display.set_caption(f"PyGameBoy - {rom_title}")
-
-        internal_surface = pygame.Surface((160, 144))
-        pygame_clock = pygame.time.Clock()
-        debug_font = pygame.font.Font(None, max(16, args.scale * 6))
 
         debug_overlay = False
         frame_count = 0

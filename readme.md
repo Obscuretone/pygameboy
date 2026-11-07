@@ -125,6 +125,12 @@ The [GB sound report](benchmarks/gb-sound-2026-11-07.json) records all 12 indepe
 DMG sound tests passing, a synthetic alias probe, and three live Mario recordings
 with zero missing samples after the first second. Startup gaps remain included
 in the report; these checks do not establish complete analog hardware accuracy.
+Color cartridges use CGB power and wave RAM rules and the CGB output filter;
+double CPU speed preserves the audio clock and pitch.
+The [CGB sound report](benchmarks/gbc-sound-2026-11-07.json) records all 12 CGB
+sound tests passing and three live Crystal recordings with zero missing samples
+after the first second. Audio starts after window setup with a short silent
+lead-in to protect startup playback.
 
 In three alternating local live-audio runs, allowing pixel skipping reduced
 median missing audio samples after the first second from 54,193 to zero per

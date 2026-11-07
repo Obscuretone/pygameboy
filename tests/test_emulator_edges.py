@@ -407,7 +407,12 @@ def test_main_active_realtime_stream_skips_then_resumes_rendering(
         audio["apu"].buffer_size = emulator.AUDIO_BUFFER_LOW_WATER
         return 1, 4
 
+    def start_with_starved_queue() -> None:
+        stream.started = True
+        audio["apu"].buffer_size = 0
+
     with (
+        patch.object(stream, "start", side_effect=start_with_starved_queue),
         patch("emulator.sd", SoundDevice(stream)),
         patch("emulator.Memory", side_effect=capture_audio),
         patch("emulator.CPU.run", side_effect=recover_audio_buffer),
@@ -554,3 +559,33 @@ def test_main_periodic_final_save_keyboard_interrupt_and_existing_error(
         )
     assert "cpu failed" in stderr.getvalue()
     assert "save failed" in stderr.getvalue()
+
+
+def test_audio_starts_after_ui_setup_with_silent_host_queue(tmp_path: Path) -> None:
+    rom_path = tmp_path / "primed.gb"
+    write_rom(rom_path)
+    audio: dict[str, APU] = {}
+    stream = Stream()
+
+    def capture_memory(clock: ClockDevice) -> ActualMemory:
+        memory = ActualMemory(clock)
+        audio["apu"] = memory.apu
+        return memory
+
+    def start() -> None:
+        stream.started = True
+        apu = audio["apu"]
+        assert pygame.display.get_surface() is not None
+        assert pygame.font.get_init()
+        assert apu.buffer_size == emulator.AUDIO_BUFFER_LOW_WATER
+        assert not np.any(apu.buffer[: apu.buffer_size])
+        assert apu.frame_sequencer_clock == 0
+
+    with (
+        patch("emulator.Memory", side_effect=capture_memory),
+        patch("emulator.sd", SoundDevice(stream)),
+        patch.object(stream, "start", side_effect=start),
+        patch("emulator.CPU.run", return_value=(1, 4)),
+    ):
+        assert emulator.main(["--max-frames", "1", str(rom_path)]) == 0
+    assert stream.started and stream.closed

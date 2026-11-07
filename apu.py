@@ -368,9 +368,9 @@ class WaveChannel:
         self.enabled = True
         self.sample_index = 0
         # The first RAM fetch follows the timer period plus the trigger delay.
-        self.timer = max(
-            9, (self.FREQUENCY_BASE - self.frequency) * self.TIMER_FACTOR + 5
-        )
+        self.timer = (self.FREQUENCY_BASE - self.frequency) * self.TIMER_FACTOR + 5
+        if not self.gbc_mode:
+            self.timer = max(9, self.timer)
         self.access_age = 100.0
         if self.length_counter == 0:
             self.length_counter = self.MAX_LENGTH
@@ -542,6 +542,7 @@ class APU:
     # Half-scale nominal mix leaves room for a full-range AC-coupled step.
     MIX_DIVISOR: Final[float] = 2.0 * 4.0 * 8.0
     DMG_HPF_BASE_CHARGE: Final[float] = 0.999958
+    CGB_HPF_BASE_CHARGE: Final[float] = 0.998943
     HPF_CHARGE_FACTOR: Final[float] = DMG_HPF_BASE_CHARGE**SAMPLE_PERIOD
 
     FRAME_SEQUENCER_STEPS: Final[int] = 8
@@ -550,6 +551,9 @@ class APU:
     def __init__(self) -> None:
         self.registers: bytearray = bytearray(APU_REG_SIZE)
         self.sound_enabled: bool = False
+        self.gbc_mode = False
+        self.hpf_charge = self.HPF_CHARGE_FACTOR
+        self.hpf_internal_charge = self.HPF_CHARGE_FACTOR ** (1 / self.OVERSAMPLE)
         self.ch1: PulseChannel = PulseChannel()
         self.ch2: PulseChannel = PulseChannel()
         self.ch3: WaveChannel = WaveChannel()
@@ -581,6 +585,14 @@ class APU:
         self.buffer_write_pos = 0
         self.buffer_read_pos = 0
         self.buffer_size = 0
+
+    def configure_model(self, color: bool) -> None:
+        """Select physical APU differences before cartridge execution."""
+        self.gbc_mode = color
+        self.ch3.gbc_mode = color
+        base = self.CGB_HPF_BASE_CHARGE if color else self.DMG_HPF_BASE_CHARGE
+        self.hpf_charge = base**self.SAMPLE_PERIOD
+        self.hpf_internal_charge = base**self.INTERNAL_SAMPLE_PERIOD
 
     def read_byte(self, address: Address) -> Byte:
         """Read an APU register or Wave RAM byte."""
@@ -629,8 +641,13 @@ class APU:
                 self.ch3.wave_ram[address - REG_WAVE_RAM_START] = value
             return
         if not self.sound_enabled and address != REG_NR52:
-            # Length registers can still be written to set length counter
-            if address in [REG_NR11, REG_NR21, REG_NR31, REG_NR41]:
+            # DMG length registers remain writable while powered off.
+            if not self.gbc_mode and address in [
+                REG_NR11,
+                REG_NR21,
+                REG_NR31,
+                REG_NR41,
+            ]:
                 if address == REG_NR11:
                     self.ch1.length_counter = self.ch1.MAX_LENGTH - (
                         value & AUDIO_LENGTH_MASK
@@ -659,7 +676,8 @@ class APU:
                     self.ch4,
                 )
                 lengths = [
-                    ch.length_counter for ch in (self.ch1, self.ch2, self.ch3, self.ch4)
+                    ch.length_counter if not self.gbc_mode else 0
+                    for ch in (self.ch1, self.ch2, self.ch3, self.ch4)
                 ]
                 wave_ram = self.ch3.wave_ram
                 PulseChannel.__init__(self.ch1)
@@ -667,6 +685,7 @@ class APU:
                 WaveChannel.__init__(self.ch3)
                 NoiseChannel.__init__(self.ch4)
                 self.ch3.wave_ram = wave_ram
+                self.ch3.gbc_mode = self.gbc_mode
                 for channel, length in zip(channels, lengths, strict=True):
                     channel.length_counter = length
                 self.sweep_enabled = False
@@ -1069,7 +1088,7 @@ class APU:
         self.mix_area_left = float(left[-1] - left[count - 1])
         self.mix_area_right = float(right[-1] - right[count - 1])
         self.cycles = max(0.0, self.cycles + cycles - count * period)
-        charge = self.HPF_CHARGE_FACTOR ** (1 / self.OVERSAMPLE)
+        charge = self.hpf_internal_charge
         powers = charge ** np.arange(count)
         capacitor = np.empty_like(raw)
         capacitor[0] = (self.left_capacitor, self.right_capacitor)
@@ -1174,15 +1193,11 @@ class APU:
 
             raw_left = left * self._left_gain
             raw_right = right * self._right_gain
-        # DMG output is AC-coupled. Model the hardware capacitor at the native
+        # Output is AC-coupled. Model the selected hardware capacitor at the native
         # sample cadence so callback block size cannot alter the waveform.
         filtered_left = raw_left - self.left_capacitor
         filtered_right = raw_right - self.right_capacitor
-        charge = (
-            self.HPF_CHARGE_FACTOR ** (1 / self.OVERSAMPLE)
-            if oversample
-            else self.HPF_CHARGE_FACTOR
-        )
+        charge = self.hpf_internal_charge if oversample else self.hpf_charge
         self.left_capacitor = raw_left - (filtered_left * charge)
         self.right_capacitor = raw_right - (filtered_right * charge)
         self.left_output = filtered_left
