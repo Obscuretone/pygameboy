@@ -469,9 +469,20 @@ class VideoChip:
         self.frame_buffer[start:end, 2] = b8
 
     def render_scanline(self) -> None:
-        if self.skip_render:
-            return
         if self.storage[REG_LY] >= self.SCREEN_HEIGHT:
+            return
+
+        window_visible = (
+            (self.gbc_mode or bool(self.storage[REG_LCDC] & LCDC_BG_ENABLE))
+            and bool(self.storage[REG_LCDC] & LCDC_WINDOW_ENABLE)
+            and self.storage[REG_WY] <= self.storage[REG_LY]
+            and self.storage[REG_WX] < self.SCREEN_WIDTH + 7
+        )
+        window_y = self.window_line
+        if window_visible:
+            self.window_line += 1
+        # This counter belongs to PPU state even when host pixels are skipped.
+        if self.skip_render:
             return
 
         line_start = self.storage[REG_LY] * self.SCREEN_WIDTH
@@ -487,9 +498,6 @@ class VideoChip:
                 else self._render_background_span
             )
             unsigned_tiles = bool(self.storage[REG_LCDC] & LCDC_TILE_DATA_SEL)
-            window_enabled = (self.storage[REG_LCDC] & LCDC_WINDOW_ENABLE) and (
-                self.storage[REG_WY] <= self.storage[REG_LY]
-            )
             window_x = self.storage[REG_WX] - 7
             bg_map = (
                 VRAM_TILE_MAP_1_OFFSET
@@ -497,10 +505,8 @@ class VideoChip:
                 else VRAM_TILE_MAP_0_OFFSET
             )
 
-            using_window = False
-            if window_enabled and window_x < 160:
+            if window_visible:
                 wx_start = max(0, window_x)
-                using_window = True
                 win_map = (
                     VRAM_TILE_MAP_1_OFFSET
                     if (self.storage[REG_LCDC] & LCDC_WINDOW_TILE_MAP_SEL)
@@ -521,7 +527,7 @@ class VideoChip:
                     screen_start=wx_start,
                     length=self.SCREEN_WIDTH - wx_start,
                     coordinate_start=wx_start - window_x,
-                    y=self.window_line,
+                    y=window_y,
                     tile_map_offset=win_map,
                     unsigned_tiles=unsigned_tiles,
                 )
@@ -535,9 +541,6 @@ class VideoChip:
                     tile_map_offset=bg_map,
                     unsigned_tiles=unsigned_tiles,
                 )
-
-            if using_window:
-                self.window_line += 1
 
         if self.storage[REG_LCDC] & LCDC_OBJ_ENABLE:
             h = 16 if (self.storage[REG_LCDC] & 0x04) else 8

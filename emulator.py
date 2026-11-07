@@ -631,11 +631,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             else:
                 video.skip_render = video.force_skip
 
-            if history is not None:
-                # Keep displayed output consistent with each recorded hardware run.
-                video.skip_render = False
-                video.force_skip = False
-
             instruction_budget = None
             if args.max_instructions is not None:
                 instruction_budget = args.max_instructions - total_instructions

@@ -548,3 +548,43 @@ def test_replay_exception_restores_host_callback_and_discards_queued_audio() -> 
         history.rewind()
     assert memory.serial.transfer_callback is callback
     assert memory.apu.buffer_size == 0
+
+
+@pytest.mark.parametrize("color", [False, True])
+def test_skipped_forward_pixels_preserve_hardware_and_can_be_rebuilt(
+    color: bool,
+) -> None:
+    cpu, memory, video = machine(color=color)
+    ref_cpu, ref_memory, ref_video = machine(color=color)
+    for bus in (memory, ref_memory):
+        for offset, value in enumerate(bytes([0xAA, 0xCC] * 8 + [0xFF, 0] * 8)):
+            bus.write_byte(0x8000 + offset, value)
+        for offset in range(1024):
+            bus.write_byte(0x9C00 + offset, 1)
+        bus.bg_palettes[:8] = bytes([0xFF, 0x7F, 0, 0x7C, 0xE0, 3, 0x1F, 0])
+    history = MachineHistory(cpu, memory, video)
+    reference = MachineHistory(ref_cpu, ref_memory, ref_video)
+    expected = []
+    # Visible window, offscreen X/Y, DMG BG disabled, window disabled, visible.
+    for lcdc, wx, wy in [
+        (0xF1, 7, 0),
+        (0xF1, 167, 0),
+        (0xF1, 7, 200),
+        (0xF0, 7, 0),
+        (0xD1, 7, 0),
+        (0xF1, 31, 0),
+    ]:
+        for bus in (memory, ref_memory):
+            bus.write_byte(0xFF40, lcdc)
+            bus.write_byte(0xFF4B, wx)
+            bus.write_byte(0xFF4A, wy)
+        video.skip_render = True
+        history.run_frame(max_cycles=FRAME_CYCLES * 2)
+        reference.run_frame(max_cycles=FRAME_CYCLES * 2)
+        assert hardware_state(history) == hardware_state(reference)
+        expected.append((hardware_state(reference), ref_video.frame_buffer.copy()))
+    assert np.unique(ref_video.frame_buffer).size > 1
+    for hardware, pixels in reversed(expected[:-1]):
+        assert history.rewind()
+        assert hardware_state(history) == hardware
+        np.testing.assert_array_equal(video.frame_buffer, pixels)

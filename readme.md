@@ -112,6 +112,15 @@ earlier states. Restoring a pre-frame state and executing its recorded run
 budget reproduces scanline effects that cannot be recovered by rendering only
 the final VRAM and register values. This provides frame-level hardware undo;
 CPU instructions still execute forward during display reconstruction.
+Forward playback can skip pixel generation to refill audio without losing
+hardware history. Rewind renders the restored frame, including frames that were
+not presented during forward play.
+
+In three alternating local live-audio runs, allowing pixel skipping reduced
+median missing audio samples after the first second from 54,193 to zero per
+600-frame run. One fixed run still had a brief shortfall; this measures queue
+starvation, not APU accuracy. The [callback measurements](benchmarks/audio-rewind-2026-11-07.json)
+include every run, startup gaps and the unchanged baseline revision.
 
 In a local 900-frame Pokémon Crystal workload, both implementations retained
 600 reverse transitions and reproduced the same hardware and pixels through
@@ -152,7 +161,7 @@ uv run --frozen --extra dev python -m tools.benchmark_rewind --output /tmp/rewin
 --scale N              Integer display scale
 --no-audio             Disable audio output
 --rewind-seconds N     History length (default: 10, with a 64 MiB memory cap)
---no-rewind            Disable recording and retain frame-skipping optimizations
+--no-rewind            Disable recording and the history overlay
 --skip-boot-logo       Skip the built-in PyGameBoy boot animation
 --no-realtime          Run without host-clock throttling
 --profile              Print the hottest executed opcodes on exit

@@ -388,8 +388,10 @@ def test_main_audio_backpressure_and_stopped_stream_fallback(tmp_path: Path) -> 
     assert "audio stream stopped" in stderr.getvalue()
 
 
+@pytest.mark.parametrize("rewind_enabled", [False, True])
 def test_main_active_realtime_stream_skips_then_resumes_rendering(
     tmp_path: Path,
+    rewind_enabled: bool,
 ) -> None:
     rom_path = tmp_path / "game.gb"
     write_rom(rom_path)
@@ -416,7 +418,7 @@ def test_main_active_realtime_stream_skips_then_resumes_rendering(
                 [
                     "--max-frames",
                     "2",
-                    "--no-rewind",
+                    *([] if rewind_enabled else ["--no-rewind"]),
                     str(rom_path),
                 ]
             )

@@ -225,8 +225,10 @@ short effect is time-stretched with pitch retained during asset preparation.
 The sample is loaded once before the stream starts, with no callback file I/O.
 Playback pads with silence after the end rather than repeating. Release
 resynchronizes held keys with the restored joypad. Focus loss releases all keys.
-Recording renders every frame so the displayed frame matches the hardware; use
-`--no-rewind` to recover the original audio-driven frame-skipping path.
+Forward playback can skip pixel generation while a shallow audio queue recovers.
+Hardware history still advances every frame, and the PPU window-line counter
+advances even when pixels are skipped. Rewind forces rendering during replay,
+so a frame omitted from forward presentation can still be reconstructed.
 
 The codec uses pickle/zlib exclusively as private in-process storage. There is no
 state import/export API or portable file format. Serial output and other host
