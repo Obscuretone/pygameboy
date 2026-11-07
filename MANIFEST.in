@@ -6,6 +6,6 @@ include readme.md
 include uv.lock
 recursive-include benchmarks *.json
 recursive-include docs *.gif *.md
-recursive-include tests/roms *.gb *.gbc *.json *.md LICENSE
+recursive-include tests/roms *.gb *.gbc *.png *.json *.md LICENSE
 recursive-include tools *.py
 recursive-include pygameboy_assets *.wav *.md

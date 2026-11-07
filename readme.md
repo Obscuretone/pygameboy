@@ -133,7 +133,7 @@ for state ownership, history limits and replay boundaries.
 An original demonstration ROM and a GIF can be generated without game downloads:
 
 ```bash
-uv run --frozen python tools/generate_rewind_demo.py --output /tmp/pygameboy-rewind
+uv run --frozen --extra dev python tools/generate_rewind_demo.py --output /tmp/pygameboy-rewind
 uv run --frozen pygameboy --skip-boot-logo /tmp/pygameboy-rewind/rewind-demo.gb
 ```
 
@@ -143,7 +143,7 @@ Compare reverse deltas with a full hardware snapshot reference and verify every
 retained backward frame against its original hardware and pixels:
 
 ```bash
-uv run --frozen python -m tools.benchmark_rewind --output /tmp/rewind-benchmark.json
+uv run --frozen --extra dev python -m tools.benchmark_rewind --output /tmp/rewind-benchmark.json
 ```
 
 ## Runtime options
