@@ -15,7 +15,7 @@ import pygame
 
 try:
     sd: Any = importlib.import_module("sounddevice")
-except ImportError:
+except (ImportError, OSError):
     sd = None
 
 from apu import APU
@@ -521,7 +521,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.no_audio:
             print("Audio disabled.")
         elif sd is None:
-            print("Warning: sounddevice not installed, audio disabled.")
+            print("Warning: sounddevice or PortAudio unavailable, audio disabled.")
         else:
             try:
                 stream = sd.OutputStream(

@@ -1,3 +1,4 @@
+import importlib
 import io
 import runpy
 import sys
@@ -88,6 +89,35 @@ def test_module_entrypoint_and_optional_audio_import_path(
 
     assert exit_info.value.code == 0
     assert "Run a Game Boy or Game Boy Color ROM" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [ImportError("sounddevice missing"), OSError("PortAudio library not found")],
+    ids=["missing-module", "missing-native-library"],
+)
+def test_missing_audio_backend_still_starts_and_runs_a_rom(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], failure: Exception
+) -> None:
+    path = tmp_path / "silent.gb"
+    write_rom(path)
+    real_import = importlib.import_module
+
+    def import_without_audio(name: str, package: str | None = None) -> Any:
+        if name == "sounddevice":
+            raise failure
+        return real_import(name, package)
+
+    with patch("importlib.import_module", side_effect=import_without_audio):
+        module = runpy.run_path(emulator.__file__, run_name="emulator_without_audio")
+    assert module["sd"] is None
+    assert (
+        module["main"](
+            ["--max-frames", "1", "--skip-boot-logo", "--no-realtime", str(path)]
+        )
+        == 0
+    )
+    assert "sounddevice or PortAudio unavailable" in capsys.readouterr().out
 
 
 def test_rom_metadata_positive_integer_and_every_mbc_factory(
@@ -285,7 +315,7 @@ def test_main_sounddevice_none_success_and_close_failure(tmp_path: Path) -> None
             )
             == 0
         )
-    assert "sounddevice not installed" in stdout.getvalue()
+    assert "sounddevice or PortAudio unavailable" in stdout.getvalue()
 
     stream = Stream()
     sound_device = SoundDevice(stream)
