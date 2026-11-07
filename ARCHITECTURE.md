@@ -173,12 +173,82 @@ should be accompanied by:
 3. Median results from multiple runs.
 4. An explanation of any readability or accuracy tradeoff.
 
+## Rewind history
+
+`rewind.py` captures hardware immediately before each gameplay `CPU.run`, after
+host input has been applied. `rewind_state.py` detaches the scalar metadata and
+keeps bytearrays/NumPy buffers as separately aligned blocks. One complete current
+hardware state is retained. Each older transition stores the preceding metadata
+and compressed XOR differences for changed buffers. Unchanged buffers need no
+copy in the transition. Buffer paths remain aligned even when pickle's scalar
+encoding changes size. Removed, added and resized buffers are reversible.
+
+The default history holds about ten seconds (600 intervals) and at most 64 MiB
+of retained payload: the uncompressed current state plus compressed transitions,
+excluding Python container headers and temporary working allocations. Oldest
+reverse transitions can be evicted without breaking the remaining chain.
+Rewinding applies and removes the newest transition; new captures after release
+therefore create a new future without retaining abandoned branches.
+
+The captured state includes CPU registers and execution flags, timers, delayed
+interrupt enable, serial phase, the flat bus, cartridge RAM and banking state,
+boot overlay, CGB banks/palettes/HDMA, PPU timing, joypad registers,
+and APU registers, channel oscillators, sequencer and filter capacitors. Bytearrays
+and NumPy arrays are restored in place so the CPU's cached memory reference and
+the PPU's views keep observing the same allocation. Wiring, ROM images, dispatch
+tables, pixel buffers, renderer caches, host input, profiling totals, audio locks
+and playback buffers are excluded. Dirty cartridge flags are set after
+restoration so a later battery-save flush cannot silently retain the abandoned
+future.
+
+Rewind restores the pre-frame hardware and re-executes its recorded run budget
+to regenerate pixels. Normal gameplay dispatches end at VBlank, reproducing
+mid-scanline palette/scroll changes as well as the final hardware state. Diagnostic
+instruction/cycle limits can stop partway through a frame; replay then reproduces
+only that partial drawing. Both forward and replay runs start with blank pixels
+(white RGB in CGB mode), so LCD-off intervals never retain a stale host image.
+A manual `capture()` with no run recipe restores hardware with a blank display.
+This is frame-level undo
+of hardware changes, not an inverse implementation of CPU instructions. The
+full-state `SnapshotBuffer` backend is retained as a test/benchmark reference.
+
+MBC3's time source is replaced by a frame-advanced emulated clock during history
+recording, scaled for the current CPU speed. It is restored with the rest of the
+machine. RTC reads have recording-interval time resolution; speed changes within
+one recording interval use its final speed. This is not a cycle-accurate RTC
+implementation. The persisted RTC timestamp still supports offline elapsed time
+on the next cartridge load.
+
+Holding R restores one history entry per host tick, mutes queued game audio and
+plays a ten-second adaptation of a bundled CC0 tape-rewind effect. The original
+short effect is time-stretched with pitch retained during asset preparation.
+The sample is loaded once before the stream starts, with no callback file I/O.
+Playback pads with silence after the end rather than repeating. Release
+resynchronizes held keys with the restored joypad. Focus loss releases all keys.
+Recording renders every frame so the displayed frame matches the hardware; use
+`--no-rewind` to recover the original audio-driven frame-skipping path.
+
+The codec uses pickle/zlib exclusively as private in-process storage. There is no
+state import/export API or portable file format. Serial output and other host
+side effects cannot be undone; serial callbacks are suppressed during replay to
+avoid repeating output. Instruction stepping, timeline scrubbing, reverse
+watchpoints and shareable recordings remain follow-up debugger work.
+
+`tools/generate_rewind_demo.py` builds an original synthetic ROM, executes it
+through the CPU/PPU, reverses hardware for the backward section, and resumes with
+changed input. Its timing report includes CPU/PPU execution and history capture,
+without a live window or audio device. `tools/benchmark_rewind.py` compares the
+delta and full-state reference backends over identical input, checks each retained
+backward frame against original hardware/pixel digests, and verifies resumed
+execution. It reports capture and reverse-plus-replay timing separately. The
+default ROM is original and redistributable; optional ROM/save paths are read only.
+
 ## 7. Accuracy roadmap
 
 The highest-value remaining hardware work is:
 
 1. Dot-accurate PPU/FIFO timing and memory-access restrictions.
-2. MBC1 multicart variants and a running MBC3 RTC.
+2. MBC1 multicart variants and finer MBC3 RTC time resolution.
 3. Channel-1 frequency sweep and cycle-exact length/envelope behavior.
 4. OAM corruption behavior and remaining timer/interrupt edge cases.
 5. Save states with a versioned serialization format.

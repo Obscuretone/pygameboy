@@ -8,3 +8,4 @@ recursive-include benchmarks *.json
 recursive-include docs *.gif *.md
 recursive-include tests/roms *.gb *.json *.md LICENSE
 recursive-include tools *.py
+recursive-include pygameboy_assets *.wav *.md

@@ -59,6 +59,7 @@ from pygameboy_boot import (
     PYGAMEBOY_BOOT_DMG,
 )
 from video import VideoChip
+from rewind import MachineHistory, RewindInput, RewindSound
 
 # Standard GB color palette (original green shades)
 GB_PALETTE: Final[npt.NDArray[np.uint8]] = np.array(DMG_PALETTE_COLORS, dtype=np.uint8)
@@ -155,6 +156,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="run without audio- or display-clock throttling",
     )
     parser.add_argument("--no-audio", action="store_true")
+    parser.add_argument(
+        "--no-rewind", action="store_true", help="disable rewind recording"
+    )
+    parser.add_argument(
+        "--rewind-seconds",
+        type=positive_int,
+        default=10,
+        help="maximum rewind history in seconds (default: 10; capped at 64 MiB)",
+    )
     parser.add_argument("--max-frames", type=positive_int)
     parser.add_argument("--max-instructions", type=positive_int)
     parser.add_argument("--max-cycles", type=positive_int)
@@ -239,18 +249,73 @@ def initialize_post_boot(cpu: CPU, ram: Memory) -> None:
         ram.write_byte(0xFF50, 1)
 
 
-def handle_input(joypad: InputDevice) -> tuple[bool, bool]:
+def handle_input(
+    joypad: InputDevice, rewind: RewindInput | None = None
+) -> tuple[bool, bool]:
     """Process pygame events and update joypad state."""
     toggle_debug = False
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             return False, toggle_debug
+        if rewind is not None and event.type == pygame.WINDOWFOCUSLOST:
+            rewind.held = False
+            rewind.keys.clear()
+            for name in set(PYGAME_MAP.values()):
+                joypad.set_key(name, False)
         if event.type in [pygame.KEYDOWN, pygame.KEYUP]:
+            if rewind is not None:
+                pressed = event.type == pygame.KEYDOWN
+                if pressed:
+                    rewind.keys.add(event.key)
+                else:
+                    rewind.keys.discard(event.key)
+                if event.key == pygame.K_r:
+                    rewind.held = pressed
+                if not rewind.held:
+                    for name in set(PYGAME_MAP.values()):
+                        joypad.set_key(
+                            name,
+                            any(
+                                key in rewind.keys
+                                for key, mapped in PYGAME_MAP.items()
+                                if mapped == name
+                            ),
+                        )
             if event.type == pygame.KEYDOWN and event.key == pygame.K_F1:
                 toggle_debug = True
-            if event.key in PYGAME_MAP:
+            if event.key in PYGAME_MAP and rewind is None:
                 joypad.set_key(PYGAME_MAP[event.key], event.type == pygame.KEYDOWN)
     return True, toggle_debug
+
+
+def draw_rewind_status(
+    screen: pygame.Surface,
+    history: MachineHistory,
+) -> None:
+    width = screen.get_width()
+    panel = pygame.Surface((width, 16), pygame.SRCALPHA)
+    panel.fill((8, 16, 28, 230))
+    pygame.draw.rect(panel, (38, 57, 74), (8, 5, width - 16, 5))
+    filled = int((width - 16) * (history.frame_count - 1) / (history.max_frames - 1))
+    pygame.draw.rect(panel, (110, 230, 255), (8, 5, max(0, filled), 5))
+    screen.blit(panel, (0, screen.get_height() - 16))
+
+
+def present_rewind(
+    screen: pygame.Surface,
+    surface: pygame.Surface,
+    video: VideoChip,
+    history: MachineHistory,
+) -> None:
+    rgb: npt.NDArray[np.uint8]
+    if video.gbc_mode:
+        rgb = video.frame_buffer.reshape((144, 160, 3))
+    else:
+        rgb = GB_PALETTE[video.frame_buffer.reshape((144, 160))]
+    pygame.surfarray.blit_array(surface, rgb.transpose(1, 0, 2))
+    pygame.transform.scale(surface, screen.get_size(), screen)
+    draw_rewind_status(screen, history)
+    pygame.display.flip()
 
 
 def draw_debug_overlay(
@@ -300,13 +365,17 @@ def draw_debug_overlay(
 
 
 def make_audio_callback(
-    apu: APU, verbose: bool = False
+    apu: APU, verbose: bool = False, rewind_sound: RewindSound | None = None
 ) -> Callable[[Any, int, Any, Any], None]:
     """Build a sounddevice callback backed by the APU's stereo ring buffer."""
 
     def audio_callback(outdata: Any, frames: int, time: Any, status: Any) -> None:
         if status and verbose:
             print(status)
+
+        if rewind_sound is not None and rewind_sound.active:
+            rewind_sound.render(outdata, frames)
+            return
 
         with apu.buffer_lock:
             read_pos = apu.buffer_read_pos
@@ -437,7 +506,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             print("Starting user-supplied boot sequence...")
 
-    audio_callback = make_audio_callback(apu, args.verbose)
+    rewind_input = RewindInput()
+    rewind_sound = RewindSound(apu.SAMPLE_RATE)
+    history = (
+        None
+        if args.no_rewind
+        else MachineHistory(cpu, ram, video, seconds=args.rewind_seconds)
+    )
+    audio_callback = make_audio_callback(apu, args.verbose, rewind_sound)
 
     stream = None
     exit_code = 0
@@ -502,11 +578,27 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(f"Frame {frame_count}")
                 sys.stdout.flush()
 
-            running, toggle_debug = handle_input(ram.joypad)
+            running, toggle_debug = handle_input(
+                ram.joypad, None if history is None else rewind_input
+            )
             if toggle_debug:
                 debug_overlay = not debug_overlay
             if not running:
                 break
+
+            if history is not None and rewind_input.held:
+                rewind_sound.active = True
+                history.rewind()
+                present_rewind(screen, internal_surface, video, history)
+                pygame.display.set_caption(f"PyGameBoy - {rom_title} - << REWIND")
+                pygame_clock.tick(60)
+                continue
+            if rewind_sound.active:
+                rewind_sound.active = False
+                rewind_sound.samples = 0
+                # Discard stale output and force the first resumed frame to draw.
+                video._prev_frame_buffer = None
+                pygame.display.set_caption(f"PyGameBoy - {rom_title}")
 
             # --- Dynamic Audio-Slaved Synchronization ---
             if stream is not None and not args.no_realtime:
@@ -539,6 +631,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             else:
                 video.skip_render = video.force_skip
 
+            if history is not None:
+                # Keep displayed output consistent with each recorded hardware run.
+                video.skip_render = False
+                video.force_skip = False
+
             instruction_budget = None
             if args.max_instructions is not None:
                 instruction_budget = args.max_instructions - total_instructions
@@ -547,13 +644,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             if args.max_cycles is not None:
                 cycle_budget = min(cycle_budget, args.max_cycles - total_cycles)
 
-            executed, cycles = cpu.run(
+            run_frame = cpu.run if history is None else history.run_frame
+            executed, cycles = run_frame(
                 max_instructions=instruction_budget,
                 max_cycles=cycle_budget,
-                realtime=False,
                 fast=not args.slow_step,
-                announce=False,
                 profile_opcodes=args.profile,
+                **({"realtime": False, "announce": False} if history is None else {}),
             )
             total_instructions += executed
             total_cycles += cycles
@@ -584,7 +681,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
                 # Performance: skip costly blitting, scaling, and flipping if the frame is identical to the previous frame
                 frame_changed = True
-                if not debug_overlay:
+                if not debug_overlay and history is None:
                     if (
                         video._prev_frame_buffer is None
                         or video._prev_frame_buffer.shape != video.frame_buffer.shape
@@ -619,6 +716,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                             skipped_percent,
                             speed_percent,
                         )
+                    if history is not None:
+                        draw_rewind_status(screen, history)
                     pygame.display.flip()
 
             fps_window_emulated += 1

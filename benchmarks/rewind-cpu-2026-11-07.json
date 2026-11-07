@@ -1,0 +1,85 @@
+{
+  "metadata": {
+    "generated_at": "2026-11-07T15:21:18.667215+00:00",
+    "python": "3.10.20",
+    "implementation": "CPython",
+    "platform": "macOS-15.0-arm64-arm-64bit",
+    "machine": "arm64",
+    "processor": "arm",
+    "repeats": 3,
+    "clock_target_hz": 4194304,
+    "execution_path": "production max-cycle dispatch"
+  },
+  "results": [
+    {
+      "name": "NOP dispatch",
+      "instructions": 50000,
+      "emulated_cycles": 200000,
+      "median_instructions_per_second": 1419874.6961081105,
+      "median_cycles_per_second": 5679498.784432442,
+      "min_cycles_per_second": 5615709.948075619,
+      "max_cycles_per_second": 5761481.797866076,
+      "realtime_multiple": 1.3540980301934342
+    },
+    {
+      "name": "JR dispatch",
+      "instructions": 20000,
+      "emulated_cycles": 240000,
+      "median_instructions_per_second": 1175695.390149415,
+      "median_cycles_per_second": 14108344.68179298,
+      "min_cycles_per_second": 13924411.446197698,
+      "max_cycles_per_second": 14182440.786478672,
+      "realtime_multiple": 3.3636914925081682
+    },
+    {
+      "name": "JP dispatch",
+      "instructions": 10000,
+      "emulated_cycles": 160000,
+      "median_instructions_per_second": 1113606.4555959615,
+      "median_cycles_per_second": 17817703.289535385,
+      "min_cycles_per_second": 17203222.639373057,
+      "max_cycles_per_second": 17920562.85390807,
+      "realtime_multiple": 4.2480715011442625
+    },
+    {
+      "name": "CALL/RET trampoline",
+      "instructions": 16000,
+      "emulated_cycles": 320000,
+      "median_instructions_per_second": 850313.7895190291,
+      "median_cycles_per_second": 17006275.790380582,
+      "min_cycles_per_second": 16603250.894996079,
+      "max_cycles_per_second": 17547267.125190847,
+      "realtime_multiple": 4.05461210975184
+    },
+    {
+      "name": "16-bit pair math",
+      "instructions": 33000,
+      "emulated_cycles": 312000,
+      "median_instructions_per_second": 835697.7882348321,
+      "median_cycles_per_second": 7901142.725129322,
+      "min_cycles_per_second": 6677784.463895352,
+      "max_cycles_per_second": 8388205.280462856,
+      "realtime_multiple": 1.8837792218039804
+    },
+    {
+      "name": "8-bit ALU mix",
+      "instructions": 42000,
+      "emulated_cycles": 224000,
+      "median_instructions_per_second": 853512.5200850577,
+      "median_cycles_per_second": 4552066.773786974,
+      "min_cycles_per_second": 4407749.579275295,
+      "max_cycles_per_second": 5140518.010587597,
+      "realtime_multiple": 1.085297292181724
+    },
+    {
+      "name": "High I/O load",
+      "instructions": 28000,
+      "emulated_cycles": 308000,
+      "median_instructions_per_second": 533476.0102172274,
+      "median_cycles_per_second": 5868236.112389502,
+      "min_cycles_per_second": 4893034.376682827,
+      "max_cycles_per_second": 7283562.324708118,
+      "realtime_multiple": 1.3990965157483821
+    }
+  ]
+}

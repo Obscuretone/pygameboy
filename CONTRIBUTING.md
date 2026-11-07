@@ -19,10 +19,9 @@ uv run --frozen python audit_cpu.py
 
 Run `uv run ruff check --fix .` and `uv run ruff format .` to apply safe lint
 fixes and formatting locally. The checked-in `uv.lock` is the shared dependency
-contract used by CI. To test
-optional live audio as well, sync with `--extra audio` in addition to
-`--extra dev`. Both statement and branch coverage must remain at 100%; new
-branches should include behavior-focused tests at the narrowest useful layer.
+contract used by CI. Both statement and branch coverage must remain at 100%;
+new branches should include behavior-focused tests at the narrowest useful
+layer.
 
 Tests should not require commercial ROMs or proprietary boot firmware. Small
 synthetic ROMs may be generated inside a test, and redistributable emulator test

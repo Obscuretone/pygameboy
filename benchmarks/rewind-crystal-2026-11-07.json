@@ -1,0 +1,35 @@
+{
+  "python": "3.10.20",
+  "platform": "macOS-15.0-arm64-arm-64bit",
+  "workload": "crystal.gbc",
+  "frames_per_run": 900,
+  "scope": "Hardware-only history; no stored pixels, live audio, or UI. Payload includes current detached hardware plus compressed transitions, excludes Python container headers. Timings are local observations. Snapshot backend uses the same hardware capture and replay.",
+  "runs": [
+    {
+      "backend": "snapshot",
+      "retained_payload_bytes": 20302065,
+      "retained_frames": 601,
+      "capture_median_ms": 0.8614165017206687,
+      "capture_p95_ms": 1.0464836472237948,
+      "frame_with_capture_median_ms": 21.176270995056257,
+      "rewind_with_hardware_replay_median_ms": 21.554811995883938,
+      "backward_frames_verified": 600,
+      "resumed_frames_verified": 600,
+      "final_digest": "38e3f6903f035ad950ca6c612cec3ab4ea0a28613a27671214c4c3bf7db50f1a",
+      "repeat": 1
+    },
+    {
+      "backend": "delta",
+      "retained_payload_bytes": 2057613,
+      "retained_frames": 601,
+      "capture_median_ms": 0.23795850211172365,
+      "capture_p95_ms": 0.4094725998584181,
+      "frame_with_capture_median_ms": 20.241625501512317,
+      "rewind_with_hardware_replay_median_ms": 20.242812501237495,
+      "backward_frames_verified": 600,
+      "resumed_frames_verified": 600,
+      "final_digest": "38e3f6903f035ad950ca6c612cec3ab4ea0a28613a27671214c4c3bf7db50f1a",
+      "repeat": 1
+    }
+  ]
+}

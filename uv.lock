@@ -825,12 +825,10 @@ dependencies = [
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
     { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "pygame" },
+    { name = "sounddevice" },
 ]
 
 [package.optional-dependencies]
-audio = [
-    { name = "sounddevice" },
-]
 dev = [
     { name = "mypy" },
     { name = "pillow" },
@@ -848,9 +846,9 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8,<9" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5,<7" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.9,<1" },
-    { name = "sounddevice", marker = "extra == 'audio'", specifier = ">=0.4,<1" },
+    { name = "sounddevice", specifier = ">=0.4,<1" },
 ]
-provides-extras = ["audio", "dev"]
+provides-extras = ["dev"]
 
 [[package]]
 name = "pygments"

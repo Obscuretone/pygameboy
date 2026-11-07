@@ -386,6 +386,7 @@ def test_main_active_realtime_stream_skips_then_resumes_rendering(
                 [
                     "--max-frames",
                     "2",
+                    "--no-rewind",
                     str(rom_path),
                 ]
             )
@@ -448,7 +449,12 @@ def test_main_loop_limits_verbose_debug_quit_zero_work_and_fps(tmp_path: Path) -
         ),
         patch("emulator.pygame.display.flip") as flip,
     ):
-        assert emulator.main(["--no-audio", "--max-frames", "2", str(rom_path)]) == 0
+        assert (
+            emulator.main(
+                ["--no-audio", "--no-rewind", "--max-frames", "2", str(rom_path)]
+            )
+            == 0
+        )
     flip.assert_called_once()
 
 

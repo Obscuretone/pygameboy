@@ -1,0 +1,87 @@
+{
+  "python": "3.10.20",
+  "platform": "macOS-15.0-arm64-arm-64bit",
+  "workload": "original synthetic demo ROM",
+  "frames_per_run": 660,
+  "scope": "Hardware-only history; no stored pixels, live audio, or UI. Payload includes current detached hardware plus compressed transitions, excludes Python container headers. Timings are local observations. Snapshot backend uses the same hardware capture and replay.",
+  "runs": [
+    {
+      "backend": "snapshot",
+      "retained_payload_bytes": 1437658,
+      "retained_frames": 601,
+      "capture_median_ms": 0.2437920011288952,
+      "capture_p95_ms": 0.2845041482942179,
+      "frame_with_capture_median_ms": 12.962062501173932,
+      "rewind_with_hardware_replay_median_ms": 13.043457998719532,
+      "backward_frames_verified": 600,
+      "resumed_frames_verified": 600,
+      "final_digest": "b99577558b63cb2a81f9d7d619db6ea1724502eff1180c9c1b0a3c66119b2a3f",
+      "repeat": 1
+    },
+    {
+      "backend": "delta",
+      "retained_payload_bytes": 1034803,
+      "retained_frames": 601,
+      "capture_median_ms": 0.23464550031349063,
+      "capture_p95_ms": 0.40659819896973187,
+      "frame_with_capture_median_ms": 13.403729000856401,
+      "rewind_with_hardware_replay_median_ms": 13.225500002590707,
+      "backward_frames_verified": 600,
+      "resumed_frames_verified": 600,
+      "final_digest": "b99577558b63cb2a81f9d7d619db6ea1724502eff1180c9c1b0a3c66119b2a3f",
+      "repeat": 1
+    },
+    {
+      "backend": "snapshot",
+      "retained_payload_bytes": 1437658,
+      "retained_frames": 601,
+      "capture_median_ms": 0.24341649987036362,
+      "capture_p95_ms": 0.2881139458622783,
+      "frame_with_capture_median_ms": 12.63637499869219,
+      "rewind_with_hardware_replay_median_ms": 12.735812499158783,
+      "backward_frames_verified": 600,
+      "resumed_frames_verified": 600,
+      "final_digest": "b99577558b63cb2a81f9d7d619db6ea1724502eff1180c9c1b0a3c66119b2a3f",
+      "repeat": 2
+    },
+    {
+      "backend": "delta",
+      "retained_payload_bytes": 1034803,
+      "retained_frames": 601,
+      "capture_median_ms": 0.21260400171740912,
+      "capture_p95_ms": 0.39445275397156343,
+      "frame_with_capture_median_ms": 12.653000001591863,
+      "rewind_with_hardware_replay_median_ms": 13.682624998182291,
+      "backward_frames_verified": 600,
+      "resumed_frames_verified": 600,
+      "final_digest": "b99577558b63cb2a81f9d7d619db6ea1724502eff1180c9c1b0a3c66119b2a3f",
+      "repeat": 2
+    },
+    {
+      "backend": "snapshot",
+      "retained_payload_bytes": 1437658,
+      "retained_frames": 601,
+      "capture_median_ms": 0.24714600294828415,
+      "capture_p95_ms": 0.3024392488441662,
+      "frame_with_capture_median_ms": 12.72479199906229,
+      "rewind_with_hardware_replay_median_ms": 12.803292000171496,
+      "backward_frames_verified": 600,
+      "resumed_frames_verified": 600,
+      "final_digest": "b99577558b63cb2a81f9d7d619db6ea1724502eff1180c9c1b0a3c66119b2a3f",
+      "repeat": 3
+    },
+    {
+      "backend": "delta",
+      "retained_payload_bytes": 1034803,
+      "retained_frames": 601,
+      "capture_median_ms": 0.234728999203071,
+      "capture_p95_ms": 0.4842170015763258,
+      "frame_with_capture_median_ms": 13.175416501326254,
+      "rewind_with_hardware_replay_median_ms": 12.834354001824977,
+      "backward_frames_verified": 600,
+      "resumed_frames_verified": 600,
+      "final_digest": "b99577558b63cb2a81f9d7d619db6ea1724502eff1180c9c1b0a3c66119b2a3f",
+      "repeat": 3
+    }
+  ]
+}

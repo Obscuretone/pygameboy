@@ -24,10 +24,10 @@ classifiers = [
 dependencies = [
   "numpy>=1.24,<3",
   "pygame>=2.5,<3",
+  "sounddevice>=0.4,<1",
 ]
 
 [project.optional-dependencies]
-audio = ["sounddevice>=0.4,<1"]
 dev = [
   "mypy>=2,<3",
   "pillow>=10,<13",
@@ -62,12 +62,17 @@ py-modules = [
   "pygameboy_boot",
   "protocols",
   "pygame_environment",
+  "rewind",
+  "rewind_state",
   "serial_cable",
   "video",
 ]
 
 [tool.setuptools.packages.find]
-include = ["cpu*"]
+include = ["cpu*", "pygameboy_assets*"]
+
+[tool.setuptools.package-data]
+pygameboy_assets = ["*.wav", "*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
