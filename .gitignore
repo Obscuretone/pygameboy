@@ -1,9 +1,11 @@
 *.gb
 *.gbc
 !tests/roms/**/*.gb
+!tests/roms/**/*.gbc
 DMG_ROM.bin
 *.sav
 *.srm
+*.rtc
 venv/
 .venv/
 __pycache__/
