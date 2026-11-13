@@ -27,6 +27,7 @@ the initial compatibility floor: they exercise flag-register invariants,
 decimal-adjust behavior, OAM access, basic DMA, DMA register reads,
 reset-aligned serial transfer timing, and one timer frequency through actual
 cartridge execution. The four `misc` fixtures extend discovery into CGB model
-state, unused I/O behavior, and PPU interrupt timing. They are pinned as strict
-expected failures until the emulator separates the CGB hardware model from a
-cartridge's CGB compatibility flag.
+state, unused I/O behavior, and PPU interrupt timing. Their reviewed failures
+are recorded in `../known-failures.json` and displayed in the conformance
+report. Changed outcomes, crashes, and timeouts fail CI; these tests do not use
+blanket pytest expected-failure markers.

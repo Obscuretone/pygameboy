@@ -3,14 +3,22 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import html
 import json
 import os
 import sys
 from collections.abc import Iterable, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Final
+
+import numpy as np
+
+import pygame_environment as _pygame_environment  # noqa: F401
+
+# isort: split
+import pygame
 
 from clock import SystemClock
 from constants import GB_CLOCK_HZ
@@ -23,7 +31,8 @@ AUTO: Final = "auto"
 OTR: Final = "otr"
 MOONEYE: Final = "mooneye"
 BLARGG: Final = "blargg"
-PROTOCOLS: Final = (AUTO, OTR, MOONEYE, BLARGG)
+ACID2: Final = "acid2"
+PROTOCOLS: Final = (AUTO, OTR, MOONEYE, BLARGG, ACID2)
 
 PASS: Final = "pass"
 FAIL: Final = "fail"
@@ -57,10 +66,28 @@ class ConformanceResult:
     cycles: int
     serial_output: str = ""
     detail: str = ""
+    test_id: str = ""
+    mailbox_output: str = ""
+    evidence_sha256: str = ""
+    expected_status: str = PASS
+    expected_detail: str = ""
+    expected_evidence_sha256: str = ""
+    expectation_reason: str = ""
 
     @property
     def passed(self) -> bool:
         return self.status == PASS
+
+    @property
+    def meets_expectation(self) -> bool:
+        return (
+            self.status == self.expected_status
+            and (not self.expected_detail or self.detail == self.expected_detail)
+            and (
+                not self.expected_evidence_sha256
+                or self.evidence_sha256 == self.expected_evidence_sha256
+            )
+        )
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -125,7 +152,11 @@ def _detect_result(
                 else:
                     status = ERROR
                 detail = f"OTR memory mailbox indicated {status}"
-                return status, OTR, detail, memory_output
+                if status == FAIL:
+                    detail += f" at {storage[0xA005]:02X}:{storage[0xA006]:02X}"
+                if memory_output:
+                    detail += f": {memory_output}"
+                return status, OTR, detail, serial_output
 
     if protocol in (AUTO, MOONEYE):
         if signature == MOONEYE_PASS_SIGNATURE:
@@ -186,6 +217,9 @@ def run_rom(
     if batch_size <= 0:
         raise ValueError("batch_size must be greater than zero")
 
+    if protocol == ACID2 or (protocol == AUTO and Path(path).name == "cgb-acid2.gbc"):
+        return run_acid2(path, max_instructions=max_instructions)
+
     rom_path = Path(path)
     cpu, memory = create_headless_system(load_rom(str(rom_path)))
     serial_bytes = bytearray()
@@ -206,6 +240,11 @@ def run_rom(
         detected = _detect_result(cpu, memory, serial_bytes, protocol)
         if detected is not None:
             status, detected_protocol, detail, captured_output = detected
+            is_otr_mailbox = (
+                detected_protocol == OTR
+                and bytes(memory.storage[OTR_RESULT_ADDRESS:OTR_RESULT_STATE])
+                == OTR_RESULT_MAGIC
+            )
             return ConformanceResult(
                 path=str(rom_path),
                 protocol=detected_protocol,
@@ -214,6 +253,18 @@ def run_rom(
                 cycles=cycles,
                 serial_output=captured_output,
                 detail=detail,
+                test_id=(
+                    f"{memory.storage[0xA005]:02X}:{memory.storage[0xA006]:02X}"
+                    if is_otr_mailbox and status == FAIL
+                    else ""
+                ),
+                mailbox_output=(
+                    bytes(memory.storage[OTR_OUTPUT_ADDRESS:BLARGG_OUTPUT_END])
+                    .partition(b"\0")[0]
+                    .decode("latin-1")
+                    if is_otr_mailbox
+                    else ""
+                ),
             )
         if executed == 0 or cpu.stopped:
             break
@@ -227,6 +278,86 @@ def run_rom(
         serial_output=serial_bytes.decode("latin-1"),
         detail=f"no result after {instructions:,} instructions",
     )
+
+
+def run_acid2(
+    path: str | Path, *, max_instructions: int = 500_000
+) -> ConformanceResult:
+    """Compare cgb-acid2's settled frame with its pinned RGB reference."""
+    rom_path = Path(path)
+    reference = pygame.image.load(str(rom_path.with_name("reference.png")))
+    expected = pygame.surfarray.array3d(reference).swapaxes(0, 1)
+    if expected.shape != (144, 160, 3):
+        raise ValueError("acid2 reference must be a 160 by 144 RGB image")
+    cpu, memory = create_headless_system(load_rom(str(rom_path)))
+    serial = bytearray()
+    memory.serial.transfer_callback = serial.append
+    instructions = cycles = 0
+    while not cpu.halted and not cpu.stopped and instructions < max_instructions:
+        executed, elapsed = cpu.run(
+            max_instructions=min(5_000, max_instructions - instructions),
+            realtime=False,
+            announce=False,
+        )
+        instructions += executed
+        cycles += elapsed
+        if executed == 0:
+            break
+    if not cpu.halted:
+        return ConformanceResult(
+            str(rom_path),
+            ACID2,
+            TIMEOUT,
+            instructions,
+            cycles,
+            serial.decode("latin-1"),
+            "acid2 did not reach its display loop",
+        )
+    # HALT continues clocking the PPU; allow two complete frames to settle.
+    for _ in range(2):
+        _, elapsed = cpu.run(max_cycles=140_448, realtime=False, announce=False)
+        cycles += elapsed
+    assert isinstance(memory.video, VideoChip)
+    actual = memory.video.frame_buffer.reshape((144, 160, 3))
+    different = int(np.count_nonzero(np.any(actual != expected, axis=2)))
+    return ConformanceResult(
+        str(rom_path),
+        ACID2,
+        FAIL if different else PASS,
+        instructions,
+        cycles,
+        serial.decode("latin-1"),
+        f"acid2 reference comparison: {different}/23040 pixels differ",
+        evidence_sha256=hashlib.sha256(actual.tobytes()).hexdigest(),
+    )
+
+
+def apply_expectations(
+    results: Sequence[ConformanceResult], path: Path
+) -> list[ConformanceResult]:
+    """Apply reviewed failures without changing any ROM's actual result."""
+    baseline = json.loads(path.read_text(encoding="utf-8"))
+    expectations = {
+        (path.parent / name).resolve(): value for name, value in baseline.items()
+    }
+    annotated = []
+    for result in results:
+        expected = expectations.get(Path(result.path).resolve())
+        if expected is None:
+            annotated.append(result)
+            continue
+        if expected["status"] != FAIL or not expected["reason"]:
+            raise ValueError("known failures must specify fail and a reason")
+        annotated.append(
+            replace(
+                result,
+                expected_status=FAIL,
+                expected_detail=expected["detail"],
+                expected_evidence_sha256=expected.get("evidence_sha256", ""),
+                expectation_reason=expected["reason"],
+            )
+        )
+    return annotated
 
 
 def discover_roms(inputs: Iterable[str | Path]) -> list[Path]:
@@ -264,7 +395,7 @@ def run_suite(
                 max_instructions=max_instructions,
                 batch_size=batch_size,
             )
-        except (OSError, ValueError) as error:
+        except (OSError, ValueError, RuntimeError, pygame.error) as error:
             result = ConformanceResult(
                 path=str(path),
                 protocol=protocol,
@@ -349,15 +480,26 @@ def render_markdown(results: Sequence[ConformanceResult]) -> str:
             f"at commit {commit_label}."
         ),
         "",
-        "| Result | Protocol | ROM | Instructions | Cycles |",
-        "|---|---|---|---:|---:|",
+        "| Result | Protocol | ROM | Instructions | Cycles | Evidence |",
+        "|---|---|---|---:|---:|---|",
     ]
     for result in results:
         icon = "✅" if result.passed else "❌"
+        evidence = result.detail.replace("|", "\\|").replace("\n", " ")
+        if result.expectation_reason:
+            evidence += (
+                (
+                    " (known failure: "
+                    if result.meets_expectation
+                    else " (BASELINE CHANGED: "
+                )
+                + result.expectation_reason
+                + ")"
+            )
         lines.append(
             f"| {icon} {result.status.upper()} | {result.protocol} | "
             f"`{Path(result.path).name}` | {result.instructions:,} | "
-            f"{result.cycles:,} |"
+            f"{result.cycles:,} | {evidence} |"
         )
     lines.extend(
         [
@@ -397,6 +539,15 @@ def render_html(results: Sequence[ConformanceResult]) -> str:
     for result in results:
         status = html.escape(result.status)
         detail = html.escape(result.detail or "Protocol result received")
+        if result.expectation_reason:
+            label = "Known failure" if result.meets_expectation else "BASELINE CHANGED"
+            detail += f"<br>{label}: {html.escape(result.expectation_reason)}"
+        if result.serial_output:
+            detail += (
+                "<details><summary>Serial trace</summary><pre>"
+                + html.escape(result.serial_output)
+                + "</pre></details>"
+            )
         rows.append(
             "<tr>"
             f'<td><span class="status {status}">{status.upper()}</span></td>'
@@ -454,7 +605,7 @@ def render_html(results: Sequence[ConformanceResult]) -> str:
         "width:720px){header{grid-template-columns:1fr}.score{text-align:left}"
         ".cards{grid-template-columns:1fr}footer{display:block}}\n"
         "</style>\n</head>\n<body>\n<main>\n<header>\n<div>\n"
-        '<div class="eyebrow">DMG-01 · hardware compatibility</div>\n'
+        '<div class="eyebrow">DMG · CGB · hardware compatibility</div>\n'
         "<h1>Conformance<br>report</h1>\n"
         "<p>Real Game Boy test ROMs executed through PyGameBoy’s cartridge, "
         "memory, CPU, timer, PPU, APU, and serial paths.</p>\n</div>\n"
@@ -469,7 +620,7 @@ def render_html(results: Sequence[ConformanceResult]) -> str:
         '<div class="table-wrap"><table>\n<thead><tr><th>Result</th>'
         "<th>Protocol</th><th>ROM</th><th>Instructions</th><th>Cycles</th>"
         f"<th>Evidence</th></tr></thead>\n<tbody>{''.join(rows)}</tbody>\n"
-        "</table></div>\n<footer><p>This pinned suite is a compatibility floor. "
+        "</table></div>\n<footer><p>All selected ROMs are shown, including known failures. "
         "Broader timer, pixel-FIFO, OAM-corruption, and APU suites remain separate "
         f"accuracy targets.</p>{run_link}</footer>\n</main>\n</body>\n</html>\n"
     )
@@ -477,7 +628,7 @@ def render_html(results: Sequence[ConformanceResult]) -> str:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description=("Run OTR, Mooneye, or Blargg Game Boy test ROMs headlessly.")
+        description=("Run OTR, Mooneye, Blargg, or cgb-acid2 test ROMs headlessly.")
     )
     parser.add_argument("rom", nargs="+", help="ROM file or directory")
     parser.add_argument(
@@ -499,6 +650,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="result polling interval (default: 2000)",
     )
     parser.add_argument("--json", metavar="PATH", help="also write a JSON report")
+    parser.add_argument(
+        "--known-failures",
+        type=Path,
+        metavar="PATH",
+        help="reviewed failure baseline; paths are relative to this JSON file",
+    )
     parser.add_argument(
         "--badge",
         metavar="PATH",
@@ -525,6 +682,9 @@ def _print_results(results: Sequence[ConformanceResult]) -> None:
         )
         if result.status != PASS:
             print(f"         {result.detail}")
+        if result.expectation_reason:
+            label = "Known failure" if result.meets_expectation else "BASELINE CHANGED"
+            print(f"         {label}: {result.expectation_reason}")
     passed = sum(result.passed for result in results)
     print(f"\n{passed}/{len(results)} conformance ROMs passed")
 
@@ -538,7 +698,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             max_instructions=args.max_instructions,
             batch_size=args.batch_size,
         )
-    except ValueError as error:
+        if args.known_failures:
+            results = apply_expectations(results, args.known_failures)
+    except (OSError, ValueError, KeyError, TypeError) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 2
 
@@ -561,7 +723,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 2
-    return 0 if all(result.passed for result in results) else 1
+    return 0 if all(result.meets_expectation for result in results) else 1
 
 
 if __name__ == "__main__":

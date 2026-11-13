@@ -1,13 +1,10 @@
 import hashlib
+import json
 from pathlib import Path
 
-import numpy as np
 import pytest
-from PIL import Image
 
-from conformance import MOONEYE, PASS, create_headless_system, run_rom
-from emulator import load_rom
-from video import VideoChip
+from conformance import apply_expectations, discover_roms, run_rom
 
 ROM_ROOT = Path(__file__).parent / "roms"
 MOONEYE_CGB_ROOT = ROM_ROOT / "mooneye" / "misc"
@@ -36,10 +33,6 @@ def test_gbc_fixture_hash(path: Path, expected: str) -> None:
     assert hashlib.sha256(path.read_bytes()).hexdigest() == expected
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="CGB hardware selection and compatibility-mode boot state are incomplete",
-)
 @pytest.mark.parametrize(
     "path",
     (
@@ -47,33 +40,19 @@ def test_gbc_fixture_hash(path: Path, expected: str) -> None:
         MOONEYE_CGB_ROOT / "boot_hwio-C.gb",
         MOONEYE_CGB_ROOT / "bits" / "unused_hwio-C.gb",
         MOONEYE_CGB_ROOT / "ppu" / "vblank_stat_intr-C.gb",
+        ACID_ROOT / "cgb-acid2.gbc",
     ),
 )
-def test_known_gap_mooneye_cgb_rom(path: Path) -> None:
-    result = run_rom(path, protocol=MOONEYE, max_instructions=500_000)
-    assert result.status == PASS, result
+def test_gbc_rom_matches_reviewed_baseline(path: Path) -> None:
+    # Exceptions propagate; a crash or timeout cannot be swallowed as xfail.
+    result = run_rom(path, max_instructions=500_000)
+    [result] = apply_expectations([result], ROM_ROOT / "known-failures.json")
+    assert result.meets_expectation, result
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="CGB PPU output does not yet match the cgb-acid2 reference image",
-)
-def test_known_gap_cgb_acid2_reference() -> None:
-    cpu, memory = create_headless_system(load_rom(str(ACID_ROOT / "cgb-acid2.gbc")))
-    instructions = 0
-    while not cpu.halted and instructions < 500_000:
-        executed, _ = cpu.run(
-            max_instructions=50_000,
-            realtime=False,
-            announce=False,
-        )
-        instructions += executed
-
-    assert cpu.halted
-    for _ in range(2):
-        cpu.run(max_cycles=140_448, realtime=False, announce=False)
-
-    assert isinstance(memory.video, VideoChip)
-    actual = memory.video.frame_buffer.reshape((144, 160, 3))
-    expected = np.asarray(Image.open(ACID_ROOT / "reference.png").convert("RGB"))
-    assert np.array_equal(actual, expected)
+def test_known_failures_cover_exactly_the_vendored_cgb_diagnostics() -> None:
+    baseline = json.loads((ROM_ROOT / "known-failures.json").read_text())
+    assert {
+        str(path.relative_to(ROM_ROOT.resolve()))
+        for path in discover_roms([MOONEYE_CGB_ROOT, ACID_ROOT])
+    } == set(baseline)

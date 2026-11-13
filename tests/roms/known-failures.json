@@ -1,0 +1,28 @@
+{
+  "mooneye/misc/boot_regs-cgb.gb": {
+    "status": "fail",
+    "detail": "Mooneye failure register signature received",
+    "reason": "CGB hardware selection and compatibility-mode boot registers are incomplete"
+  },
+  "mooneye/misc/boot_hwio-C.gb": {
+    "status": "fail",
+    "detail": "Mooneye failure register signature received",
+    "reason": "CGB hardware selection and initial I/O state are incomplete"
+  },
+  "mooneye/misc/bits/unused_hwio-C.gb": {
+    "status": "fail",
+    "detail": "Mooneye failure register signature received",
+    "reason": "CGB unused-I/O register behavior is incomplete"
+  },
+  "mooneye/misc/ppu/vblank_stat_intr-C.gb": {
+    "status": "fail",
+    "detail": "Mooneye failure register signature received",
+    "reason": "CGB VBlank/STAT interrupt timing is incomplete"
+  },
+  "cgb-acid2/cgb-acid2.gbc": {
+    "status": "fail",
+    "detail": "acid2 reference comparison: 11126/23040 pixels differ",
+    "evidence_sha256": "be0d3e90065ec5de31afb7eb6b92c55a839c9221185c972e9bc89f5348f536ac",
+    "reason": "CGB PPU output differs from the pinned cgb-acid2 reference image"
+  }
+}

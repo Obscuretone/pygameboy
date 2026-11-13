@@ -2,8 +2,61 @@ import io
 import sys
 import unittest
 
+import pytest
+
 from clock import SystemClock
+from conformance import create_headless_system
 from memory import Memory
+
+
+@pytest.mark.parametrize(
+    "color,control,period", [(False, 0x83, 512), (True, 0x81, 512), (True, 0x83, 16)]
+)
+def test_serial_clock_selection(color: bool, control: int, period: int) -> None:
+    memory = Memory()
+    memory.gbc_mode = color
+    serial = memory.serial
+    transferred: list[int] = []
+    serial.transfer_callback = transferred.append
+    serial.write_byte(0xFF01, 0x43)
+    serial.write_byte(0xFF02, control)
+    serial.step(0)  # SC write boundary; no preceding cycles belong to the transfer.
+    serial.step(period * 8 - 1)
+    assert memory.read_byte(0xFF02) & 0x80
+    assert transferred == []
+    serial.step(1)
+    assert not serial.transfer_active
+    assert transferred == [0x43]
+
+
+@pytest.mark.parametrize("cycle_budget", [False, True])
+@pytest.mark.parametrize("double_speed", [False, True])
+@pytest.mark.parametrize("control,clocks", [(0x81, 4096), (0x83, 128)])
+def test_serial_uses_cpu_clocks_in_both_execution_paths(
+    cycle_budget: bool, double_speed: bool, control: int, clocks: int
+) -> None:
+    rom = bytearray(0x8000)
+    rom[0x143] = 0xC0
+    cpu, memory = create_headless_system(rom)
+    memory.double_speed = double_speed
+    # Execute only NOPs, measuring the last serial edge in CPU clocks. The
+    # double-speed PPU/APU scaling must not also slow down the serial divider.
+    memory.storage[0x100:0x1100] = bytes(0x1000)
+    output: list[int] = []
+    memory.serial.transfer_callback = output.append
+    memory.write_byte(0xFF01, 0x43)
+    memory.write_byte(0xFF02, control)
+    memory.serial.clock_phase = 0
+    memory.serial.step(0)
+    if cycle_budget:
+        cpu.run(max_cycles=clocks - 4, realtime=False, announce=False)
+    else:
+        cpu.run(max_instructions=clocks // 4 - 1, realtime=False, announce=False)
+    assert memory.read_byte(0xFF02) & 0x80
+    assert output == []
+    cpu.run(max_instructions=1, realtime=False, announce=False)
+    assert output == [0x43]
+    assert memory.read_byte(0xFF02) & 0x80 == 0
 
 
 class TestSerial(unittest.TestCase):

@@ -6,6 +6,7 @@ from constants import (
     REG_SB,
     REG_SC,
     SERIAL_BIT_CYCLES,
+    SERIAL_FAST_BIT_CYCLES,
     SERIAL_INTERNAL_CLOCK_BIT,
     SERIAL_INTERRUPT_BIT,
     SERIAL_START_BIT,
@@ -53,14 +54,16 @@ class Serial:
                 self._start_pending = False
 
     def step(self, cycles: int) -> None:
-        """Advance the reset-aligned DMG serial clock."""
+        """Advance the serial divider in CPU clocks, including CGB fast mode."""
+        bit_cycles = (
+            SERIAL_FAST_BIT_CYCLES
+            if self.memory.gbc_mode and self.memory.storage[REG_SC] & 0x02
+            else SERIAL_BIT_CYCLES
+        )
+        # Retain the full normal divider phase while selecting its faster tap.
+        clock_edges = (self.clock_phase % bit_cycles + cycles) // bit_cycles
         total = self.clock_phase + cycles
-        if total < SERIAL_BIT_CYCLES:
-            self.clock_phase = total
-            clock_edges = 0
-        else:
-            clock_edges = total // SERIAL_BIT_CYCLES
-            self.clock_phase = total - (clock_edges * SERIAL_BIT_CYCLES)
+        self.clock_phase = total % SERIAL_BIT_CYCLES
 
         # SC is written on the final machine cycle of its instruction. The CPU
         # reports the whole instruction afterward, so do not count earlier

@@ -12,6 +12,7 @@ MIT-licensed [cgb-acid2](https://github.com/mattcurrie/cgb-acid2) project.
 
 The test covers CGB palettes, VRAM banks, tile attributes, BG/OBJ priorities,
 flips, window state, sprite limits, and 8x16 sprite tile selection. Its pytest
-case is a strict expected failure: the fixture is useful immediately, and an
-unexpected pass forces maintainers to promote it into the passing conformance
-floor.
+case compares the settled RGB frame with the reference. The current mismatch
+and exact output-frame hash are recorded in `../known-failures.json` and
+displayed in the conformance report. A different frame, unexpected pass,
+timeout, or crash requires review and fails CI.

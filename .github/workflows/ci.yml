@@ -73,7 +73,9 @@ jobs:
       - name: Publishable conformance report
         if: matrix.python-version == '3.13'
         run: >
-          uv run --frozen pygameboy-conformance tests/roms/mooneye/acceptance
+          uv run --frozen pygameboy-conformance tests/roms/mooneye
+          tests/roms/cgb-acid2 tests/roms/otr/otr-cgb.gb
+          --known-failures tests/roms/known-failures.json
           --json /tmp/mooneye-conformance.json
 
       - name: Validate CPU opcode coverage tool

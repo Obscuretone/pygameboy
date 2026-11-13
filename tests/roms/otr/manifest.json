@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "rom": "otr.gb",
-  "sha256": "9e5e12a40872ef8ae7ea47393496f250b1c4bfe8c843567f0c2ad0f136ee69a5",
+  "sha256": "fcc60425bf7b4eb8fd5c4589e437a211ee504a12145da6e5c94c7cb3654552a9",
   "size": 32768,
   "code_end": 19297,
   "protocol": "OTR/1",
@@ -791,8 +791,8 @@
   "cgb_rom": {
     "rom": "otr-cgb.gb",
     "size": 32768,
-    "sha256": "5d227ba1f0f7298ae75d49428d7be1021204ac1447f2bef194797b13520b1aaa",
-    "code_end": 20403,
+    "sha256": "02a833370332174d2114764eeee154629c83e352971a8e19f111c7beae06cc72",
+    "code_end": 21021,
     "base_opcodes": [
       "00",
       "01",

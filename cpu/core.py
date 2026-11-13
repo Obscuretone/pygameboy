@@ -298,14 +298,14 @@ class CPU(CPUOpcodes):
                     ):
                         # A CPU dispatch is at most 24 cycles, so one subtraction
                         # is an exact modulo without calling Serial.step().
-                        phase = serial.clock_phase + cyc_scaled
+                        phase = serial.clock_phase + cyc
                         serial.clock_phase = (
                             phase - SERIAL_BIT_CYCLES
                             if phase >= SERIAL_BIT_CYCLES
                             else phase
                         )
                     elif s_step:
-                        s_step(cyc_scaled)
+                        s_step(cyc)
 
                     if a_step:
                         apu_accumulated += cyc_scaled - apu_instruction_cycles
@@ -369,14 +369,14 @@ class CPU(CPUOpcodes):
                         and not serial.transfer_active
                     ):
                         # Keep the diagnostic path reset-aligned as well.
-                        phase = serial.clock_phase + cyc_scaled
+                        phase = serial.clock_phase + cyc
                         serial.clock_phase = (
                             phase - SERIAL_BIT_CYCLES
                             if phase >= SERIAL_BIT_CYCLES
                             else phase
                         )
                     elif s_step:
-                        s_step(cyc_scaled)
+                        s_step(cyc)
 
                     v_accumulated += cyc_scaled
                     if v_accumulated >= V_STEP_THRESHOLD:

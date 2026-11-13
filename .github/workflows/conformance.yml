@@ -48,14 +48,17 @@ jobs:
       - name: Sync locked environment
         run: uv sync --frozen --extra dev
 
-      - name: Run conformance floor
+      - name: Run all conformance ROMs
+        id: conformance
+        continue-on-error: true
         run: |
           mkdir -p conformance-site
           uv run --frozen pygameboy-conformance \
             tests/roms/otr/otr.gb \
             tests/roms/otr/otr-cgb.gb \
             tests/roms/otr/controllers \
-            tests/roms/mooneye/acceptance \
+            tests/roms/mooneye \
+            tests/roms/cgb-acid2 \
             .conformance/blargg/cpu_instrs/individual \
             .conformance/blargg/instr_timing/instr_timing.gb \
             .conformance/blargg/mem_timing/mem_timing.gb \
@@ -64,6 +67,7 @@ jobs:
             .conformance/blargg/oam_bug/rom_singles/3-non_causes.gb \
             .conformance/blargg/oam_bug/rom_singles/6-timing_no_bug.gb \
             --max-instructions 10000000 \
+            --known-failures tests/roms/known-failures.json \
             --json conformance-site/results.json \
             --badge conformance-site/badge.json \
             --markdown conformance-site/summary.md \
@@ -78,6 +82,11 @@ jobs:
           name: pygameboy-conformance-${{ github.sha }}
           path: conformance-site
           if-no-files-found: error
+
+      - name: Require reviewed conformance results
+        env:
+          CONFORMANCE_OUTCOME: ${{ steps.conformance.outcome }}
+        run: test "$CONFORMANCE_OUTCOME" = success
 
       - name: Configure GitHub Pages
         if: github.event_name == 'push'

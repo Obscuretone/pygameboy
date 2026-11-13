@@ -1,5 +1,6 @@
 import hashlib
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -30,13 +31,31 @@ ILLEGAL_BASE_OPCODES = {
 LEGAL_BASE_OPCODES = set(range(0x100)) - ILLEGAL_BASE_OPCODES
 
 
-def run_with_observers(path: Path) -> tuple[CPU, Memory, bytearray, int]:
+def run_with_observers(
+    path: Path,
+    *,
+    configure: Callable[[CPU, Memory], None] | None = None,
+    cb_seen: set[int] | None = None,
+) -> tuple[CPU, Memory, bytearray, int]:
     cpu, memory = create_headless_system(load_rom(str(path)))
     serial = bytearray()
     memory.serial.transfer_callback = serial.append
+    prefix_cb = cpu._dispatch_table[0xCB]
+
+    def observe_cb() -> int:
+        if cb_seen is not None:
+            cb_seen.add(memory.storage[(cpu.registers.PC + 1) & 0xFFFF])
+        return prefix_cb()
+
+    cpu._dispatch_table[0xCB] = observe_cb
+    if configure:
+        configure(cpu, memory)
     instructions = 0
 
-    while b"OTR/1 PASS\n" not in serial and instructions < 2_000_000:
+    while (
+        not any(event in serial for event in (b"OTR/1 PASS\n", b"OTR/1 FAIL\n"))
+        and instructions < 2_000_000
+    ):
         executed, _ = cpu.run(
             max_instructions=5_000,
             realtime=False,
@@ -67,6 +86,17 @@ def test_vendored_rom_artifacts_match_the_upstream_manifest() -> None:
         assert sha256(path) == metadata["sha256"]
     for name, expected_hash in manifest["probe_roms"].items():
         assert sha256(ROM_ROOT / "probes" / name) == expected_hash
+
+
+@pytest.mark.parametrize("path", [DMG_CORE_ROM, CGB_CORE_ROM])
+def test_mailbox_is_running_when_its_magic_first_becomes_visible(path: Path) -> None:
+    cpu, memory = create_headless_system(load_rom(str(path)))
+    for _ in range(50_000):
+        cpu.run(max_instructions=1, realtime=False, announce=False)
+        if memory.storage[0xA000:0xA004] == b"OTR1":
+            assert memory.storage[0xA004] == 0x7E
+            return
+    pytest.fail("ROM never initialized its mailbox")
 
 
 def test_manifest_accounts_for_every_opcode_and_subsystem() -> None:
@@ -109,13 +139,17 @@ def test_manifest_accounts_for_every_opcode_and_subsystem() -> None:
 
 
 def test_core_rom_executes_every_runnable_opcode_and_reports_progress() -> None:
-    cpu, memory, serial, instructions = run_with_observers(DMG_CORE_ROM)
+    cb_seen: set[int] = set()
+    cpu, memory, serial, instructions = run_with_observers(
+        DMG_CORE_ROM, cb_seen=cb_seen
+    )
     output = serial.decode("ascii")
     seen = {opcode for opcode, count in enumerate(cpu.opcode_profile) if count > 0}
 
     assert instructions < 2_000_000
     assert (LEGAL_BASE_OPCODES - {0x10}) <= seen
     assert cpu.opcode_profile[0xCB] == 256
+    assert cb_seen == set(range(256))
     assert output.startswith("OTR/1 01 CPU LOAD MATRIX\n")
     assert "OTR/1 20 CB OPCODES\n" in output
     assert "OTR/1 33 SERIAL\n#\n" in output
@@ -134,13 +168,17 @@ def test_core_rom_executes_every_runnable_opcode_and_reports_progress() -> None:
 
 
 def test_cgb_core_rom_executes_every_opcode_and_cgb_subsystem() -> None:
-    cpu, memory, serial, instructions = run_with_observers(CGB_CORE_ROM)
+    cb_seen: set[int] = set()
+    cpu, memory, serial, instructions = run_with_observers(
+        CGB_CORE_ROM, cb_seen=cb_seen
+    )
     output = serial.decode("ascii")
     seen = {opcode for opcode, count in enumerate(cpu.opcode_profile) if count > 0}
 
     assert instructions < 2_000_000
     assert seen >= LEGAL_BASE_OPCODES
     assert cpu.opcode_profile[0xCB] == 256
+    assert cb_seen == set(range(256))
     for progress in (
         "50 CGB WRAM VRAM",
         "51 CGB PALETTES",
@@ -164,6 +202,71 @@ def test_cgb_core_rom_executes_every_opcode_and_cgb_subsystem() -> None:
     assert cpu.halted
     assert isinstance(memory.video, VideoChip)
     assert memory.video.frame_buffer.shape == (160 * 144, 3)
+
+
+@pytest.mark.parametrize(
+    "fault,test_id",
+    [
+        ("pcm_zero", "57:01"),
+        ("normal_serial_only", "55:01"),
+        ("speed_flag_only", "54:01"),
+        ("wrong_cb_result", "20:30"),
+    ],
+)
+def test_cgb_rom_detects_fault_and_halts(
+    fault: str, test_id: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def inject(cpu: CPU, memory: Memory) -> None:
+        if fault == "pcm_zero":
+            original_read = memory.apu.read_byte
+
+            def read(address: int) -> int:
+                return 0 if address in (0xFF76, 0xFF77) else original_read(address)
+
+            monkeypatch.setattr(memory.apu, "read_byte", read)
+        elif fault == "normal_serial_only":
+            original_write = memory.serial.write_byte
+
+            def write(address: int, value: int) -> None:
+                original_write(address, value & ~2 if address == 0xFF02 else value)
+
+            monkeypatch.setattr(memory.serial, "write_byte", write)
+        elif fault == "speed_flag_only":
+            stop = cpu._dispatch_table[0x10]
+
+            def stop_without_speed() -> int:
+                cycles = stop()
+                memory.double_speed = False
+                return cycles
+
+            cpu._dispatch_table[0x10] = stop_without_speed
+        else:
+            prefix = cpu._dispatch_table[0xCB]
+
+            def wrong_cb() -> int:
+                opcode = memory.storage[(cpu.registers.PC + 1) & 0xFFFF]
+                cycles = prefix()
+                if opcode == 0x30:
+                    cpu.registers["B"] ^= 1
+                return cycles
+
+            cpu._dispatch_table[0xCB] = wrong_cb
+
+    cpu, memory, serial, instructions = run_with_observers(
+        CGB_CORE_ROM, configure=inject
+    )
+    assert instructions < 2_000_000
+    assert bytes(memory.storage[0xA000:0xA005]) == b"OTR1\xe0"
+    assert memory.storage[0xA005:0xA007].hex().upper() == test_id.replace(":", "")
+    assert f"AT {test_id}\n".encode() in serial
+    assert b"OTR/1 FAIL\n" in serial
+    assert b"OTR/1 PASS\n" not in serial
+    cpu.run(max_instructions=100, realtime=False, announce=False)
+    assert cpu.halted
+    assert not cpu.interrupts.ime
+    pc = cpu.registers.PC
+    cpu.run(max_instructions=100, realtime=False, announce=False)
+    assert pc == cpu.registers.PC
 
 
 @pytest.mark.parametrize(
